@@ -1,0 +1,250 @@
+"""gRPC server for Fathom rule evaluation.
+
+Provides :class:`FathomServicer` implementing the ``FathomService`` proto
+defined in ``protos/fathom.proto``.  Each RPC delegates to
+:class:`~fathom.engine.Engine` for fact management and evaluation.
+
+Requires ``grpcio >= 1.60``.  Install via::
+
+    pip install fathom-rules[grpc]
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from concurrent import futures
+from typing import TYPE_CHECKING, Any
+
+try:
+    import grpc
+except ImportError as _exc:
+    raise ImportError(
+        "grpcio is required for the gRPC integration. "
+        "Install it with: pip install fathom-rules[grpc]"
+    ) from _exc
+
+from fathom.integrations.auth import verify_token
+from fathom.integrations.paths import PathJailError, resolve_ruleset
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from fathom.engine import Engine
+
+
+class SessionStore:
+    """Minimal session store for gRPC — same pattern as the REST server."""
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, Engine] = {}
+
+    def get_or_create(self, session_id: str, rules_path: str = "") -> Engine:
+        """Return an existing session or create a new one.
+
+        Args:
+            session_id: Unique session identifier.
+            rules_path: Path to rules directory for new sessions.
+
+        Returns:
+            Configured Engine instance.
+        """
+        from fathom.engine import Engine
+
+        if session_id in self._sessions:
+            return self._sessions[session_id]
+
+        engine = Engine.from_rules(rules_path) if rules_path else Engine()
+        self._sessions[session_id] = engine
+        return engine
+
+
+class FathomServicer:
+    """gRPC servicer delegating RPCs to :class:`~fathom.engine.Engine`.
+
+    Each method receives a protobuf request, extracts parameters, calls
+    the appropriate Engine method, and returns a protobuf response.
+
+    This is a structural stub — it implements the delegation pattern
+    without depending on generated protobuf classes.  In production the
+    servicer would inherit from a generated base class.
+
+    Args:
+        default_engine: Engine instance used for session-less requests.
+    """
+
+    def __init__(self, default_engine: Engine | None = None) -> None:
+        from fathom.engine import Engine
+
+        self._default_engine = default_engine or Engine()
+        self._session_store = SessionStore()
+
+    def _engine_for(self, session_id: str, ruleset: str = "") -> Engine:
+        """Resolve engine: session-scoped or default."""
+        if session_id:
+            return self._session_store.get_or_create(session_id, ruleset)
+        return self._default_engine
+
+    def _check_auth(self, context: Any) -> None:
+        """Abort the RPC if the caller did not present a valid bearer token."""
+        md = dict(context.invocation_metadata())
+        header = md.get("authorization")
+        if not verify_token(header):
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, "unauthorized")
+
+    def _resolve_ruleset(self, user_path: str, context: Any) -> str:
+        """Return a jailed absolute path, or abort the RPC."""
+        if not user_path:
+            return ""
+        root = os.environ.get("FATHOM_RULESET_ROOT", "")
+        if not root:
+            context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                "FATHOM_RULESET_ROOT not configured",
+            )
+        try:
+            return str(resolve_ruleset(root, user_path))
+        except PathJailError as exc:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise  # unreachable; abort raises
+
+    # --- RPC implementations ---
+
+    def Evaluate(  # noqa: N802 — gRPC convention
+        self,
+        request: Any,
+        context: Any,
+    ) -> dict[str, Any]:
+        """Evaluate facts against loaded rules.
+
+        Asserts each fact from the request into working memory, runs
+        the evaluation, and returns the decision with traces.
+        """
+        self._check_auth(context)
+        ruleset = self._resolve_ruleset(
+            getattr(request, "ruleset", ""),
+            context,
+        )
+        engine = self._engine_for(request.session_id, ruleset)
+
+        for fact in request.facts:
+            data: dict[str, Any] = json.loads(fact.data_json)
+            engine.assert_fact(fact.template, data)
+
+        result = engine.evaluate()
+
+        return {
+            "decision": result.decision or "",
+            "reason": result.reason or "",
+            "rule_trace": list(result.rule_trace),
+            "module_trace": list(result.module_trace),
+            "duration_us": result.duration_us,
+        }
+
+    def AssertFact(  # noqa: N802 — gRPC convention
+        self,
+        request: Any,
+        context: Any,
+    ) -> dict[str, Any]:
+        """Assert a single fact into working memory."""
+        self._check_auth(context)
+        engine = self._engine_for(request.session_id)
+        data = json.loads(request.data_json)
+        engine.assert_fact(request.template, data)
+        return {"success": True}
+
+    def Query(  # noqa: N802 — gRPC convention
+        self,
+        request: Any,
+        context: Any,
+    ) -> dict[str, Any]:
+        """Query working memory for matching facts."""
+        self._check_auth(context)
+        engine = self._engine_for(request.session_id)
+
+        fact_filter: dict[str, Any] | None = None
+        if request.filter_json:
+            fact_filter = json.loads(request.filter_json)
+
+        facts = engine.query(request.template, fact_filter)
+        return {"facts_json": [json.dumps(f) for f in facts]}
+
+    def Retract(  # noqa: N802 — gRPC convention
+        self,
+        request: Any,
+        context: Any,
+    ) -> dict[str, Any]:
+        """Retract facts matching template and optional filter."""
+        self._check_auth(context)
+        engine = self._engine_for(request.session_id)
+
+        fact_filter: dict[str, Any] | None = None
+        if request.filter_json:
+            fact_filter = json.loads(request.filter_json)
+
+        count = engine.retract(request.template, fact_filter)
+        return {"retracted_count": count}
+
+    def SubscribeChanges(  # noqa: N802 — gRPC convention
+        self,
+        request: Any,
+        context: Any,
+    ) -> Iterator[dict[str, Any]]:
+        """Stream working-memory changes (stub).
+
+        Full implementation requires an event bus wired into the Engine's
+        fact assertion and retraction paths.  This stub yields nothing
+        and returns immediately.
+        """
+        self._check_auth(context)
+        return iter([])
+
+
+def serve(
+    engine: Engine | None = None,
+    port: int = 50051,
+    max_workers: int = 10,
+) -> grpc.Server:
+    """Start the Fathom gRPC server.
+
+    TLS is required by default. Set ``FATHOM_GRPC_TLS_CERT`` and
+    ``FATHOM_GRPC_TLS_KEY`` to PEM file paths to bind a secure port.
+    Set ``FATHOM_GRPC_ALLOW_INSECURE=1`` to fall back to an insecure port
+    (explicit opt-in only — the bearer token is transmitted in the clear
+    without TLS and is trivially captured by passive network observers).
+
+    Args:
+        engine: Optional pre-configured Engine. A default Engine is
+            created when omitted.
+        port: TCP port to listen on. Defaults to ``50051``.
+        max_workers: Thread pool size. Defaults to ``10``.
+
+    Returns:
+        The running :class:`grpc.Server` instance.
+    """
+    server: grpc.Server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=max_workers),
+    )
+    _servicer = FathomServicer(default_engine=engine)
+
+    # In production, register with generated add_FathomServiceServicer_to_server().
+    # For now, the servicer is available for manual wiring or testing.
+
+    cert_path = os.environ.get("FATHOM_GRPC_TLS_CERT", "")
+    key_path = os.environ.get("FATHOM_GRPC_TLS_KEY", "")
+    allow_insecure = os.environ.get("FATHOM_GRPC_ALLOW_INSECURE") == "1"
+
+    if cert_path and key_path:
+        with open(cert_path, "rb") as cf, open(key_path, "rb") as kf:
+            credentials = grpc.ssl_server_credentials([(kf.read(), cf.read())])
+        server.add_secure_port(f"[::]:{port}", credentials)
+    elif allow_insecure:
+        server.add_insecure_port(f"[::]:{port}")
+    else:
+        raise RuntimeError(
+            "gRPC server requires TLS. Set FATHOM_GRPC_TLS_CERT and "
+            "FATHOM_GRPC_TLS_KEY to PEM paths, or explicitly opt in to "
+            "insecure mode with FATHOM_GRPC_ALLOW_INSECURE=1."
+        )
+    server.start()
+    return server

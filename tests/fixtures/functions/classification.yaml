@@ -1,0 +1,5 @@
+functions:
+  - name: classification
+    type: classification
+    params: [a, b]
+    hierarchy_ref: classification.yaml

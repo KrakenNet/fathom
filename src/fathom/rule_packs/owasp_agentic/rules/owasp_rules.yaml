@@ -1,0 +1,53 @@
+module: owasp
+ruleset: owasp-agentic
+version: "1.0"
+rules:
+  - name: detect-prompt-injection
+    salience: 100
+    when:
+      - template: agent_input
+        conditions:
+          - slot: content
+            expression: "matches(ignore previous|system prompt|you are now|forget your instructions|disregard|override)"
+    then:
+      action: escalate
+      reason: "Possible prompt injection detected in agent input"
+      log: full
+      attestation: true
+
+  - name: deny-excessive-agency-exec
+    salience: 100
+    when:
+      - template: tool_call
+        conditions:
+          - slot: tool_name
+            expression: "in([exec, shell, eval, subprocess, os_command])"
+    then:
+      action: deny
+      reason: "Tool call is in the dangerous tools list (LLM04: Excessive Agency)"
+      log: full
+      attestation: true
+
+  - name: flag-insecure-output-ssn
+    salience: 90
+    when:
+      - template: agent_output
+        conditions:
+          - slot: content
+            expression: "matches(\\d{3}-\\d{2}-\\d{4})"
+    then:
+      action: escalate
+      reason: "Agent output may contain SSN pattern (LLM06: Insecure Output)"
+      log: full
+
+  - name: flag-insecure-output-email
+    salience: 80
+    when:
+      - template: agent_output
+        conditions:
+          - slot: content
+            expression: "matches([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})"
+    then:
+      action: escalate
+      reason: "Agent output may contain email address (LLM06: Insecure Output)"
+      log: full

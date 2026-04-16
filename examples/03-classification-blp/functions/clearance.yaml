@@ -1,0 +1,5 @@
+functions:
+  - name: clearance
+    type: classification
+    params: [a, b]
+    hierarchy_ref: clearance.yaml

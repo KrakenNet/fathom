@@ -1,0 +1,2876 @@
+## _index.md
+
+# Fathom Documentation
+
+> A full developer-documentation refresh (Diátaxis IA, generated SDK references, `llms.txt`, JSON Schemas, Postman collection, VSCode snippets) is planned. Design spec: [`docs/superpowers/specs/2026-04-15-developer-docs-design.md`](superpowers/specs/2026-04-15-developer-docs-design.md). This index covers the current docs until that work lands.
+
+## Getting Started
+
+- [Getting Started](getting-started.md) — Installation, first template, first rule, first evaluation
+
+## Architecture
+
+- [Core Primitives](core/primitives.md) — Templates, Facts, Rules, Modules, Functions
+- [CLIPS Runtime](core/runtime.md) — Embedded CLIPS engine, Engine class API, session lifecycle
+- [YAML Compiler](core/yaml-compiler.md) — YAML-to-CLIPS compilation, validation, raw passthrough
+- [Fact Asserter](core/fact-asserter.md) — Typed fact insertion, bulk assert, query, retract
+- [Forward Chaining](core/forward-chaining.md) — Data-driven inference, Rete algorithm, evaluate cycle
+- [Working Memory](core/working-memory.md) — Session state, cumulative reasoning, temporal patterns
+- [Audit Log](core/audit-log.md) — Immutable evaluation records, reasoning traces, JSON format
+- [Attestation Service](core/attestation.md) — Ed25519 signing, JWT verification
+
+## YAML Authoring Reference
+
+- [YAML Templates](yaml/yaml-templates.md) — Slot definitions, types, validation, defaults, raw CLIPS passthrough
+- [YAML Facts](yaml/yaml-facts.md) — Asserting, querying, retracting, and validating facts
+- [YAML Rules](yaml/yaml-rule-language.md) — Operators, actions, cross-fact references, rule packs
+- [YAML Modules](yaml/yaml-modules.md) — Focus stack, isolation, multi-pack composition
+- [YAML Functions](yaml/yaml-functions.md) — Classification operators, temporal operators, raw CLIPS passthrough
+
+## Guides
+
+- [Writing Rules](writing-rules.md) — Practical guide: conditions, salience, modules, raw CLIPS passthrough
+- [Integration Overview](integration.md) — Library, sidecar, MCP, and framework adapter usage
+
+## Integrations
+
+- [REST Sidecar](integrations/sidecar.md) — FastAPI server, auth, path-jailing, `/v1/evaluate`, `/v1/compile`
+- [gRPC Server](integrations/grpc.md) — gRPC service, bearer-token auth, `protos/fathom.proto`
+- [MCP Tool Server](integrations/mcp.md) — `FathomMCPServer`, exposed tools, MCP agent connectivity
+- [LangChain Adapter](integrations/langchain.md) — Callback handler for LangChain agent governance
+- [CLI](integrations/cli.md) — `fathom validate`, `test`, `bench`, `info`, `repl`
+- [Prometheus Metrics](integrations/prometheus.md) — `/metrics` endpoint, counters, histograms
+- [Go SDK](integrations/go-sdk.md) — `fathom-go` REST client; gRPC regeneration in progress
+- [TypeScript SDK](integrations/typescript-sdk.md) — `@fathom-rules/sdk` v0.1.0
+
+### Planned framework adapters
+
+- [CrewAI Adapter](integrations/crew-ai.md) — Task decorator for CrewAI policy enforcement (planned)
+- [OpenAI Agents SDK](integrations/open-ai-agent-sdk.md) — Middleware for OpenAI Agents SDK governance (planned)
+- [Google ADK Plugin](integrations/google-adk.md) — Plugin for Google ADK pipeline governance (planned)
+
+## Rule Packs
+
+- [OWASP Agentic](rule-packs/owasp-agentic.md) — OWASP Agentic Top 10 risk mitigations
+- [NIST 800-53](rule-packs/nist-ai-rmf.md) — Access control, audit, and information flow controls
+- [HIPAA](rule-packs/hipaa.md) — PHI handling, minimum necessary, breach triggers
+- [CMMC](rule-packs/cmmc.md) — CMMC Level 2+ controls for agent operations
+
+## Advanced Features
+
+- [Rule Assertions](advanced/rule-assertions.md) — `then.assert` + `bind` + `Engine.register_function`
+- [Fleet Reasoning](advanced/fleet.md) — Shared working memory across sessions (Redis, Postgres)
+- [Auth & Path Jailing](advanced/auth.md) — Bearer tokens, rule-path allow-lists for REST and gRPC
+
+## CLIPS Features Not in v1
+
+- [Backward Chaining](core/backward-chaining.md) — Goal-driven reasoning (deferred to v2)
+- [COOL](core/cool.md) — CLIPS Object-Oriented Language (deferred)
+- [Message Handlers](core/message-handlers.md) — Methods on COOL classes (deferred)
+
+## Known limitations
+
+- `fathom-matches` runs user-supplied regexes with no execution budget.
+  Rule authors are responsible for vetting pattern complexity. ReDoS-prone
+  patterns (e.g. `(a+)+b`) can block the evaluator. Post-auth (C1) this
+  is an insider-risk issue, not an attack surface.
+
+
+## getting-started.md
+
+# Fathom -- Getting Started
+
+Fathom is a deterministic reasoning runtime built on CLIPS via clipspy. Define rules in YAML, evaluate in microseconds, get auditable results with zero hallucinations.
+
+## Installation
+
+Requires Python 3.14 or later.
+
+```bash
+uv add fathom-rules
+```
+
+The only core dependency is `clipspy`. No other external packages are required.
+
+## Create Your First Template
+
+Templates define the shape of facts. Create a file `templates/agent.yaml`:
+
+```yaml
+templates:
+  - name: agent
+    description: "An AI agent requesting access or action"
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+      - name: purpose
+        type: symbol
+        required: true
+      - name: session_id
+        type: string
+        required: true
+
+  - name: data_request
+    description: "A request to access a data source"
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+      - name: target
+        type: string
+        required: true
+      - name: classification
+        type: symbol
+        required: true
+      - name: action
+        type: symbol
+        allowed_values: [read, write, delete]
+        default: read
+```
+
+Each slot has a `type` (`string`, `symbol`, `float`) and optional constraints (`required`, `allowed_values`, `default`). Fathom validates facts against these schemas at assertion time.
+
+## Write Your First Rule
+
+Rules define pattern-matching logic that fires when facts match conditions. Create `rules/access-control.yaml`:
+
+```yaml
+ruleset: access-control
+version: 1.0
+module: governance
+
+rules:
+  - name: deny-insufficient-clearance
+    description: "Deny access when agent clearance is below data classification"
+    salience: 10
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+      reason: "Agent clearance '{agent.clearance}' insufficient for '{$data.classification}' data"
+      log: full
+```
+
+`salience` controls firing priority -- higher values fire first. The evaluator uses last-write-wins on `__fathom_decision` facts, so the rule firing LAST wins. Deny rules should have LOWER salience than allow rules so they fire last and override any prior allow, enforcing fail-closed behavior.
+
+## Set Up Modules
+
+Modules namespace rules into isolated groups with controlled execution order. Create `modules.yaml`:
+
+```yaml
+modules:
+  - name: classification
+    description: "Classification and clearance evaluation"
+    priority: 1
+
+  - name: governance
+    description: "Action-level governance rules"
+    priority: 2
+
+focus_order: [classification, governance]
+```
+
+The `focus_order` list determines evaluation sequence. Rules in `classification` fire before rules in `governance`. Each rule file declares which module it belongs to via the `module` field.
+
+## Run Your First Evaluation
+
+```python
+from fathom import Engine
+
+engine = Engine()
+engine.load_templates("templates/")
+engine.load_modules("modules.yaml")
+engine.load_rules("rules/access-control.yaml")
+
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+
+engine.assert_fact("data_request", {
+    "agent_id": "agent-alpha",
+    "target": "hr_records",
+    "classification": "top-secret",
+    "action": "read"
+})
+
+result = engine.evaluate()
+
+print(result.decision)     # "deny"
+print(result.reason)       # "Agent clearance 'secret' insufficient for 'top-secret' data"
+print(result.rule_trace)   # ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
+print(result.module_trace) # ["classification", "governance"]
+print(result.duration_us)  # 47
+```
+
+The result object contains five fields:
+
+- `decision` -- the action taken (`allow`, `deny`, `escalate`, etc.)
+- `reason` -- human-readable explanation with interpolated variables
+- `rule_trace` -- ordered list of rules that fired, prefixed by module name
+- `module_trace` -- ordered list of modules that were evaluated
+- `duration_us` -- evaluation time in microseconds
+
+Working memory persists across evaluations within a session. This enables cumulative reasoning ("agent accessed PII from 3 sources -- deny the 4th") and temporal patterns that stateless engines cannot express.
+
+## Next Steps
+
+- [Core Primitives](core/primitives.md) -- templates, facts, rules, modules, and functions in depth
+- [YAML Rule Language](yaml/yaml-rule-language.md) -- operators, conditions, actions, and rule packs
+- [Working Memory](core/working-memory.md) -- session state, queries, cumulative reasoning
+- [Integration](integration.md) -- library, sidecar, MCP tool, and framework adapters
+
+## Do Not
+
+- Do not skip template definitions and assert untyped facts -- Fathom validates at assertion time.
+- Do not set deny rules to higher salience than allow rules -- deny must have lower salience so it fires last and wins under last-write-wins (fail-closed).
+- Do not assume working memory resets between `evaluate()` calls within the same session -- it persists.
+- Do not use raw CLIPS constructs when YAML equivalents exist -- YAML is the primary authoring interface.
+
+
+## tutorials/index.md
+
+# Tutorials
+
+1. [Hello-world policy](hello-world.md) — install Fathom, write your first rule, evaluate a fact.
+2. [Modules & salience](modules-and-salience.md) — split rules across modules, control execution order.
+3. [Working memory across evaluations](working-memory.md) — persist facts between `evaluate()` calls.
+
+Each tutorial takes ~20 minutes and assumes no prior CLIPS or Fathom knowledge.
+
+
+## tutorials/hello-world.md
+
+# Hello-world policy
+
+In this tutorial you'll install Fathom, define one template and one rule in YAML, load them into an engine, assert a fact, and read the evaluation result that comes back.
+
+## 1. Install
+
+```bash no-verify
+pip install fathom-rules
+```
+
+## 2. Define a template
+
+A template is the schema for a fact. Save this as `agent.yaml`:
+
+```yaml
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [public, confidential, secret]
+```
+
+## 3. Define a rule
+
+Save this as `rules.yaml`:
+
+```yaml
+ruleset: demo
+version: "1.0"
+module: MAIN
+rules:
+  - name: allow-public
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "== public"
+    then:
+      action: allow
+```
+
+## 4. Load and evaluate
+
+```python no-verify
+from fathom.engine import Engine
+
+engine = Engine()
+engine.load_templates("agent.yaml")
+engine.load_rules("rules.yaml")
+
+engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
+result = engine.evaluate()
+
+print(result.decision)      # -> "allow"
+print(result.rule_trace)    # -> ["allow-public"]
+```
+
+The `no-verify` tag skips snippet execution because the install step and file paths aren't part of the test harness. The engine calls themselves are verified in [working memory](working-memory.md), which builds on this example with a real in-memory path.
+
+## What just happened?
+
+- Fathom compiled your YAML to CLIPS constructs via `fathom.compiler.Compiler` and loaded them into an embedded CLIPS environment.
+- Your fact matched the condition `clearance == public`, the rule fired, and the rule's `then.action: allow` became the decision on the evaluation result.
+- The `EvaluationResult` captures which rules fired (`rule_trace`), the final `decision`, and the evaluation duration — see [Audit & Attestation](../concepts/audit-attestation.md).
+
+## Next
+
+- [Modules & salience](modules-and-salience.md) — add a deny rule with lower salience so it fires last and wins.
+
+
+## tutorials/modules-and-salience.md
+
+# Modules & salience
+
+This tutorial builds on [Hello-world policy](hello-world.md). You will add a
+deny rule alongside an allow rule, tune their salience so the deny always wins,
+and confirm the fail-closed outcome.
+
+## How salience and last-write-wins interact
+
+Fathom compiles your YAML to CLIPS via `fathom.compiler.Compiler`. CLIPS fires
+eligible rules in salience order — the **highest** salience rule fires **first**.
+The `Evaluator` uses a **last-write-wins** strategy: the final
+`__fathom_decision` fact asserted into working memory becomes the result that
+`Engine.evaluate` returns as `EvaluationResult.decision`.
+
+Put those two facts together and the fail-closed design becomes clear:
+
+- Give the **allow** rule a **high** salience (e.g. 100) so it fires first.
+- Give the **deny** rule a **low** salience (e.g. 10) so it fires after.
+- Because the deny fact is written last, it overwrites the allow fact and wins.
+
+`RuleDefinition.salience` (in `src/fathom/models.py`) is an `int` that defaults
+to `0`. Any positive integer is valid.
+
+## 1. Install
+
+```bash no-verify
+pip install fathom-rules
+```
+
+## 2. Define a template
+
+Save as `agent.yaml`:
+
+```yaml no-verify
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [public, confidential, secret]
+```
+
+## 3. Define a module
+
+Rules in Fathom must belong to a named module. `Compiler.compile_module`
+(in `src/fathom/compiler.py`) emits the CLIPS `defmodule` construct; modules are
+loaded into the engine with `Engine.load_modules`.
+
+Save as `modules.yaml`:
+
+```yaml no-verify
+modules:
+  - name: governance
+    description: Access-control governance layer
+focus_order:
+  - governance
+```
+
+The optional `focus_order` list tells the engine which modules to activate and
+in what order. Internally, `Compiler.compile_focus_stack` reverses this list
+before building the CLIPS `(focus ...)` command because CLIPS uses push
+semantics — the last module pushed ends up on top of the execution stack and
+therefore runs first.
+
+## 4. Define two rules with different salience
+
+Both rules match an agent whose `clearance` slot equals `public`. The allow
+rule fires first (`salience: 100`); the deny rule fires second (`salience: 10`)
+and overwrites the allow decision via last-write-wins.
+
+Save as `rules.yaml`:
+
+```yaml no-verify
+module: governance
+rules:
+  - name: allow-public
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: allow
+
+  - name: deny-public
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: deny
+      reason: "Public clearance is not sufficient"
+```
+
+## 5. Load, assert, and evaluate
+
+The Python block below writes the three YAML definitions to a temporary
+directory, loads them in the required order (templates → modules → rules),
+asserts a fact, and verifies the deny outcome.
+
+```python
+import pathlib, tempfile
+from fathom.engine import Engine
+
+TEMPLATES_YAML = """
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [public, confidential, secret]
+"""
+
+MODULES_YAML = """
+modules:
+  - name: governance
+    description: Access-control governance layer
+focus_order:
+  - governance
+"""
+
+RULES_YAML = """
+module: governance
+rules:
+  - name: allow-public
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: allow
+
+  - name: deny-public
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: deny
+      reason: "Public clearance is not sufficient"
+"""
+
+with tempfile.TemporaryDirectory() as tmp:
+    d = pathlib.Path(tmp)
+    (d / "agent.yaml").write_text(TEMPLATES_YAML)
+    (d / "modules.yaml").write_text(MODULES_YAML)
+    (d / "rules.yaml").write_text(RULES_YAML)
+
+    engine = Engine()
+    engine.load_templates(str(d / "agent.yaml"))
+    engine.load_modules(str(d / "modules.yaml"))
+    engine.load_rules(str(d / "rules.yaml"))
+
+    engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
+    result = engine.evaluate()
+
+    assert result.decision == "deny", f"expected deny, got {result.decision!r}"
+    assert "governance::deny-public" in result.rule_trace, (
+        f"rule_trace was {result.rule_trace}"
+    )
+```
+
+Both rules match. `allow-public` fires first (salience 100) and writes an allow
+fact. `deny-public` fires second (salience 10) and writes a deny fact. Because
+the evaluator uses last-write-wins, the deny fact is the winner.
+
+`result.decision` is `"deny"` and `result.rule_trace` includes
+`"governance::deny-public"` (rules are recorded as `module::rule_name`).
+
+## What just happened?
+
+- **Modules** give rules a namespace. `Compiler.compile_module` emits
+  `(defmodule governance (import MAIN ?ALL))` so governance rules can reference
+  the internal decision template defined in `MAIN`.
+- **Focus stack** — `Compiler.compile_focus_stack(["governance"])` produces
+  `(focus governance)`. The evaluator pushes that onto the CLIPS agenda before
+  running the forward-chain cycle.
+- **Salience** controls firing order. Lower-salience rules fire later. The last
+  decision fact written wins, so the deny rule at salience 10 overrides the
+  allow rule at salience 100. This is the fail-closed design: allow rules can
+  only succeed when no deny rule fires after them.
+- `EvaluationResult.decision` and `EvaluationResult.rule_trace` (defined in
+  `src/fathom/models.py`) capture the outcome.
+
+## Next
+
+- Explore [Working memory](working-memory.md) to see how facts persist across
+  multiple evaluations within a session.
+
+
+## core/primitives.md
+
+# Runtime — Core Primitives
+
+Fathom exposes five primitives from CLIPS. Everything else (rule packs, governance, routing) composes from these: Templates, Facts, Rules, Modules, and Functions.
+
+## What It Is
+
+The core primitives are the building blocks of Fathom's deterministic reasoning engine. Each maps to a CLIPS construct, authored in YAML (compiled to CLIPS) or via raw CLIPS passthrough. The engine is embedded via `clipspy`.
+
+## Templates
+
+Templates define fact schemas (`deftemplate`). Each template has named slots with types, constraints, and defaults. The YAML compiler validates facts against templates at assertion time.
+
+**Slot properties:** `name`, `type` (string, symbol, float), `required` (boolean), `allowed_values` (list), `default` (value).
+
+```yaml
+# templates/agent.yaml
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+      - name: purpose
+        type: symbol
+        required: true
+      - name: session_id
+        type: string
+        required: true
+```
+
+```python
+engine = Engine()
+engine.load_templates("templates/")
+
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+# Raises ValidationError for unknown slots or disallowed values
+```
+
+## Facts
+
+Facts are typed instances of templates asserted into working memory. Working memory persists across evaluations within a session, enabling cumulative reasoning and temporal patterns.
+
+**Operations:** `assert_fact`, `assert_facts` (bulk), `query`, `count`, `retract`.
+
+```python
+engine.assert_facts([
+    ("access_log", {"agent_id": "a1", "source": "hr_db", "data_type": "PII", "timestamp": 1713020400.0}),
+    ("access_log", {"agent_id": "a1", "source": "finance_db", "data_type": "PII", "timestamp": 1713020460.0}),
+])
+
+agents = engine.query("agent", {"clearance": "secret"})
+pii_count = engine.count("access_log", {"agent_id": "a1", "data_type": "PII"})
+engine.retract("data_request", {"agent_id": "a1", "target": "hr_records"})
+```
+
+## Rules
+
+Rules define pattern-matching logic (`defrule`). Authored in YAML with `when`/`then` blocks, compiled to CLIPS. Each rule belongs to a module and has a salience (priority).
+
+**Salience:** Higher fires first. The evaluator uses last-write-wins, so the rule firing LAST determines the outcome. Deny rules get LOWER salience than allow rules so they fire last and win (fail-closed default).
+
+**Supported condition operators:** `equals`, `not_equals`, `greater_than`, `less_than`, `in`, `not_in`, `contains`, `matches`, `below`, `meets_or_exceeds`, `within_scope`, `changed_within`, `count_exceeds`, `rate_exceeds`, and cross-fact references via `$other_fact.field`.
+
+**Supported actions:** `allow`, `deny`, `escalate`, `scope`, `route`. Each action supports `reason` (with `{variable}` interpolation), `log` (none/summary/full), `notify`, `attestation`, and `metadata`.
+
+```yaml
+# rules/access-control.yaml
+ruleset: access-control
+module: governance
+
+rules:
+  - name: deny-insufficient-clearance
+    salience: 10
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+      reason: "Agent clearance '{agent.clearance}' insufficient for '{$data.classification}' data"
+      log: full
+
+  - name: allow-matching-clearance
+    salience: 100
+    when:
+      agent:
+        clearance: meets_or_exceeds($data.classification)
+        purpose: in($data.allowed_purposes)
+      data_request:
+        as: $data
+    then:
+      action: allow
+      scope: $data.authorized_collections
+      log: full
+```
+
+## Modules
+
+Modules namespace rules into isolated groups (`defmodule`). The focus stack controls execution order. Each module has a priority; `focus_order` determines which fires first.
+
+```yaml
+# modules.yaml
+modules:
+  - name: classification
+    priority: 1
+  - name: governance
+    priority: 2
+  - name: routing
+    priority: 3
+  - name: cumulative
+    priority: 4
+
+focus_order: [classification, governance, routing, cumulative]
+```
+
+```python
+engine.load_modules("modules.yaml")
+engine.load_rules("rules/classification.yaml")  # module: classification
+engine.load_rules("rules/access-control.yaml")  # module: governance
+
+result = engine.evaluate()
+print(result.module_trace)  # ["classification", "governance"]
+```
+
+Multiple rule packs compose safely because each declares its module. NIST rules in `nist`, HIPAA in `hipaa`. No name collisions.
+
+## Functions
+
+Functions provide reusable logic (`deffunction`). Two categories: classification-aware operators (`below`, `meets_or_exceeds`) and temporal operators (`count_exceeds`, `rate_exceeds`).
+
+```yaml
+# functions/classification.yaml
+functions:
+  - name: below
+    params: [level_a, level_b]
+    hierarchy_ref: classification.yaml
+
+  - name: meets_or_exceeds
+    params: [level_a, level_b]
+    hierarchy_ref: classification.yaml
+
+  - name: count_exceeds
+    params: [template, filter, threshold]
+
+  - name: rate_exceeds
+    params: [template, filter, threshold, window_seconds]
+```
+
+Raw CLIPS passthrough for advanced cases:
+
+```python
+engine.load_clips_function("""
+(deffunction combined-risk (?clearance ?data-class ?access-count)
+    (bind ?base-risk (- (classification-rank ?data-class) (classification-rank ?clearance)))
+    (bind ?volume-risk (/ ?access-count 10))
+    (+ ?base-risk ?volume-risk))
+""")
+```
+
+## Evaluation Result
+
+`engine.evaluate()` returns a result with: `decision`, `reason`, `rule_trace` (list of `module::rule` strings), `module_trace` (modules traversed), and `duration_us` (microseconds).
+
+```python
+result = engine.evaluate()
+print(result.decision)     # "deny"
+print(result.rule_trace)   # ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
+print(result.duration_us)  # 47
+```
+
+## Conventions
+
+- YAML is the primary authoring format; raw CLIPS passthrough is available for all construct types.
+- Templates live in `templates/` directory, rules in `rules/`, functions in `functions/`, modules in `modules.yaml`.
+- Every rule declares its `module` in the YAML file header.
+- Salience values: allow rules use higher salience (e.g., 100) than deny rules (e.g., 10) — deny fires last and wins under last-write-wins.
+- Working memory is stateful within a session, stateless across sessions.
+- The YAML compiler handles type checking, variable binding, slot validation, and module assignment at compile time.
+
+## Do Not
+
+- Do not use COOL (CLIPS Object System), backward chaining, generic functions, or message handlers. These are explicitly excluded from v1.
+- Do not rely on rule firing order without explicit salience values. Always set salience on rules where order matters.
+- Do not assert facts without loading the corresponding template first. The engine validates against loaded templates.
+- Do not assume working memory resets between evaluations within the same session. It persists.
+- Do not skip module assignment in rule YAML files. Every rule must belong to a module for safe composition.
+
+
+## core/runtime.md
+
+# Runtime -- CLIPS Runtime
+
+## What It Is
+
+The CLIPS Runtime is the embedded CLIPS engine at the heart of Fathom. It is loaded via `clipspy` (the Python binding to the CLIPS C library) and manages working memory, the template registry, the module focus stack, rule activation, and forward-chaining inference. The runtime is stateful within a session and stateless across sessions.
+
+The runtime is wrapped by the `Engine` class, which provides the public Python API for loading constructs, asserting facts, and triggering evaluation.
+
+## Engine Class API
+
+The `Engine` class is the primary interface to the CLIPS Runtime.
+
+### Construction
+
+```python
+from fathom import Engine
+
+# Default construction -- empty engine, no templates or rules loaded
+engine = Engine()
+
+# Convenience constructor -- loads all rules from a directory
+engine = Engine.from_rules("rules/")
+```
+
+### Loading Constructs
+
+All loading methods accept file paths or directory paths. Directories are scanned for `.yaml` files.
+
+```python
+engine.load_templates("templates/")       # YAML -> deftemplate
+engine.load_modules("modules.yaml")       # YAML -> defmodule + focus stack
+engine.load_functions("functions/")       # YAML -> deffunction
+engine.load_rules("rules/")              # YAML -> defrule
+```
+
+Raw CLIPS passthrough is available for all construct types:
+
+```python
+engine.load_clips_function("""
+(deffunction combined-risk (?clearance ?data-class ?access-count)
+    (bind ?base-risk (- (classification-rank ?data-class) (classification-rank ?clearance)))
+    (bind ?volume-risk (/ ?access-count 10))
+    (+ ?base-risk ?volume-risk))
+""")
+```
+
+### Fact Operations
+
+```python
+engine.assert_fact("agent", {"id": "a1", "clearance": "secret", ...})
+engine.assert_facts([("access_log", {...}), ("access_log", {...})])
+engine.retract("data_request", {"agent_id": "a1", "target": "hr_records"})
+
+agents = engine.query("agent", {"clearance": "secret"})
+count = engine.count("access_log", {"agent_id": "a1", "data_type": "PII"})
+```
+
+### Evaluation
+
+```python
+result = engine.evaluate()
+
+result.decision      # "deny" | "allow" | "escalate" | "scope" | "route"
+result.reason        # Human-readable explanation
+result.rule_trace    # ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
+result.module_trace  # ["classification", "governance"]
+result.duration_us   # Microseconds elapsed
+```
+
+## Internal Components
+
+The runtime manages five subsystems internally:
+
+**Template Registry** -- stores all loaded `deftemplate` definitions. Every `assert_fact` call validates against this registry. Templates are immutable once loaded.
+
+**Working Memory** -- the fact store. Facts persist across `evaluate()` calls within a session. Bounded to less than 5MB for 1000 facts. Cleared when the session ends.
+
+**Module Focus Stack** -- an ordered stack of `defmodule` entries. When `evaluate()` runs, CLIPS processes modules in focus-stack order. Each module's rules fire to completion before the next module begins. The `focus_order` from `modules.yaml` determines the initial stack.
+
+**Rule Activation** -- the Rete network. When facts enter working memory, the Rete algorithm incrementally updates partial matches. When `evaluate()` is called, activated rules fire in salience order within each module.
+
+**Forward-Chaining Inference** -- the execution model. Facts drive rule activation (data-driven). Rules that fire may assert new facts, which trigger further rules. This continues until no more rules can fire (quiescence). See [Forward Chaining](forward-chaining.md).
+
+## Session Lifecycle
+
+1. Create an `Engine` instance (empty working memory, no constructs).
+2. Load templates, modules, functions, and rules (compiled once via the YAML compiler).
+3. Assert facts into working memory.
+4. Call `engine.evaluate()` -- rules fire, result returned.
+5. Optionally assert more facts and evaluate again (working memory accumulates).
+6. Session ends when the `Engine` instance is discarded. Working memory is lost.
+
+## Performance
+
+| Operation | Target |
+|---|---|
+| Single rule evaluation | < 100 microseconds |
+| 100-rule evaluation | < 500 microseconds |
+| Fact assertion | < 10 microseconds |
+| YAML compilation | < 50ms (one-time) |
+| Working memory (1000 facts) | < 5MB |
+
+## Conventions
+
+- One `Engine` instance per session. Do not share instances across threads without synchronization.
+- Load all constructs before asserting facts. Template validation depends on the registry being populated.
+- Use `Engine.from_rules()` for simple cases. Use explicit `load_*` methods when you need control over load order.
+- The CLIPS runtime is embedded, not a separate process. No IPC overhead.
+- `clipspy` is the only external dependency beyond the Python standard library.
+
+## Do Not
+
+- Do not share an `Engine` instance across threads. CLIPS is not thread-safe.
+- Do not load constructs after evaluation has started. Load all templates, modules, functions, and rules before the first `assert_fact`.
+- Do not assume working memory resets between `evaluate()` calls. It persists within the session.
+- Do not call `evaluate()` to inspect state. Use `query()` or `count()` instead.
+- Do not use COOL, backward chaining, generic functions, or message handlers. These are excluded from v1.
+
+
+## core/yaml-compiler.md
+
+# Runtime -- YAML Compiler
+
+## What It Is
+
+The YAML Compiler translates YAML definitions of templates, rules, modules, and functions into CLIPS constructs (`deftemplate`, `defrule`, `defmodule`, `deffunction`). It performs type checking, variable binding resolution, slot validation, and module assignment at compile time. Compilation is a one-time cost (target: less than 50ms) that runs when constructs are loaded into the engine.
+
+Raw CLIPS passthrough is supported for all construct types, allowing advanced users to write CLIPS directly when the YAML abstraction cannot express the needed logic.
+
+## Compilation Targets
+
+| YAML Source | CLIPS Construct | Engine Method |
+|---|---|---|
+| Template definitions | `deftemplate` | `engine.load_templates()` |
+| Rule definitions | `defrule` | `engine.load_rules()` |
+| Module definitions | `defmodule` | `engine.load_modules()` |
+| Function definitions | `deffunction` | `engine.load_functions()` |
+
+## Compile-Time Validation
+
+The compiler catches errors before any facts enter working memory.
+
+**Type checking** -- slot types declared in templates (`string`, `symbol`, `float`) are enforced. A rule referencing a slot with an incompatible operator produces a compile error.
+
+**Slot validation** -- rules that reference slots not present in a template are rejected. Typos like `clearence` instead of `clearance` fail at compile time, not at runtime.
+
+**Variable binding** -- cross-fact references (`$data.classification`) are resolved and validated. The compiler verifies that the aliased fact template (`as: $data`) exists and the referenced slot is defined.
+
+**Module assignment** -- every rule YAML file declares a `module` in its header. The compiler verifies the module has been defined and assigns the rule to it. Rules without a module declaration are rejected.
+
+**Allowed values** -- if a template slot has `allowed_values`, conditions referencing literal values against that slot are checked at compile time.
+
+## Template Compilation
+
+```yaml
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+```
+
+Compiles to a CLIPS `deftemplate` with typed slots and constraints. The `required` flag ensures facts missing that slot are rejected at assertion time.
+
+## Rule Compilation
+
+```yaml
+ruleset: access-control
+module: governance
+
+rules:
+  - name: deny-insufficient-clearance
+    salience: 100
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+      reason: "Agent clearance insufficient for data classification"
+      log: full
+```
+
+The compiler translates `when` blocks into CLIPS pattern-matching expressions and `then` blocks into rule actions. The `salience` value becomes the CLIPS rule salience. The `module` header assigns the generated `defrule` to the correct `defmodule`.
+
+**Supported condition operators:** `equals`, `not_equals`, `greater_than`, `less_than`, `in`, `not_in`, `contains`, `matches`, `below`, `meets_or_exceeds`, `within_scope`, `changed_within`, `count_exceeds`, `rate_exceeds`, and cross-fact references via `$alias.field`.
+
+**Supported actions:** `allow`, `deny`, `escalate`, `scope`, `route`. Each supports `reason` (with `{variable}` interpolation), `log` (none/summary/full), `notify`, `attestation`, and `metadata`.
+
+## Module Compilation
+
+```yaml
+modules:
+  - name: classification
+    priority: 1
+  - name: governance
+    priority: 2
+
+focus_order: [classification, governance]
+```
+
+Each module compiles to a `defmodule`. The `focus_order` array sets the initial module focus stack in the CLIPS runtime.
+
+## Function Compilation
+
+```yaml
+functions:
+  - name: below
+    params: [level_a, level_b]
+    hierarchy_ref: classification.yaml
+```
+
+Compiles to a CLIPS `deffunction`. The `hierarchy_ref` tells the compiler where to find the classification hierarchy used by the function's logic.
+
+## Raw CLIPS Passthrough
+
+For any construct type, raw CLIPS can be loaded directly. This bypasses the YAML compiler entirely.
+
+```python
+engine.load_clips_function("""
+(deffunction combined-risk (?clearance ?data-class ?access-count)
+    (bind ?base-risk (- (classification-rank ?data-class) (classification-rank ?clearance)))
+    (bind ?volume-risk (/ ?access-count 10))
+    (+ ?base-risk ?volume-risk))
+""")
+```
+
+Use raw CLIPS for complex math, string manipulation, custom scoring, or any logic the YAML abstraction cannot express.
+
+## Conventions
+
+- YAML is the primary authoring format. Use raw CLIPS only when YAML cannot express the logic.
+- Templates in `templates/`, rules in `rules/`, functions in `functions/`, modules in `modules.yaml`.
+- Every rule YAML file must include a `module` header.
+- Compilation runs once at load time. There is no re-compilation during evaluation.
+- The compiler targets less than 50ms for a full rule pack compilation.
+
+## Do Not
+
+- Do not mix YAML and raw CLIPS for the same construct. A template is either YAML-authored or raw CLIPS, not both.
+- Do not skip module declarations in rule files. The compiler rejects rules without a module.
+- Do not reference slots or templates that have not been loaded. The compiler validates references at compile time.
+- Do not assume compilation order matters within a single `load_*` call. All constructs in a directory are compiled as a batch.
+- Do not hand-edit generated CLIPS output. The compiler is the source of truth for YAML-authored constructs.
+
+
+## core/fact-asserter.md
+
+# Runtime -- Fact Asserter
+
+## What It Is
+
+The Fact Asserter handles typed fact insertion into working memory, validated against loaded templates. It supports single and bulk assertion, working memory queries (`engine.query`, `engine.count`), and fact retraction (`engine.retract`). Assertion targets less than 10 microseconds per fact.
+
+Facts are typed instances of templates. The asserter validates every fact against the template registry before inserting it into working memory. Invalid facts (unknown slots, disallowed values, missing required fields) are rejected with a `ValidationError`.
+
+## API
+
+### Single Assertion
+
+```python
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+```
+
+The first argument is the template name. The second is a dictionary of slot-value pairs. The asserter validates:
+
+- The template exists in the registry.
+- All keys are valid slot names for that template.
+- All `required` slots are present.
+- Values match the slot `type` (string, symbol, float).
+- Values are within `allowed_values` if the slot defines them.
+- Default values are applied for missing optional slots that have defaults.
+
+### Bulk Assertion
+
+```python
+engine.assert_facts([
+    ("access_log", {"agent_id": "a1", "source": "hr_db", "data_type": "PII", "timestamp": 1713020400.0}),
+    ("access_log", {"agent_id": "a1", "source": "finance_db", "data_type": "PII", "timestamp": 1713020460.0}),
+])
+```
+
+Each tuple is `(template_name, slot_dict)`. All facts are validated individually. If any fact fails validation, the entire batch is rejected -- no partial insertion.
+
+### Querying Working Memory
+
+Inspect working memory state without triggering rule evaluation.
+
+```python
+# Find all facts matching a template and filter
+agents = engine.query("agent", {"clearance": "secret"})
+
+# Count matching facts
+pii_count = engine.count("access_log", {"agent_id": "agent-alpha", "data_type": "PII"})
+```
+
+`query()` returns a list of matching fact dictionaries. `count()` returns an integer. Neither method fires rules or modifies working memory.
+
+### Fact Retraction
+
+Remove a fact from working memory.
+
+```python
+engine.retract("data_request", {"agent_id": "agent-alpha", "target": "hr_records"})
+```
+
+The fact matching the template name and slot values is removed. If no matching fact exists, the call is a no-op.
+
+## Validation Errors
+
+```python
+# Unknown slot name
+engine.assert_fact("agent", {"id": "a1", "clearence": "secret"})
+# -> ValidationError: 'clearence' is not a valid slot for template 'agent'
+
+# Disallowed value
+engine.assert_fact("agent", {"id": "a1", "clearance": "cosmic"})
+# -> ValidationError: 'cosmic' not in allowed_values for slot 'clearance'
+
+# Missing required slot
+engine.assert_fact("agent", {"purpose": "analysis"})
+# -> ValidationError: required slot 'id' missing for template 'agent'
+
+# Unknown template
+engine.assert_fact("nonexistent", {"key": "value"})
+# -> ValidationError: template 'nonexistent' not found in registry
+```
+
+## Performance
+
+| Operation | Target |
+|---|---|
+| Single fact assertion | < 10 microseconds |
+| Bulk assertion (per fact) | < 10 microseconds |
+| Query | Proportional to working memory size |
+| Count | Proportional to working memory size |
+
+## Conventions
+
+- Always load templates before asserting facts. The asserter validates against the template registry.
+- Use `assert_facts` for inserting multiple related facts. It is atomic -- all succeed or all fail.
+- Use `query()` and `count()` to inspect state. Do not call `evaluate()` just to read working memory.
+- Retraction matches by template name and slot values. Be specific enough to match exactly one fact.
+- Default values on optional slots are applied automatically when the slot is omitted.
+
+## Do Not
+
+- Do not assert facts before loading templates. The asserter has no schema to validate against.
+- Do not catch and ignore `ValidationError`. It indicates a programming error (wrong slot name, bad value).
+- Do not assume bulk assertion is partially applied on failure. It is all-or-nothing.
+- Do not use `query()` with an empty filter to dump all facts of a type in production. It returns every matching fact in memory.
+- Do not rely on assertion order to control rule firing. Rules fire based on salience and module focus order.
+
+
+## core/forward-chaining.md
+
+# Runtime -- Forward Chaining
+
+## What It Is
+
+Forward chaining is Fathom's primary inference method. It is data-driven: facts asserted into working memory trigger rules whose conditions match those facts. When a rule fires, it may assert new facts, which in turn trigger additional rules. This continues until no more rules can fire (quiescence). Forward chaining is how CLIPS and Fathom evaluate all rules in v1.
+
+## How It Works
+
+The forward-chaining cycle follows this sequence:
+
+1. **Assert facts** -- facts enter working memory via `engine.assert_fact()` or `engine.assert_facts()`.
+2. **Pattern matching** -- the Rete algorithm incrementally matches facts against rule conditions. Rules whose conditions are fully satisfied become "activated" and enter the agenda.
+3. **Conflict resolution** -- when multiple rules are activated, the engine selects one to fire based on salience (higher fires first) and module focus stack order.
+4. **Rule firing** -- the selected rule executes its `then` block (assert new facts, set a decision, log).
+5. **Repeat** -- new facts from step 4 re-enter step 2. The cycle continues until the agenda is empty.
+6. **Quiescence** -- no more rules can fire. The evaluation result is returned.
+
+```
+Assert Facts -> Rete Match -> Agenda -> Fire Rule -> (new facts?) -> Repeat
+                                                         |
+                                                    No new activations
+                                                         |
+                                                    Quiescence -> Return Result
+```
+
+## The Rete Algorithm
+
+CLIPS uses the Rete algorithm for pattern matching. Rete builds a network of condition nodes that facts flow through. Key properties:
+
+- **Incremental** -- when a new fact is asserted, only the relevant parts of the network are updated. The engine does not re-evaluate all rules from scratch.
+- **Shared nodes** -- conditions common to multiple rules share network nodes. If five rules all check `agent.clearance`, that check exists once in the network.
+- **Scales well** -- 100-rule evaluation targets less than 500 microseconds because Rete avoids redundant matching.
+
+This is why Fathom can evaluate complex rule sets in microseconds rather than milliseconds.
+
+## The Evaluate Cycle
+
+```python
+engine.load_templates("templates/")
+engine.load_modules("modules.yaml")
+engine.load_rules("rules/")
+
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+engine.assert_fact("data_request", {
+    "agent_id": "agent-alpha",
+    "target": "hr_records",
+    "classification": "top-secret",
+    "action": "read"
+})
+
+result = engine.evaluate()
+```
+
+What happens inside `evaluate()`:
+
+1. The engine pushes modules onto the focus stack per `focus_order`: `[classification, governance, routing, cumulative]`.
+2. The `classification` module gets focus. Its rules are checked against working memory. `resolve-levels` fires.
+3. The `governance` module gets focus. `deny-insufficient-clearance` matches (agent clearance `secret` is below data classification `top-secret`). It fires, setting `decision = deny`.
+4. Remaining modules (`routing`, `cumulative`) may or may not get focus depending on whether early termination is configured.
+5. The result is returned: `decision="deny"`, `rule_trace=["classification::resolve-levels", "governance::deny-insufficient-clearance"]`.
+
+## Module Focus Stack
+
+Modules control the order in which groups of rules are considered. The focus stack is processed top-to-bottom. Within each module, rules fire in salience order. When a module's agenda is exhausted, the next module on the stack gets focus.
+
+```yaml
+focus_order: [classification, governance, routing, cumulative]
+```
+
+This guarantees that classification rules fire before governance rules, which fire before routing rules. Each module's output facts are available to subsequent modules.
+
+## Salience
+
+Within a module, salience determines firing order when multiple rules are activated simultaneously.
+
+```yaml
+rules:
+  - name: allow-matching-clearance
+    salience: 100   # fires first
+    ...
+  - name: deny-insufficient-clearance
+    salience: 10    # fires second — last-write-wins means deny wins
+    ...
+```
+
+Higher salience fires first. The evaluator uses last-write-wins on `__fathom_decision` facts, so the rule firing LAST determines the outcome. Deny rules must have LOWER salience than allow rules so they fire last and enforce a fail-closed default.
+
+## Forward Chaining vs. Backward Chaining
+
+| Aspect | Forward Chaining | Backward Chaining |
+|---|---|---|
+| Direction | Data-driven (facts trigger rules) | Goal-driven (prove a hypothesis) |
+| Mechanism | Assert facts, rules fire automatically | Set a goal, engine searches for supporting facts |
+| Fathom v1 | Primary inference method | Explicitly excluded |
+| Use cases | Governance, routing, classification | Diagnostics, hypothesis testing |
+
+Forward chaining covers all v1 use cases: policy enforcement, data routing, compliance checks, and classification. Backward chaining is a v2 consideration. See [Backward Chaining](backward-chaining.md).
+
+## Conventions
+
+- Forward chaining is the only inference method in v1. All rules are forward-chaining rules.
+- Use the module focus stack to control evaluation order across rule groups.
+- Use salience to control firing order within a module.
+- Rules that assert new facts create inference chains. Keep chains short and predictable.
+- The Rete algorithm makes pattern matching efficient. Do not try to optimize by reducing rule count at the expense of clarity.
+
+## Do Not
+
+- Do not create circular inference chains (Rule A asserts a fact that triggers Rule B, which asserts a fact that triggers Rule A). This causes infinite loops.
+- Do not rely on implicit rule ordering. Always use salience and modules for explicit control.
+- Do not assume all modules are traversed. Evaluation may stop early if a decision is reached.
+- Do not use backward chaining in v1. It is not supported.
+- Do not assume facts asserted by rules during evaluation are visible to `query()` before `evaluate()` returns.
+
+
+## core/working-memory.md
+
+# Runtime — Working Memory
+
+## What It Is
+
+Working memory is Fathom's in-session fact store. Facts asserted into working memory persist across multiple `engine.evaluate()` calls within the same session, then disappear when the session ends. This makes Fathom stateful within a session and stateless across sessions.
+
+This is the core differentiator over stateless policy engines like OPA and Cedar, which evaluate a single request against policy and forget everything between calls.
+
+## How It Works
+
+Every call to `engine.assert_fact()` inserts a typed fact into working memory. That fact remains available to all subsequent evaluations until explicitly retracted or the session ends. Rules pattern-match against the full contents of working memory on each evaluation.
+
+```python
+from fathom import Engine
+
+engine = Engine()
+engine.load_templates("templates/")
+engine.load_rules("rules/")
+
+# Fact persists across evaluations
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+
+result1 = engine.evaluate()  # sees the agent fact
+
+engine.assert_fact("data_request", {
+    "agent_id": "agent-alpha",
+    "target": "hr_records",
+    "classification": "top-secret",
+    "action": "read"
+})
+
+result2 = engine.evaluate()  # sees both facts
+```
+
+## Cumulative Reasoning
+
+Rules can count facts that have accumulated over a session and act on thresholds. The `count_exceeds` function counts facts matching a template and filter, returning true when the count passes a threshold.
+
+Example: "This agent accessed PII from 3 sources this session -- deny the 4th."
+
+```python
+engine.assert_fact("access_log", {
+    "agent_id": "agent-alpha", "source": "hr_db",
+    "data_type": "PII", "timestamp": 1713020400.0
+})
+engine.assert_fact("access_log", {
+    "agent_id": "agent-alpha", "source": "finance_db",
+    "data_type": "PII", "timestamp": 1713020460.0
+})
+engine.assert_fact("access_log", {
+    "agent_id": "agent-alpha", "source": "medical_db",
+    "data_type": "PHI", "timestamp": 1713020520.0
+})
+
+# Rule using count_exceeds fires -- 3 PII accesses exceed threshold
+result = engine.evaluate()  # -> escalate
+```
+
+A YAML rule implementing this pattern:
+
+```yaml
+rules:
+  - name: excessive-pii-access
+    salience: 100
+    when:
+      access_log:
+        agent_id: $agent.id
+        data_type: in([PII, PHI])
+        data_type: count_exceeds(2, session)
+    then:
+      action: escalate
+      reason: "Agent '{$agent.id}' exceeded PII access threshold"
+```
+
+## Temporal Patterns
+
+The `rate_exceeds` function counts matching facts within a sliding time window and fires when the rate passes a threshold. This enables detection of behavioral anomalies over time.
+
+Example: "This agent's denial rate spiked 400% in the last 10 minutes -- escalate."
+
+```yaml
+rules:
+  - name: denial-rate-spike
+    when:
+      denial_record:
+        agent_id: $agent.id
+        agent_id: rate_exceeds(10, 600)  # >10 denials in 600 seconds
+    then:
+      action: escalate
+      reason: "Denial rate spike detected for agent '{$agent.id}'"
+```
+
+Time windows are specified in seconds. The function examines the `timestamp` slot of matching facts to determine which fall within the window.
+
+## Cross-Fact Inference
+
+Rules can match across multiple fact types simultaneously. When facts from different templates are present in working memory, the engine can detect patterns that span them.
+
+Example: "Agent A passed data to Agent B. Agent B is requesting external network access. The combination violates information flow policy."
+
+```yaml
+rules:
+  - name: information-flow-violation
+    when:
+      data_transfer:
+        from_agent: $source.id
+        to_agent: $requester.id
+      network_request:
+        agent_id: $requester.id
+        destination: external
+    then:
+      action: deny
+      reason: "Agent '{$requester.id}' received data from '{$source.id}' and is requesting external access"
+```
+
+Neither fact alone triggers the rule. Only when both exist in working memory at the same time does the pattern match fire.
+
+## Working Memory Queries
+
+Inspect working memory state without triggering rule evaluation using `engine.query()` and `engine.count()`.
+
+```python
+# Find all secret-clearance agents
+agents = engine.query("agent", {"clearance": "secret"})
+
+# Find all access logs for a specific agent
+logs = engine.query("access_log", {"agent_id": "agent-alpha"})
+
+# Count PII accesses without triggering rules
+pii_count = engine.count("access_log", {
+    "agent_id": "agent-alpha",
+    "data_type": "PII"
+})
+```
+
+These read from working memory directly. No rules fire, no side effects occur.
+
+## Fact Lifecycle
+
+**Assert** -- insert a single fact validated against its template:
+
+```python
+engine.assert_fact("agent", {"id": "agent-alpha", "clearance": "secret", ...})
+```
+
+**Bulk assert** -- insert multiple facts in one call:
+
+```python
+engine.assert_facts([
+    ("access_log", {"agent_id": "agent-alpha", "source": "hr_db", ...}),
+    ("access_log", {"agent_id": "agent-alpha", "source": "finance_db", ...}),
+])
+```
+
+**Retract** -- remove a fact from working memory:
+
+```python
+engine.retract("data_request", {"agent_id": "agent-alpha", "target": "hr_records"})
+```
+
+**Memory bounds**: working memory targets less than 5MB for 1000 facts per session. The CLIPS rete algorithm scales well within these bounds, keeping single-rule evaluation under 100 microseconds and 100-rule evaluation under 500 microseconds.
+
+## Comparison to Stateless Engines
+
+| Capability | OPA / Cedar | Fathom |
+|---|---|---|
+| Single request evaluation | Yes | Yes |
+| Facts persist across evaluations | No | Yes (within session) |
+| Cumulative reasoning | No -- each eval is isolated | Yes -- `count_exceeds` over session history |
+| Temporal pattern detection | No | Yes -- `rate_exceeds` with time windows |
+| Cross-fact inference | Limited -- single input document | Yes -- pattern match across all facts in memory |
+| Memory model | Stateless | Stateful within session, stateless across sessions |
+
+OPA evaluates a request against policy. Fathom reasons about a situation across multiple facts over time.
+
+## Do Not
+
+- Do not assume working memory persists across sessions. Each session starts with an empty working memory.
+- Do not skip template validation. All facts are validated against their template schema at assertion time.
+- Do not use `engine.evaluate()` when you only need to read state. Use `engine.query()` or `engine.count()` instead.
+- Do not exceed 1000 facts per session without benchmarking. The 5MB memory target assumes this upper bound.
+- Do not rely on fact insertion order for rule firing. Rules fire based on salience and module focus order, not assertion sequence.
+
+
+## core/audit-log.md
+
+# Runtime -- Audit Log
+
+## What It Is
+
+The Audit Log captures an immutable record of every evaluation. Each record includes the input facts, modules traversed, rules fired, decision reached, full reasoning trace, and duration. Records are structured JSON and append-only -- once written, they cannot be modified or deleted.
+
+This provides the auditability required for governance, compliance, and debugging use cases. Every decision Fathom makes can be traced back to the exact facts and rules that produced it.
+
+## What Gets Captured
+
+Each evaluation produces one audit record containing:
+
+| Field | Type | Description |
+|---|---|---|
+| `timestamp` | ISO 8601 string | When the evaluation occurred |
+| `session_id` | string | Session that owns this evaluation |
+| `input_facts` | array of objects | All facts in working memory at evaluation time |
+| `modules_traversed` | array of strings | Modules entered during evaluation, in focus-stack order |
+| `rules_fired` | array of strings | Rules that fired, in `module::rule` format |
+| `decision` | string | Final outcome: `allow`, `deny`, `escalate`, `scope`, or `route` |
+| `reason` | string | Human-readable explanation with variable interpolation applied |
+| `duration_us` | integer | Evaluation duration in microseconds |
+| `metadata` | object | Additional key-value pairs from rule `metadata` blocks |
+
+## Log Format
+
+Each record is a single JSON object, one per line (JSON Lines format).
+
+```json
+{
+  "timestamp": "2025-01-15T10:30:00.047Z",
+  "session_id": "sess-001",
+  "input_facts": [
+    {"template": "agent", "slots": {"id": "agent-alpha", "clearance": "secret", "purpose": "threat-analysis", "session_id": "sess-001"}},
+    {"template": "data_request", "slots": {"agent_id": "agent-alpha", "target": "hr_records", "classification": "top-secret", "action": "read"}}
+  ],
+  "modules_traversed": ["classification", "governance"],
+  "rules_fired": [
+    "classification::resolve-levels",
+    "governance::deny-insufficient-clearance"
+  ],
+  "decision": "deny",
+  "reason": "Agent clearance 'secret' insufficient for 'top-secret' data",
+  "duration_us": 47,
+  "metadata": {}
+}
+```
+
+## Reasoning Trace
+
+The `rules_fired` array is ordered by execution sequence. Combined with `modules_traversed`, it reconstructs the full reasoning path:
+
+1. The engine entered the `classification` module first (per focus stack order).
+2. The `resolve-levels` rule fired within that module.
+3. The engine moved to the `governance` module.
+4. The `deny-insufficient-clearance` rule fired, producing the `deny` decision.
+5. Remaining modules (`routing`, `cumulative`) were never entered because the decision was reached.
+
+This trace is accessible programmatically from the evaluation result:
+
+```python
+result = engine.evaluate()
+
+print(result.rule_trace)    # ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
+print(result.module_trace)  # ["classification", "governance"]
+print(result.duration_us)   # 47
+```
+
+## Append-Only Guarantee
+
+Audit records are append-only. The log file is opened in append mode and records are written sequentially. There is no API to modify or delete records. This design supports:
+
+- **Compliance audits** -- regulators can verify the log was not tampered with.
+- **Incident investigation** -- every decision is preserved with its full context.
+- **Debugging** -- reproduce any past evaluation by replaying its `input_facts`.
+
+## Log Levels
+
+Rules declare a `log` level in their `then` block:
+
+| Level | What is Recorded |
+|---|---|
+| `none` | Rule firing is recorded in `rules_fired` but no additional detail |
+| `summary` | Decision and reason are recorded |
+| `full` | All fields captured, including complete `input_facts` snapshot |
+
+The default log level is `summary` if not specified.
+
+## Conventions
+
+- Every evaluation produces exactly one audit record, regardless of how many rules fire.
+- Audit records include the full fact snapshot at evaluation time, not just the facts that triggered rules.
+- The `rules_fired` array preserves execution order. The first entry fired first.
+- Use `full` logging for governance and compliance rules. Use `none` for high-frequency, low-risk evaluations.
+- Store audit logs externally (filesystem, object storage, SIEM) for long-term retention.
+
+## Do Not
+
+- Do not modify or delete audit log records. The log is append-only by design.
+- Do not disable audit logging for governance use cases. The audit trail is a compliance requirement.
+- Do not store sensitive fact values (credentials, tokens) in working memory. They will appear in the audit log.
+- Do not rely on audit logs for real-time monitoring. They are a historical record, not an event stream.
+- Do not parse `reason` strings programmatically. Use `decision` and `metadata` for machine-readable outputs.
+
+
+## core/attestation.md
+
+# Runtime -- Attestation Service
+
+## What It Is
+
+The Attestation Service signs evaluation results with Ed25519 keys and produces JWT tokens that third parties can verify. It provides cryptographic proof that a specific evaluation occurred with specific inputs and produced a specific decision. The service is optional -- disabled by default, enabled for governance use cases.
+
+## Why It Exists
+
+Audit logs record what happened, but they are self-reported. The attestation service adds cryptographic non-repudiation: a signed token proves that a particular Fathom engine instance evaluated specific facts against specific rules and reached a specific decision. Third parties (auditors, partner systems, compliance tools) can verify this without trusting the Fathom operator.
+
+Use cases:
+
+- **Compliance attestation** -- prove to regulators that every agent action was governed by policy.
+- **Cross-system trust** -- Bosun signs governance decisions that downstream systems verify before proceeding.
+- **Audit chains** -- link signed evaluations into a verifiable sequence.
+
+## How It Works
+
+1. An evaluation completes, producing a result with decision, rule trace, and audit record.
+2. The attestation service serializes the result into a canonical JSON payload.
+3. The payload is signed with the engine's Ed25519 private key.
+4. A JWT token is produced containing the payload and signature.
+5. The token is returned alongside the evaluation result.
+
+```python
+result = engine.evaluate()
+
+# When attestation is enabled on the rule:
+result.attestation_token  # JWT string
+result.decision           # "deny"
+```
+
+## Enabling Attestation
+
+Attestation is controlled at the rule level via the `attestation` field in the `then` block:
+
+```yaml
+rules:
+  - name: deny-insufficient-clearance
+    salience: 100
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+      reason: "Clearance insufficient"
+      attestation: true
+      log: full
+```
+
+When `attestation: true`, the evaluation result includes a signed JWT. When `attestation: false` or omitted, no token is produced.
+
+## JWT Token Contents
+
+The JWT payload contains:
+
+| Field | Description |
+|---|---|
+| `iss` | Issuer -- identifies the Fathom engine instance |
+| `iat` | Issued-at timestamp |
+| `decision` | The evaluation decision (allow, deny, escalate, scope, route) |
+| `rule_trace` | Ordered list of rules that fired |
+| `input_hash` | SHA-256 hash of the input facts (privacy-preserving) |
+| `session_id` | Session identifier |
+
+## Verification
+
+Third parties verify tokens using the engine's Ed25519 public key. The public key can be distributed via API endpoint, key registry, or out-of-band configuration.
+
+```python
+from fathom.attestation import verify_token
+
+is_valid = verify_token(token, public_key)
+# Returns True if signature is valid and payload is intact
+```
+
+## Key Management
+
+- Ed25519 key pairs are generated per engine instance or per deployment.
+- Private keys must be stored securely (environment variable, secrets manager).
+- Public keys are freely distributable.
+- Key rotation is the operator's responsibility. Fathom does not manage key lifecycle.
+
+## Conventions
+
+- Enable attestation only for governance and compliance rules where third-party verification is required.
+- Use `log: full` alongside `attestation: true` to ensure the audit record captures the complete context.
+- Distribute public keys through a secure, reliable channel.
+- Store signed tokens alongside audit records for complete audit chains.
+
+## Do Not
+
+- Do not enable attestation on every rule. It adds overhead and is only needed for governance use cases.
+- Do not embed private keys in rule files, configuration files, or source code.
+- Do not parse JWT tokens manually. Use the `verify_token` function.
+- Do not skip key rotation. Compromised keys invalidate all tokens signed with them.
+
+
+## yaml/yaml-templates.md
+
+# Runtime — YAML Template Authoring
+
+Comprehensive reference for defining fact schemas as YAML templates. Templates compile to CLIPS `deftemplate` constructs and validate facts at assertion time.
+
+## What It Is
+
+A template declares the shape of a fact: its name, a human-readable description, and an ordered list of typed slots. The YAML compiler translates each template into a CLIPS `deftemplate`. At runtime, every `assert_fact` call is validated against the registered template, catching invalid slot names, disallowed values, and missing required slots before the fact reaches working memory.
+
+## Template File Structure
+
+Each YAML file contains a top-level `templates:` array. A single file may define one template or many related templates.
+
+```yaml
+# templates/agent.yaml
+templates:
+  - name: agent
+    description: "An AI agent requesting access or action"
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+      - name: purpose
+        type: symbol
+        required: true
+      - name: session_id
+        type: string
+        required: true
+
+  - name: data_request
+    description: "A request to access a data source"
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+      - name: target
+        type: string
+        required: true
+      - name: classification
+        type: symbol
+        required: true
+      - name: action
+        type: symbol
+        allowed_values: [read, write, delete]
+        default: read
+
+  - name: access_log
+    description: "Record of a completed data access within a session"
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+      - name: source
+        type: string
+        required: true
+      - name: data_type
+        type: symbol
+        required: true
+      - name: timestamp
+        type: float
+```
+
+**Required fields per template:** `name` and `slots`. The `description` field is optional but recommended.
+
+**Required fields per slot:** `name` and `type`. The `required`, `allowed_values`, and `default` fields are optional.
+
+## Slot Definition
+
+Each slot accepts the following properties:
+
+| Property | Type | Required | Purpose |
+|----------|------|----------|---------|
+| `name` | string | yes | Slot identifier, used when asserting facts |
+| `type` | string | yes | Data type (see Supported Types below) |
+| `required` | boolean | no | When `true`, facts must provide this slot |
+| `allowed_values` | list | no | Restricts accepted values to this set |
+| `default` | value | no | Value used when the fact omits this slot |
+
+## Supported Types
+
+| Type | CLIPS Mapping | Example Values |
+|------|--------------|----------------|
+| `string` | STRING | `"agent-alpha"`, `"sess-001"` |
+| `symbol` | SYMBOL | `secret`, `read`, `PII` |
+| `float` | FLOAT | `1713020400.0`, `3.14` |
+| `integer` | INTEGER | `42`, `100` |
+
+Use `symbol` for enumerated or categorical values (clearance levels, action types, data classifications). Use `string` for free-form identifiers. Use `float` for timestamps and decimal measurements. Use `integer` for counts and whole-number quantities.
+
+## Validation Behavior
+
+Fathom validates every fact against its template at assertion time. Three checks run before a fact enters working memory:
+
+1. **Slot name validation.** Every key in the fact dict must match a declared slot name. Unknown slot names raise `ValidationError`.
+
+```python
+# Raises ValidationError -- "clearence" is not a valid slot
+engine.assert_fact("agent", {"id": "agent-alpha", "clearence": "secret"})
+```
+
+2. **Allowed values check.** When a slot declares `allowed_values`, the provided value must be in that list. Values outside the list raise `ValidationError`.
+
+```python
+# Raises ValidationError -- "cosmic" is not in allowed_values
+engine.assert_fact("agent", {"id": "agent-alpha", "clearance": "cosmic"})
+```
+
+3. **Required slots check.** When a slot has `required: true`, the fact must include it (unless a `default` is also declared). Missing required slots raise `ValidationError`.
+
+## Allowed Values
+
+Use `allowed_values` to constrain a symbol slot to a fixed set. This enforces controlled vocabularies (clearance levels, action types, data classifications). The YAML compiler generates CLIPS `(allowed-symbols ...)` constraints in the compiled `deftemplate`. See the `clearance` and `action` slots in the full example above.
+
+## Default Values
+
+When a slot declares `default` and the fact omits that slot, the default value is used. This applies during YAML-to-CLIPS compilation (as a CLIPS `(default ...)` clause) and during Python-side validation. See the `action` slot in `data_request` above: a fact asserted without `action` receives `read` automatically. If a slot is `required: true` and also has a `default`, the requirement is satisfied by the default.
+
+## Raw CLIPS Passthrough
+
+For advanced cases that the YAML abstraction cannot express, raw `deftemplate` strings can be loaded directly into the engine alongside YAML-defined templates. Both coexist in the same template registry.
+
+```python
+engine.load_clips_construct("""
+(deftemplate custom-metric
+    (slot name (type STRING))
+    (slot value (type FLOAT))
+    (multislot tags (type SYMBOL)))
+""")
+```
+
+Use raw passthrough for CLIPS features not yet exposed in YAML, such as `multislot` declarations or complex default expressions. YAML-defined and raw-defined templates share the same working memory and can be referenced by the same rules.
+
+## File Organization
+
+Organize template files by domain. Each file groups related templates.
+
+```
+templates/
+  agent.yaml        # agent, data_request, access_log
+  data.yaml         # data sources, classifications
+  governance.yaml   # policy decisions, audit records
+```
+
+Load all templates from a directory in one call:
+
+```python
+from fathom import Engine
+
+engine = Engine()
+engine.load_templates("templates/")
+```
+
+`load_templates` reads every `.yaml` file in the given directory, compiles each template to a CLIPS `deftemplate`, and registers it in the engine's template registry. Templates must be loaded before asserting facts of that type.
+
+## Python API
+
+| Method | Purpose |
+|--------|---------|
+| `engine.load_templates("templates/")` | Load and compile all YAML template files from directory |
+| `engine.assert_fact("name", {slots})` | Validate against template, insert into working memory |
+| `engine.assert_facts([(name, dict), ...])` | Bulk validate and insert multiple facts |
+| `engine.query("name", {filter})` | Inspect working memory without triggering evaluation |
+| `engine.retract("name", {filter})` | Remove matching facts from working memory |
+
+## Conventions
+
+- One template file per domain area (e.g., `agent.yaml` for agent-related templates).
+- Always include `description` on templates for documentation and audit trail clarity.
+- Use `symbol` type for any slot that will be compared in rules via classification-aware operators (`below`, `meets_or_exceeds`).
+- Use `allowed_values` on every symbol slot where the value space is known and finite.
+- Set `required: true` on slots that rules depend on for pattern matching. Missing slots cause silent match failures in CLIPS.
+- Load templates before loading rules. Rules reference template slot names at compile time.
+- Prefer YAML templates over raw CLIPS. Use raw passthrough only for features not expressible in YAML (e.g., `multislot`).
+
+## Do Not
+
+- Do not assert facts for a template that has not been loaded. The engine will raise `ValidationError`.
+- Do not use slot names that differ only by case or punctuation. CLIPS slot names are case-sensitive and typos cause `ValidationError` at assertion time.
+- Do not omit `type` on any slot. The YAML compiler requires it for CLIPS type mapping.
+- Do not use `string` type for slots intended as classification levels or enums. Use `symbol` so that CLIPS operators and `allowed_values` constraints work correctly.
+- Do not define the same template name in multiple YAML files. The second load overwrites the first without warning.
+- Do not mix `multislot` logic into YAML templates. Use raw CLIPS passthrough for `multislot` declarations.
+
+
+## yaml/yaml-facts.md
+
+# Runtime — Fact Management
+
+Comprehensive reference for asserting, querying, retracting, and reasoning about facts in Fathom's CLIPS-based working memory.
+
+## What It Is
+
+Facts are typed instances of templates asserted into working memory. They represent the current state of the world that rules reason about. Every fact conforms to a loaded template schema and is validated at assertion time. Facts persist within a session, enabling cumulative reasoning, temporal patterns, and cross-fact inference.
+
+## Asserting Facts
+
+Use `engine.assert_fact(template_name, slot_dict)` to insert a single fact into working memory.
+
+```python
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+
+engine.assert_fact("data_request", {
+    "agent_id": "agent-alpha",
+    "target": "hr_records",
+    "classification": "cui",
+    "action": "read"
+})
+```
+
+Each call validates the slot dictionary against the named template before inserting into CLIPS working memory. The `action` slot above defaults to `read` if omitted (per the template's `default` property).
+
+## Bulk Assertion
+
+Use `engine.assert_facts()` with a list of `(template_name, slot_dict)` tuples to insert multiple facts in a single call.
+
+```python
+engine.assert_facts([
+    ("access_log", {"agent_id": "agent-alpha", "source": "hr_db", "data_type": "PII", "timestamp": 1713020400.0}),
+    ("access_log", {"agent_id": "agent-alpha", "source": "finance_db", "data_type": "PII", "timestamp": 1713020460.0}),
+])
+```
+
+Bulk assertion validates each tuple against its template individually. If any tuple fails validation, the entire batch is rejected.
+
+## Template Validation
+
+Facts are validated against loaded templates at assertion time. Three categories of validation failure raise `ValidationError`:
+
+- **Invalid slot names** -- A slot name not defined in the template (e.g., `"clearence"` instead of `"clearance"`).
+- **Invalid allowed_values** -- A value outside the template's `allowed_values` constraint (e.g., `"cosmic"` for a clearance slot that only allows `[unclassified, cui, confidential, secret, top-secret]`).
+- **Missing required slots** -- A required slot omitted from the slot dictionary.
+
+```python
+# Raises ValidationError -- "clearence" is not a valid slot
+engine.assert_fact("agent", {"id": "agent-alpha", "clearence": "secret"})
+
+# Raises ValidationError -- "cosmic" is not in allowed_values
+engine.assert_fact("agent", {"id": "agent-alpha", "clearance": "cosmic"})
+```
+
+Templates must be loaded before facts can be asserted against them. Load templates with `engine.load_templates("templates/")`.
+
+## Working Memory Queries
+
+Inspect working memory state without triggering rule evaluation.
+
+**Query** returns matching facts:
+
+```python
+agents = engine.query("agent", {"clearance": "secret"})
+logs = engine.query("access_log", {"agent_id": "agent-alpha"})
+```
+
+**Count** returns matching fact count:
+
+```python
+pii_count = engine.count("access_log", {"agent_id": "agent-alpha", "data_type": "PII"})
+```
+
+Both methods accept a `template_name` and an optional `filter_dict`. The filter matches facts whose slot values equal the provided values. Queries read working memory directly and never trigger the forward-chaining evaluation cycle.
+
+## Fact Retraction
+
+Remove facts from working memory with `engine.retract(template_name, filter_dict)`. All facts matching the filter are removed.
+
+```python
+engine.retract("data_request", {"agent_id": "agent-alpha", "target": "hr_records"})
+```
+
+Retracted facts no longer participate in pattern matching during subsequent evaluations.
+
+## Fact Persistence
+
+Working memory persists across evaluations within a session. This enables cumulative reasoning patterns that stateless engines (OPA, Cedar, Edictum) cannot express:
+
+- **Cumulative reasoning:** "This agent has accessed PII from 3 sources this session -- deny the 4th."
+- **Temporal patterns:** "This agent's denial rate spiked 400% in the last 10 minutes -- escalate."
+- **Cross-fact inference:** "Agent A passed data to Agent B who is now requesting external network access -- the combination violates information flow policy."
+
+Working memory is stateless across sessions. A new session starts with empty working memory.
+
+```python
+engine.assert_fact("access_log", {"agent_id": "agent-alpha", "source": "hr_db", "data_type": "PII", "timestamp": 1713020400.0})
+engine.assert_fact("access_log", {"agent_id": "agent-alpha", "source": "finance_db", "data_type": "PII", "timestamp": 1713020460.0})
+engine.assert_fact("access_log", {"agent_id": "agent-alpha", "source": "medical_db", "data_type": "PHI", "timestamp": 1713020520.0})
+
+# Rule using count_exceeds: "3 PII accesses in one session exceeds threshold"
+result = engine.evaluate()  # -> escalate
+
+logs = engine.query("access_log", {"agent_id": "agent-alpha"})
+print(len(logs))  # 3
+```
+
+## Memory Bounds
+
+Target: 1000 facts under 5MB per session. The CLIPS rete algorithm scales well within this bound -- 100-rule evaluations target under 500 microseconds, individual fact assertions under 10 microseconds.
+
+## Fact Lifecycle in Evaluation
+
+The forward-chaining evaluation cycle:
+
+1. **Assert** -- Facts are asserted into working memory (via `assert_fact` or `assert_facts`, or by rule actions).
+2. **Match** -- The rete network pattern-matches rules against the current fact set. Rules whose conditions are fully satisfied become activated.
+3. **Select** -- The engine selects the highest-salience activated rule (conflict resolution). Module focus order determines which module's rules take precedence.
+4. **Fire** -- The selected rule executes its action. Actions may assert new facts, retract existing facts, or produce output.
+5. **Repeat** -- The cycle returns to step 2. New or retracted facts may activate or deactivate rules.
+6. **Halt** -- The cycle ends when no more rules are activated (agenda is empty).
+
+```python
+result = engine.evaluate()
+
+print(result.decision)     # "deny"
+print(result.rule_trace)   # ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
+print(result.module_trace) # ["classification", "governance"]
+print(result.duration_us)  # 47
+```
+
+The `rule_trace` shows every rule that fired. The `module_trace` shows which modules were reached before the decision resolved.
+
+## Do Not
+
+- Do not assert facts without loading templates first -- the engine cannot validate untyped facts.
+- Do not assume working memory carries across sessions -- each session starts empty.
+- Do not use `query` or `count` to trigger evaluation -- they are read-only inspections. Call `engine.evaluate()` to run the forward-chaining cycle.
+- Do not exceed 1000 facts or 5MB per session without profiling -- performance targets assume this bound.
+- Do not rely on fact insertion order for rule firing priority -- use salience and module focus order instead.
+
+
+## yaml/yaml-rule-language.md
+
+# Platform -- YAML Rule Language
+
+## What It Is
+
+The YAML rule language is the primary authoring format for Fathom rules. Rules authored in YAML compile to CLIPS `defrule` constructs at load time. The language provides comparison operators, classification-aware operators, temporal operators, cross-fact references, and a structured action system.
+
+## Rule Structure
+
+Every rule file has a top-level envelope and a `rules` array.
+
+```yaml
+ruleset: access-control       # Logical name for this collection
+version: 1.0                  # Semantic version of the ruleset
+module: governance             # Target module (controls focus-stack ordering)
+
+rules:
+  - name: deny-insufficient-clearance
+    description: "Deny when agent clearance is below data classification"
+    salience: 100
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+      reason: "Agent clearance '{agent.clearance}' insufficient for '{$data.classification}' data"
+      log: full
+```
+
+**Top-level fields:**
+
+| Field     | Required | Purpose                                          |
+|-----------|----------|--------------------------------------------------|
+| `ruleset` | yes      | Logical name grouping related rules              |
+| `version` | yes      | Version of this ruleset                          |
+| `module`  | yes      | CLIPS module these rules compile into            |
+| `rules`   | yes      | Array of rule definitions                        |
+
+**Per-rule fields:**
+
+| Field         | Required | Purpose                                       |
+|---------------|----------|-----------------------------------------------|
+| `name`        | yes      | Unique identifier within the module           |
+| `description` | no       | Human-readable explanation                    |
+| `salience`    | no       | Integer priority (higher fires first)         |
+| `when`        | yes      | Pattern-matching conditions against facts     |
+| `then`        | yes      | Actions to execute when conditions match      |
+
+## Comparison Operators
+
+Standard operators for matching fact slot values.
+
+```yaml
+field: equals(value)
+field: not_equals(value)
+field: greater_than(value)
+field: less_than(value)
+field: in([value1, value2])
+field: not_in([value1, value2])
+field: contains(substring)
+field: matches(regex_pattern)
+```
+
+`in` and `not_in` accept arrays. `matches` accepts a regex pattern string.
+
+## Classification-Aware Operators
+
+These operators compare values against a defined classification hierarchy (e.g., `unclassified < cui < confidential < secret < top-secret`). They are implemented as CLIPS `deffunction` constructs referencing a hierarchy definition.
+
+```yaml
+field: below(classification_level)
+field: meets_or_exceeds(classification_level)
+field: within_scope(scope_definition)
+```
+
+- `below` -- returns true if the field value ranks strictly below the argument.
+- `meets_or_exceeds` -- returns true if the field value ranks at or above the argument.
+- `within_scope` -- returns true if the field value falls within a scope boundary.
+
+These operators accept cross-fact references as arguments (e.g., `below($data.classification)`).
+
+## Temporal Operators
+
+Temporal operators reason over accumulated facts in working memory. They require facts to persist across evaluations within a session.
+
+```yaml
+field: changed_within(duration)
+field: count_exceeds(threshold, window)
+field: rate_exceeds(threshold, window)
+```
+
+- `changed_within` -- true if the field value changed within the given duration.
+- `count_exceeds` -- counts facts matching a template and filter, returns true if count exceeds the threshold within the time window.
+- `rate_exceeds` -- measures the rate of matching facts within a time window, returns true if the rate exceeds the threshold.
+
+These operators enable cumulative reasoning patterns such as "this agent accessed PII from 3 sources this session" or "denial rate spiked 400% in the last 10 minutes."
+
+## Cross-Fact References and Variable Binding
+
+Rules can reference fields from other matched facts using the `$variable.field` syntax. The `as:` keyword binds a matched fact to a variable name.
+
+```yaml
+when:
+  agent:
+    clearance: meets_or_exceeds($data.classification)
+    purpose: in($data.allowed_purposes)
+  data_request:
+    as: $data
+```
+
+In this example, `data_request` is bound to `$data`. The `agent` conditions then reference `$data.classification` and `$data.allowed_purposes` to compare across fact types.
+
+Variable bindings compile to CLIPS pattern-binding syntax. Any fact in the `when` block can be bound with `as:` and referenced by other conditions in the same rule.
+
+## Supported Actions
+
+The `then` block defines what happens when all `when` conditions match.
+
+```yaml
+then:
+  action: allow | deny | escalate | scope | route
+  reason: "Explanation with {variable} interpolation"
+  log: none | summary | full
+  notify: [channel_list]
+  attestation: true | false
+  metadata:
+    key: value
+```
+
+| Field         | Required | Values                                        |
+|---------------|----------|-----------------------------------------------|
+| `action`      | yes      | `allow`, `deny`, `escalate`, `scope`, `route` |
+| `reason`      | yes      | String; supports `{variable}` interpolation   |
+| `log`         | no       | `none`, `summary`, `full`                     |
+| `notify`      | no       | Array of notification channels                |
+| `attestation` | no       | Boolean; enables Ed25519-signed JWT output    |
+| `metadata`    | no       | Arbitrary key-value pairs                     |
+
+**Reason interpolation** uses curly braces: `{agent.clearance}` resolves to the matched agent fact's clearance slot. Cross-fact references use the bound variable: `{$data.classification}`.
+
+## Salience
+
+Salience is an integer controlling rule firing priority. When multiple rules match the same facts, higher salience fires first.
+
+Convention: allow rules should have higher salience than deny rules. The evaluator uses last-write-wins — the rule firing LAST wins. Deny rules at lower salience fire last and therefore override any prior allow, enforcing fail-closed behavior.
+
+```yaml
+rules:
+  - name: allow-matching-clearance
+    salience: 100              # Fires first
+    when: ...
+    then:
+      action: allow
+
+  - name: deny-insufficient-clearance
+    salience: 10               # Fires last — overwrites allow via last-write-wins
+    when: ...
+    then:
+      action: deny
+```
+
+## Rule Packs
+
+Pre-built, versioned rule collections for common compliance and security frameworks. Each pack declares its own CLIPS module, so multiple packs compose without name collisions.
+
+| Pack                    | Scope                                          |
+|-------------------------|-------------------------------------------------|
+| `fathom-nist-800-53`   | Access control, audit, information flow         |
+| `fathom-hipaa`         | PHI handling, minimum necessary, breach triggers |
+| `fathom-cmmc`          | CMMC Level 2+ controls for agent operations     |
+| `fathom-owasp-agentic` | OWASP Agentic Top 10 risk mitigations           |
+
+Install via uv:
+
+```bash
+uv add fathom-nist-800-53
+```
+
+Rule packs are composable. Installing multiple packs is safe because each uses its own module namespace, and the focus stack determines evaluation order.
+
+## Do Not
+
+- Do not omit the `module` field from rule files. Every ruleset must target a declared module.
+- Do not rely on rule definition order for firing priority. Use `salience` explicitly.
+- Do not use temporal operators without persistent working memory. They require facts accumulated across evaluations within a session.
+- Do not mix raw CLIPS `defrule` and YAML rules in the same file. Use separate files for raw CLIPS passthrough.
+- Do not give deny rules higher salience than allow rules. The salience convention is allow > deny (higher salience for allow, so deny fires last and wins under last-write-wins).
+- Do not use `{variable}` interpolation syntax in fields other than `reason`. It is only supported in the reason string.
+
+
+## yaml/yaml-modules.md
+
+# Runtime — YAML Module Authoring
+
+Modules namespace rules into isolated groups and compile to CLIPS `defmodule` constructs. They control evaluation order via the focus stack and make multi-pack composition safe.
+
+## What It Is
+
+A module is a named container for rules. Rules in different modules cannot collide -- module names prefix rule names, giving each rule a unique identity (`governance::deny-insufficient-clearance`). The focus stack determines which module's rules fire first. Within a module, salience determines rule firing order.
+
+## Module File Structure
+
+Modules are declared in a `modules.yaml` file with two top-level keys: `modules` (array) and `focus_order` (list).
+
+```yaml
+# modules.yaml
+modules:
+  - name: classification
+    description: "Classification and clearance evaluation"
+    priority: 1
+
+  - name: governance
+    description: "Action-level governance rules"
+    priority: 2
+
+  - name: routing
+    description: "Data source routing decisions"
+    priority: 3
+
+  - name: cumulative
+    description: "Cross-session exposure analysis"
+    priority: 4
+
+focus_order: [classification, governance, routing, cumulative]
+```
+
+Each module entry has three fields:
+
+- **name** -- Unique identifier. Becomes the CLIPS `defmodule` name and the namespace prefix for all rules in this module.
+- **description** -- Human-readable purpose. Used in traces and documentation.
+- **priority** -- Integer. Lower numbers indicate higher precedence. Determines default ordering when `focus_order` is not explicitly set.
+
+## Focus Stack
+
+`focus_order` controls the evaluation sequence. Modules execute in declared order -- rules in module N fire completely before rules in module N+1.
+
+In the example above, evaluation proceeds:
+
+1. `classification` -- Determine data sensitivity levels.
+2. `governance` -- Allow or deny based on classification output.
+3. `routing` -- Select data sources for permitted requests.
+4. `cumulative` -- Check session-wide exposure patterns.
+
+The focus stack is a CLIPS concept. When `engine.evaluate()` runs, Fathom pushes modules onto the CLIPS focus stack in reverse `focus_order` so the first module in the list gets focus first. Each module runs its agenda (all matching rules, ordered by salience) to completion before the next module receives focus.
+
+## Priority and Focus Order
+
+The `priority` field on each module and the `focus_order` list serve related but distinct purposes:
+
+- **`focus_order`** is the authoritative evaluation sequence. If present, it determines module execution order exactly as declared.
+- **`priority`** is a numeric hint. It establishes default ordering when composing modules from multiple packs that do not share a single `focus_order` declaration.
+
+When writing a single `modules.yaml`, keep `priority` values consistent with `focus_order` for clarity. When composing packs, the merged `focus_order` takes precedence over individual `priority` values.
+
+## Module Isolation
+
+Rules in different modules do not collide. The module name namespaces the rule name:
+
+- `classification::resolve-levels`
+- `governance::deny-insufficient-clearance`
+- `routing::select-data-source`
+
+This isolation is what makes multiple rule packs safe to compose. Two packs can each define a rule named `deny-access` -- as long as they declare different modules, the fully qualified names differ and no conflict occurs.
+
+Facts in working memory are shared across all modules. A fact asserted during `classification` evaluation is visible to `governance` rules. This is by design -- modules control rule execution order, not fact visibility.
+
+## Salience and Modules
+
+**Within a module**, salience determines rule firing order. Higher salience fires first. The evaluator uses last-write-wins — so an allow rule at salience 100 fires first, then a deny rule at salience 10 fires last and overwrites the allow decision.
+
+**Across modules**, the focus stack determines which module runs first. Salience has no effect across module boundaries. A salience-1000 rule in the `cumulative` module will not fire before a salience-1 rule in `classification` if classification precedes cumulative in `focus_order`.
+
+```yaml
+# rules/access-control.yaml
+ruleset: access-control
+module: governance
+
+rules:
+  - name: allow-matching-clearance
+    salience: 100     # fires first within governance
+    when:
+      agent:
+        clearance: meets_or_exceeds($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: allow
+
+  - name: deny-insufficient-clearance
+    salience: 10      # fires last — last-write-wins means deny overrides
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+```
+
+## Multi-Pack Composition
+
+Installing multiple rule packs is safe because each declares its own module.
+
+```bash
+uv add fathom-nist-800-53
+uv add fathom-hipaa
+```
+
+`fathom-nist-800-53` declares a `nist` module. `fathom-hipaa` declares a `hipaa` module. No rule name collisions occur. The combined `focus_order` determines which module's decisions take precedence.
+
+```yaml
+# Combined modules.yaml
+focus_order: [classification, nist, hipaa, governance, routing]
+```
+
+Here, NIST rules evaluate before HIPAA. If a NIST rule produces a terminal deny decision, HIPAA rules never fire. Reorder the list to change precedence.
+
+## Module Assignment in Rules
+
+Rules declare their module in the YAML header via the `module:` field. When loaded, each rule is placed into its declared module by `engine.load_rules()`.
+
+```yaml
+# rules/classification.yaml
+ruleset: classification-rules
+module: classification
+
+rules:
+  - name: resolve-levels
+    # ...
+```
+
+```python
+engine.load_rules("rules/classification.yaml")   # module: classification
+engine.load_rules("rules/access-control.yaml")   # module: governance
+engine.load_rules("rules/routing.yaml")           # module: routing
+engine.load_rules("rules/exposure.yaml")          # module: cumulative
+```
+
+The `module` field in the ruleset YAML must match a module name declared in `modules.yaml`. Loading a rule that references an undeclared module is an error.
+
+## Module Trace
+
+`engine.evaluate()` returns `module_trace` -- a list of modules that were actually traversed during evaluation.
+
+```python
+result = engine.evaluate()
+print(result.module_trace)  # ["classification", "governance"]
+```
+
+Modules that were never reached -- because an earlier module produced a terminal decision (deny, escalate) -- are absent from the trace. In this example, `routing` and `cumulative` are absent because `governance` issued a deny.
+
+The companion `rule_trace` shows individual rules fired with their module prefix:
+
+```python
+print(result.rule_trace)
+# ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
+```
+
+## Python API
+
+```python
+from fathom import Engine
+
+engine = Engine()
+
+# Load module definitions
+engine.load_modules("modules.yaml")
+
+# Load rules into their declared modules
+engine.load_rules("rules/classification.yaml")
+engine.load_rules("rules/access-control.yaml")
+engine.load_rules("rules/routing.yaml")
+engine.load_rules("rules/exposure.yaml")
+
+# Assert facts and evaluate
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+
+engine.assert_fact("data_request", {
+    "agent_id": "agent-alpha",
+    "target": "hr_records",
+    "classification": "top-secret",
+    "action": "read"
+})
+
+result = engine.evaluate()
+print(result.decision)      # "deny"
+print(result.module_trace)  # ["classification", "governance"]
+print(result.duration_us)   # 47
+```
+
+## Conventions
+
+- One `modules.yaml` per project (or per rule pack).
+- Module names are lowercase, hyphen-free identifiers (e.g., `classification`, `governance`, `routing`).
+- Every ruleset YAML file must declare `module:` in its header.
+- `focus_order` must list every module name declared in `modules`.
+- Keep `priority` values consistent with `focus_order` position.
+
+## Do Not
+
+- Do not omit `focus_order` from `modules.yaml` -- implicit ordering from `priority` alone is fragile and harder to audit.
+- Do not assign rules from multiple modules into a single ruleset YAML file. One file, one module.
+- Do not rely on salience to control cross-module ordering. Salience is intra-module only.
+- Do not share rule names across packs expecting them to merge. Module isolation means each pack's rules are independent.
+- Do not mutate `focus_order` at runtime. Module ordering is a compile-time decision loaded via `engine.load_modules()`.
+
+
+## yaml/yaml-functions.md
+
+# Runtime — YAML Functions
+
+Functions provide reusable logic that rules reference in conditions and actions. They compile to CLIPS `deffunction` constructs.
+
+## What It Is
+
+A function file declares a top-level `functions:` array. Each entry defines a named, parameterized operation the CLIPS engine can call during pattern matching or action execution. Two categories exist: YAML-declared functions (compiled to CLIPS automatically) and raw CLIPS `deffunction` passthrough (for logic YAML cannot express).
+
+## Function File Structure
+
+Each YAML function file contains a `functions:` array. Every function has three required fields and one optional field.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Identifier used in rule conditions and actions |
+| `description` | yes | Human-readable purpose |
+| `params` | yes | Ordered parameter list |
+| `hierarchy_ref` | no | Path to an external hierarchy definition (classification operators only) |
+
+```yaml
+# functions/classification.yaml
+functions:
+  - name: below
+    description: "Returns true if level_a ranks below level_b in the classification hierarchy"
+    params: [level_a, level_b]
+    hierarchy_ref: classification.yaml
+
+  - name: meets_or_exceeds
+    description: "Returns true if level_a ranks at or above level_b"
+    params: [level_a, level_b]
+    hierarchy_ref: classification.yaml
+
+  - name: count_exceeds
+    description: "Count facts matching a template+filter, return true if count > threshold"
+    params: [template, filter, threshold]
+
+  - name: rate_exceeds
+    description: "Count matching facts within a time window, return true if rate > threshold"
+    params: [template, filter, threshold, window_seconds]
+```
+
+## Classification-Aware Operators
+
+`below(level_a, level_b)` and `meets_or_exceeds(level_a, level_b)` compare two classification levels using an externally defined hierarchy. They are the primary mechanism for clearance-based access control.
+
+**How the hierarchy works.** A `hierarchy_ref` points to a YAML file (e.g., `classification.yaml`) that defines an ordered sequence of classification levels. Lower index means lower rank:
+
+```
+unclassified < cui < confidential < secret < top-secret
+```
+
+- `below("secret", "top-secret")` returns `TRUE` because secret ranks below top-secret.
+- `meets_or_exceeds("secret", "cui")` returns `TRUE` because secret ranks at or above cui.
+- `below("secret", "secret")` returns `FALSE` because equal rank is not below.
+
+These operators compile to CLIPS `deffunction` constructs that compare integer rank positions derived from the hierarchy definition.
+
+## Temporal Operators
+
+Temporal operators reason about patterns accumulated in working memory over time. Working memory must be populated with the relevant facts before these operators produce meaningful results.
+
+**`count_exceeds(template, filter, threshold)`** -- Counts all facts in working memory matching the given template and filter. Returns `TRUE` if the count exceeds the threshold.
+
+**`rate_exceeds(template, filter, threshold, window_seconds)`** -- Counts matching facts whose timestamp falls within the last `window_seconds`. Returns `TRUE` if that count exceeds the threshold.
+
+```python
+# Populate working memory with access logs
+engine.assert_facts([
+    ("access_log", {"agent_id": "agent-alpha", "source": "hr_db",
+                    "data_type": "PII", "timestamp": 1713020400.0}),
+    ("access_log", {"agent_id": "agent-alpha", "source": "finance_db",
+                    "data_type": "PII", "timestamp": 1713020460.0}),
+    ("access_log", {"agent_id": "agent-alpha", "source": "medical_db",
+                    "data_type": "PHI", "timestamp": 1713020520.0}),
+])
+
+# A rule using count_exceeds fires: "3 PII accesses in one session exceeds threshold"
+result = engine.evaluate()  # -> escalate
+```
+
+## hierarchy_ref
+
+The `hierarchy_ref` field on a function definition points to an external YAML file that defines a classification ordering. This decouples the hierarchy from function logic, so the same `below`/`meets_or_exceeds` operators work across different classification schemes.
+
+The referenced file (e.g., `classification.yaml`) defines the ordering used to convert symbolic levels into comparable integer ranks. The canonical Fathom hierarchy is:
+
+```
+unclassified < cui < confidential < secret < top-secret
+```
+
+Template slots constrain which symbols are valid via `allowed_values`:
+
+```yaml
+- name: clearance
+  type: symbol
+  allowed_values: [unclassified, cui, confidential, secret, top-secret]
+```
+
+## Raw CLIPS deffunction Passthrough
+
+For complex math, string manipulation, or custom scoring logic that YAML cannot express, use `engine.load_clips_function()` to inject raw CLIPS directly.
+
+```python
+engine.load_clips_function("""
+(deffunction combined-risk (?clearance ?data-class ?access-count)
+    (bind ?base-risk (- (classification-rank ?data-class) (classification-rank ?clearance)))
+    (bind ?volume-risk (/ ?access-count 10))
+    (+ ?base-risk ?volume-risk))
+""")
+```
+
+This `combined-risk` function computes a risk score from two components: the gap between data classification and agent clearance (`base-risk`), and a volume factor derived from access count (`volume-risk`). It calls `classification-rank`, which is itself a compiled function from the hierarchy definition.
+
+Raw CLIPS deffunctions have full access to the CLIPS runtime -- they can call other functions, bind local variables, and perform arbitrary computation.
+
+## Using Functions in Rules
+
+YAML rules reference functions in `when:` conditions by calling them inline on a slot value. The syntax is `slot: function_name(arguments)`.
+
+```yaml
+rules:
+  - name: deny-insufficient-clearance
+    description: "Deny access when agent clearance is below data classification"
+    salience: 100
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+      reason: "Agent clearance '{agent.clearance}' insufficient for '{$data.classification}' data"
+      log: full
+
+  - name: allow-matching-clearance
+    salience: 50
+    when:
+      agent:
+        clearance: meets_or_exceeds($data.classification)
+        purpose: in($data.allowed_purposes)
+      data_request:
+        as: $data
+    then:
+      action: allow
+      scope: $data.authorized_collections
+      log: full
+```
+
+Cross-fact references (`$data.classification`) bind to a fact aliased with `as: $data`. The function receives the resolved value at evaluation time.
+
+## When to Use YAML vs Raw CLIPS
+
+| Use Case | Approach |
+|----------|----------|
+| Simple parameterized comparisons (below, meets_or_exceeds) | YAML function |
+| Counting/filtering working memory (count_exceeds, rate_exceeds) | YAML function |
+| Complex math (risk scoring, weighted averages) | Raw CLIPS deffunction |
+| String manipulation | Raw CLIPS deffunction |
+| Multi-step computation with local variable binding | Raw CLIPS deffunction |
+| Functions that call other functions (e.g., `combined-risk` calling `classification-rank`) | Raw CLIPS deffunction |
+
+YAML functions compile to CLIPS automatically. Use them for anything the YAML schema can express. Switch to raw CLIPS only when you need language features (arithmetic, string ops, branching) beyond parameter-driven comparison.
+
+## Python API
+
+```python
+from fathom import Engine
+
+engine = Engine()
+
+# Load all YAML function files from a directory
+engine.load_functions("functions/")
+
+# Load a single raw CLIPS deffunction
+engine.load_clips_function("""
+(deffunction combined-risk (?clearance ?data-class ?access-count)
+    (bind ?base-risk (- (classification-rank ?data-class) (classification-rank ?clearance)))
+    (bind ?volume-risk (/ ?access-count 10))
+    (+ ?base-risk ?volume-risk))
+""")
+
+# Full evaluation pipeline
+engine.load_templates("templates/")
+engine.load_modules("modules.yaml")
+engine.load_functions("functions/")
+engine.load_rules("rules/")
+result = engine.evaluate()
+```
+
+## Conventions
+
+- Function files live under `functions/` at the project root.
+- One function file per logical group (e.g., `classification.yaml` for hierarchy operators, `temporal.yaml` for time-based operators).
+- Function names use lowercase with hyphens for raw CLIPS (`combined-risk`) and underscores for YAML (`count_exceeds`).
+- `hierarchy_ref` paths are relative to the functions directory.
+- Functions must be loaded before rules that reference them: call `engine.load_functions()` before `engine.load_rules()`.
+- Temporal operators assume facts have a `timestamp` slot of type `float` (Unix epoch seconds).
+
+## Do Not
+
+- Do not define classification hierarchies inline in function files. Use `hierarchy_ref` to point to an external hierarchy definition.
+- Do not use raw CLIPS deffunction for simple comparisons that YAML functions can express. The YAML compiler provides validation that raw CLIPS bypasses.
+- Do not call `engine.load_rules()` before `engine.load_functions()`. Rules referencing undefined functions will fail at compile time.
+- Do not assume temporal operators work without populated working memory. `count_exceeds` and `rate_exceeds` count facts already in memory; they do not query external sources.
+- Do not use COOL (CLIPS Object System), backward chaining, or generic functions. These are explicitly excluded from Fathom v1.
+
+
+## reference/index.md
+
+# Reference
+
+Every public surface of Fathom is documented here. All pages under this tab
+are generated from source — hand edits will be overwritten on next build.
+
+## SDKs
+
+- [Python SDK](python-sdk/index.md)
+- [Go SDK](go-sdk/index.md)
+- [TypeScript SDK](typescript-sdk/index.md)
+
+## APIs
+
+- [REST](rest/index.md) · [Try It](rest/try.md)
+- [gRPC](grpc/index.md)
+- [MCP Tools](mcp/index.md)
+
+## YAML
+
+- [Schemas](yaml/index.md)
+
+## Tooling
+
+- [CLI](cli/index.md)
+- [VSCode snippets + schemas](tooling/vscode/index.md)
+
+## Rule Packs
+
+- [OWASP Agentic](rule-packs/owasp-agentic.md)
+- [NIST 800-53](rule-packs/nist-800-53.md)
+- [HIPAA](rule-packs/hipaa.md)
+- [CMMC](rule-packs/cmmc.md)
+
+
+## reference/python-sdk/index.md
+
+# Python SDK Reference
+
+Generated from `fathom.__all__` at docs-build time via mkdocstrings.
+
+## Public symbols
+
+- [`Engine`](engine.md)
+- [`CompilationError`](compilationerror.md)
+- [`EvaluationError`](evaluationerror.md)
+- [`ValidationError`](validationerror.md)
+- [`AssertSpec`](assertspec.md)
+- [`AssertedFact`](assertedfact.md)
+- [`EvaluationResult`](evaluationresult.md)
+
+
+## reference/go-sdk/index.md
+
+# Go SDK
+
+Module path: `github.com/KrakenNet/fathom-go`
+
+- **Generated reference:** [`fathom-go.md`](fathom-go.md)
+- **Source:** [`packages/fathom-go`](https://github.com/KrakenNet/fathom/tree/master/packages/fathom-go)
+- **pkg.go.dev:** [pkg.go.dev/github.com/KrakenNet/fathom-go](https://pkg.go.dev/github.com/KrakenNet/fathom-go)
+
+
+## reference/typescript-sdk/index.md
+
+# TypeScript SDK
+
+Package path: `packages/fathom-ts`
+
+- **Generated reference:** see module pages alongside this index.
+- **Source:** [`packages/fathom-ts/src`](https://github.com/KrakenNet/fathom/tree/master/packages/fathom-ts/src)
+
+
+## reference/rest/index.md
+
+# REST API
+
+Fathom exposes the engine over HTTP via FastAPI. The canonical schema is
+exported at [`openapi.json`](openapi.json) and is regenerated on every
+build.
+
+## Quick links
+
+- **Interactive try-it:** [Swagger UI](try.md)
+- **Raw schema:** [`openapi.json`](openapi.json)
+- **Postman collection:** [`fathom.postman_collection.json`](fathom.postman_collection.json)
+- **Insomnia:** use *Import from URL* pointed at `openapi.json`.
+
+## Reference
+
+<swagger-ui src="./openapi.json"/>
+
+
+## reference/rest/try.md
+
+# Try It — REST API
+
+<swagger-ui src="./openapi.json"/>
+
+
+## reference/grpc/index.md
+
+# gRPC API
+
+Fathom's gRPC service is defined in
+[`protos/fathom.proto`](https://github.com/KrakenNet/fathom/blob/master/protos/fathom.proto).
+
+- **Generated reference:** [`fathom.md`](fathom.md)
+- **Raw `.proto`:** [`fathom.proto`](fathom.proto)
+
+The Go SDK's typed client wraps this service — see
+[Go SDK reference](../go-sdk/index.md).
+
+
+## reference/mcp/index.md
+
+# MCP Tool Manifest
+
+Raw manifest: [`manifest.json`](manifest.json)
+
+| Tool | Description |
+|---|---|
+| [`fathom.assert_fact`](assert_fact.md) | Assert a fact into working memory |
+| [`fathom.evaluate`](evaluate.md) | Run forward-chain evaluation |
+| [`fathom.query`](query.md) | Query working memory |
+| [`fathom.retract`](retract.md) | Retract facts from working memory |
+
+
+## reference/yaml/index.md
+
+# YAML Reference
+
+Fathom's YAML authoring surface has one JSON Schema per construct.
+Schemas are regenerated from `fathom.models` on every docs build.
+
+## Downloads
+
+| Construct | Schema |
+|---|---|
+| Template | [`template.schema.json`](schemas/template.schema.json) |
+| Rule | [`rule.schema.json`](schemas/rule.schema.json) |
+| Module | [`module.schema.json`](schemas/module.schema.json) |
+| Function | [`function.schema.json`](schemas/function.schema.json) |
+| Hierarchy | [`schemas/hierarchy.schema.json`](schemas/hierarchy.schema.json) |
+
+See [VSCode tooling](../tooling/vscode/index.md) for editor setup.
+
+
+## reference/cli/index.md
+
+# CLI Reference
+
+| Command | |
+|---|---|
+| [`fathom bench`](bench.md) | |
+| [`fathom compile`](compile.md) | |
+| [`fathom info`](info.md) | |
+| [`fathom repl`](repl.md) | |
+| [`fathom test`](test.md) | |
+| [`fathom validate`](validate.md) | |
+
+
+## reference/tooling/vscode/index.md
+
+# VSCode Tooling
+
+## Snippets
+
+Download [`fathom.code-snippets`](fathom.code-snippets) and drop it
+into `.vscode/` at your repo root. Available prefixes:
+
+- `fathom-template` — template skeleton
+- `fathom-rule` — rule skeleton
+- `fathom-module` — module skeleton
+- `fathom-function` — function skeleton
+- `fathom-schema` — `yaml-language-server` schema association header
+
+## JSON Schema association
+
+Add to your workspace `.vscode/settings.json`:
+
+```json
+{
+  "yaml.schemas": {
+    "https://fathom-rules.dev/reference/yaml/schemas/rule.schema.json": "rules/*.yaml",
+    "https://fathom-rules.dev/reference/yaml/schemas/template.schema.json": "templates/*.yaml",
+    "https://fathom-rules.dev/reference/yaml/schemas/module.schema.json": "modules/*.yaml",
+    "https://fathom-rules.dev/reference/yaml/schemas/function.schema.json": "functions/*.yaml"
+  }
+}
+```
+
+Or add the `yaml-language-server` header to the top of any YAML file:
+
+```yaml
+# yaml-language-server: $schema=https://fathom-rules.dev/reference/yaml/schemas/rule.schema.json
+```
+
+
+## reference/rule-packs/owasp-agentic.md
+
+# Rule Pack: `owasp-agentic`
+
+OWASP LLM Top 10 agentic safety rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 4  
+**Modules:** `owasp`  
+**Templates:** `agent_input`, `agent_output`, `tool_call`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `detect-prompt-injection` | 100 | `escalate` | Possible prompt injection detected in agent input | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+| `deny-excessive-agency-exec` | 100 | `deny` | Tool call is in the dangerous tools list (LLM04: Excessive Agency) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+| `flag-insecure-output-ssn` | 90 | `escalate` | Agent output may contain SSN pattern (LLM06: Insecure Output) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+| `flag-insecure-output-email` | 80 | `escalate` | Agent output may contain email address (LLM06: Insecure Output) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+
+
+## reference/rule-packs/nist-800-53.md
+
+# Rule Pack: `nist-800-53`
+
+NIST SP 800-53 security and privacy controls rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 10  
+**Modules:** `nist`  
+**Templates:** `access_request`, `audit_event`, `data_transfer`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `access-enforcement` | 100 | `deny` | Access denied: subject clearance insufficient for resource (AC-3) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `info-flow-enforcement` | 100 | `deny` | Data transfer blocked: classified data cannot flow to external destination (AC-4) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `least-privilege` | 100 | `deny` | Privileged action requires explicit context justification (AC-6) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `remote-access` | 100 | `escalate` | Remote privileged access requires additional authorization (AC-17) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `audit-events` | 90 | `escalate` | Auditable event has unknown outcome — requires resolution (AU-2) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `audit-content` | 90 | `deny` | Audit record missing required subject field (AU-3) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `audit-review-analysis` | 80 | `escalate` | Failed privileged action requires review and analysis (AU-6) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `audit-generation` | 90 | `deny` | Audit generation requires resource identification for data events (AU-12) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `boundary-protection` | 100 | `deny` | Data transfer to external boundary requires secure protocol (SC-7) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
+| `transmission-confidentiality` | 100 | `deny` | Classified data requires secure transmission protocol for attribute protection (SC-16) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
+
+
+## reference/rule-packs/hipaa.md
+
+# Rule Pack: `hipaa`
+
+HIPAA Privacy and Security Rule rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 3  
+**Modules:** `hipaa`  
+**Templates:** `data_transfer`, `phi_policy`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `minimum-necessary` | 100 | `deny` | PHI access denied: minimum necessary justification required (164.502(b)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `transmission-security` | 100 | `deny` | PHI transfer blocked: transmission must be encrypted (164.312(e)(1)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `breach-trigger` | 200 | `escalate` | Bulk PHI access detected: breach notification evaluation required (164.402) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+
+
+## reference/rule-packs/cmmc.md
+
+# Rule Pack: `cmmc`
+
+CMMC Level 2 Cybersecurity Maturity Model Certification rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 6  
+**Modules:** `cmmc`  
+**Templates:** `cui_policy`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `ac-l2-authorized-access` | 100 | `deny` | CUI access denied: authorized access justification required (AC.L2-3.1.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ac-l2-cui-flow` | 100 | `deny` | CUI transfer blocked: controlled information cannot flow to external destination (AC.L2-3.1.3) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ac-l2-least-privilege` | 100 | `deny` | Privileged CUI action requires explicit justification (AC.L2-3.1.5) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `au-l2-audit-records` | 100 | `escalate` | Audit record incomplete: outcome must be recorded for CUI events (AU.L2-3.3.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `au-l2-traceability` | 100 | `deny` | Audit traceability failed: subject identity required for all CUI actions (AU.L2-3.3.2) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ir-l2-incident-handling` | 200 | `escalate` | Bulk CUI access detected: incident handling evaluation required (IR.L2-3.6.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+

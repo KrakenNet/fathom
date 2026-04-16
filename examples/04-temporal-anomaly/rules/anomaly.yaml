@@ -1,0 +1,69 @@
+module: anomaly
+ruleset: temporal-anomaly
+version: "1.0"
+
+# -----------------------------------------------------------------------
+# Temporal operators (need ts:float on the template)
+#   rate_exceeds(template, slot, value, threshold, window_seconds)
+#     true if more than `threshold` matching facts within last `window_seconds`
+#   last_n(template, slot, value, n)
+#     true if at least `n` matching facts exist in working memory
+#   distinct_count(template, group_slot, count_slot, threshold)
+#     true if any group has more than `threshold` distinct values
+# -----------------------------------------------------------------------
+
+rules:
+  # Brute-force: more than 4 failed logins for the same user in 30s.
+  - name: brute-force-login
+    salience: 100
+    metadata:
+      detection: brute-force
+      window_seconds: 30
+    when:
+      - template: login_attempt
+        alias: $a
+        conditions:
+          - slot: outcome
+            expression: "equals(failure)"
+          - slot: ts
+            expression: "rate_exceeds(login_attempt, outcome, failure, 4, 30, ts)"
+    then:
+      action: deny
+      reason: "Brute-force suspected: more than 4 failed logins in 30 seconds"
+      log: full
+
+  # Multi-IP: same user has logged in from more than 2 distinct IPs (any time).
+  - name: account-shared-across-ips
+    salience: 90
+    metadata:
+      detection: account-sharing
+    when:
+      - template: login_attempt
+        alias: $a
+        conditions:
+          - slot: outcome
+            expression: "equals(success)"
+          - slot: ts
+            expression: "distinct_count(login_attempt, user, ip, 2)"
+    then:
+      action: escalate
+      reason: "Same user authenticating from more than 2 distinct IPs"
+      log: full
+
+  # Velocity: more than 9 sensitive actions per session in 10s.
+  - name: session-velocity-burst
+    salience: 80
+    metadata:
+      detection: action-burst
+    when:
+      - template: session
+        alias: $s
+        conditions:
+          - slot: action
+            expression: "equals(export)"
+          - slot: ts
+            expression: "rate_exceeds(session, action, export, 9, 10, ts)"
+    then:
+      action: deny
+      reason: "Export burst: more than 9 export actions in 10 seconds"
+      log: full

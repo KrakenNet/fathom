@@ -1,0 +1,81 @@
+# AI / Editor tooling
+.claude
+.vscode
+.cursor
+.worktrees
+CLAUDE.md
+
+# Specs / orchestration state
+./specs/
+specs/.current-spec
+specs/.index/.work-indicators/
+**/.tasks.lock
+**/.progress.md
+**/.ralph-state.json
+**/.git-commit.lock
+
+# Python bytecode
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.installed.cfg
+MANIFEST
+
+# Virtual environments
+.venv
+.env
+.envrc
+
+# uv
+uv.lock
+
+# Testing / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+
+# Type checkers / linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+.ruff_cache/
+
+# mkdocs
+/site
+
+# Node / TypeScript
+node_modules/
+packages/*/node_modules
+
+# Logs
+*.log
+
+# Docker
+*.pid
+
+# Secrets / tokens
+.pypi-token
+.pypirc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Scratch / test artifacts
+.live-test-*/

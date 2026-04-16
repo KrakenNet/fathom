@@ -1,0 +1,3 @@
+# `fathom.EvaluationError`
+
+::: fathom.EvaluationError

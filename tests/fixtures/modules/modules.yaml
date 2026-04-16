@@ -1,0 +1,6 @@
+modules:
+  - name: governance
+    description: "Action-level governance rules"
+
+focus_order:
+  - governance

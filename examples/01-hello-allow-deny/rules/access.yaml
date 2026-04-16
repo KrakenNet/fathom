@@ -1,0 +1,77 @@
+module: governance
+ruleset: hello-allow-deny
+version: "1.0"
+
+rules:
+  # Allow rules get higher salience (fire first); deny rules get lower salience
+  # (fire last). Last-write-wins means deny overwrites allow — fail-closed.
+  - name: deny-secret-for-confidential
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(confidential)"
+      - template: data_request
+        conditions:
+          - slot: classification
+            expression: "in([secret, top-secret])"
+    then:
+      action: deny
+      reason: "Confidential clearance cannot read secret or top-secret data"
+
+  - name: deny-top-secret-for-secret
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(secret)"
+      - template: data_request
+        conditions:
+          - slot: classification
+            expression: "equals(top-secret)"
+    then:
+      action: deny
+      reason: "Secret clearance insufficient for top-secret data"
+
+  - name: allow-unclassified-for-anyone
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: id
+            expression: "matches(.+)"
+      - template: data_request
+        conditions:
+          - slot: classification
+            expression: "equals(unclassified)"
+    then:
+      action: allow
+      reason: "Any clearance may read unclassified data"
+
+  - name: allow-secret-and-below-for-secret
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(secret)"
+      - template: data_request
+        conditions:
+          - slot: classification
+            expression: "in([secret, confidential])"
+    then:
+      action: allow
+      reason: "Secret clearance may read secret and confidential data"
+
+  - name: allow-top-secret-reads-anything
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(top-secret)"
+    then:
+      action: allow
+      reason: "Top-secret clearance may read any classification"

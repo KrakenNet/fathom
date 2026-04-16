@@ -1,0 +1,133 @@
+module: guardrails
+ruleset: agent-tool-guardrails
+version: "1.0"
+
+# -----------------------------------------------------------------------
+# Tool-call guardrails for an LLM agent.
+#
+# Every time the agent invokes a tool, FathomCallbackHandler asserts a
+# tool_request fact and runs evaluate(). On 'deny' or 'escalate' the
+# integration raises PolicyViolation.
+# -----------------------------------------------------------------------
+
+rules:
+  # Hard block: no agent may shell out, no matter the trust tier.
+  - name: no-shell-tools
+    salience: 5
+    metadata:
+      control: TOOLS-001
+    when:
+      - template: tool_request
+        conditions:
+          - slot: tool_name
+            expression: "in([shell_exec, run_command, subprocess])"
+    then:
+      action: deny
+      reason: "Shell execution tools are blocked for all agents"
+      log: full
+
+  # Hard block: never delete data via the agent.
+  - name: no-delete-actions
+    salience: 5
+    metadata:
+      control: TOOLS-002
+    when:
+      - template: tool_request
+        conditions:
+          - slot: tool_name
+            expression: "in([delete_record, drop_table, purge_index])"
+    then:
+      action: deny
+      reason: "Destructive deletion tools are blocked"
+      log: full
+
+  # Block: untrusted agents may not call any tool.
+  - name: untrusted-no-tools
+    salience: 15
+    metadata:
+      control: TOOLS-003
+    when:
+      - template: tool_request
+        alias: $req
+        conditions:
+          - slot: agent_id
+            expression: "matches(.+)"
+          - slot: tool_name
+            expression: "matches(.+)"
+      - template: agent
+        conditions:
+          - slot: id
+            expression: "equals($req.agent_id)"
+          - slot: trust_tier
+            expression: "equals(untrusted)"
+    then:
+      action: deny
+      reason: "Untrusted agents cannot invoke tools"
+      log: full
+
+  # Escalate: send_email and write_file always need human approval
+  # for non-admin agents.
+  - name: send-email-needs-elevation
+    salience: 20
+    metadata:
+      control: TOOLS-004
+    when:
+      - template: tool_request
+        alias: $req
+        conditions:
+          - slot: agent_id
+            expression: "matches(.+)"
+          - slot: tool_name
+            expression: "in([send_email, write_file, post_webhook])"
+      - template: agent
+        conditions:
+          - slot: id
+            expression: "equals($req.agent_id)"
+          - slot: trust_tier
+            expression: "in([basic, elevated])"
+    then:
+      action: escalate
+      reason: "Side-effecting tool requires human approval for non-admin agents"
+      log: full
+
+  # Allow: read-only knowledge tools for any non-untrusted agent.
+  - name: allow-readonly-tools
+    salience: 100
+    when:
+      - template: tool_request
+        alias: $req
+        conditions:
+          - slot: agent_id
+            expression: "matches(.+)"
+          - slot: tool_name
+            expression: "in([web_search, read_doc, vector_query, calculator])"
+      - template: agent
+        conditions:
+          - slot: id
+            expression: "equals($req.agent_id)"
+          - slot: trust_tier
+            expression: "in([basic, elevated, admin])"
+    then:
+      action: allow
+      reason: "Read-only knowledge tools permitted"
+
+  # Allow: admins get write tools too.
+  - name: allow-admin-side-effects
+    salience: 100
+    when:
+      - template: tool_request
+        alias: $req
+        conditions:
+          - slot: agent_id
+            expression: "matches(.+)"
+          - slot: tool_name
+            expression: "in([send_email, write_file, post_webhook])"
+      - template: agent
+        conditions:
+          - slot: id
+            expression: "equals($req.agent_id)"
+          - slot: trust_tier
+            expression: "equals(admin)"
+    then:
+      action: allow
+      reason: "Admin tier may invoke side-effecting tools"

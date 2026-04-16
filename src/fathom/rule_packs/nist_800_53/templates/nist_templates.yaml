@@ -1,0 +1,54 @@
+templates:
+  - name: access_request
+    slots:
+      - name: subject
+        type: string
+        required: true
+      - name: resource
+        type: string
+        required: true
+      - name: action
+        type: symbol
+        required: true
+      - name: clearance
+        type: symbol
+        default: unclassified
+      - name: context
+        type: string
+        default: ""
+
+  - name: audit_event
+    slots:
+      - name: event_type
+        type: symbol
+        required: true
+      - name: subject
+        type: string
+        required: true
+      - name: resource
+        type: string
+        default: ""
+      - name: outcome
+        type: symbol
+        default: unknown
+      - name: ts
+        type: float
+        required: true
+
+  - name: data_transfer
+    slots:
+      - name: source
+        type: string
+        required: true
+      - name: destination
+        type: string
+        required: true
+      - name: classification
+        type: symbol
+        default: unclassified
+      - name: size_bytes
+        type: integer
+        default: 0
+      - name: protocol
+        type: symbol
+        default: unknown

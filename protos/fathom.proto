@@ -1,0 +1,124 @@
+// Fathom gRPC service definition.
+//
+// Provides remote access to the Fathom deterministic reasoning engine
+// for evaluating policy rules, managing working memory, and streaming
+// fact changes.
+
+syntax = "proto3";
+
+package fathom.v1;
+
+option java_package = "com.fathom.v1";
+option go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1";
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+service FathomService {
+  // Evaluate asserted facts against loaded rules and return a decision.
+  rpc Evaluate (EvaluateRequest) returns (EvaluateResponse);
+
+  // Assert one or more facts into working memory.
+  rpc AssertFact (AssertFactRequest) returns (AssertFactResponse);
+
+  // Query working memory for facts matching a template and optional filter.
+  rpc Query (QueryRequest) returns (QueryResponse);
+
+  // Retract facts matching a template and optional filter.
+  rpc Retract (RetractRequest) returns (RetractResponse);
+
+  // Stream working-memory changes as they occur during evaluation.
+  rpc SubscribeChanges (SubscribeRequest) returns (stream FactChange);
+}
+
+// ---------------------------------------------------------------------------
+// Evaluate
+// ---------------------------------------------------------------------------
+
+message FactInput {
+  string template = 1;
+  // JSON-encoded slot data (e.g. {"tool_name": "bash", "agent_id": "a1"}).
+  string data_json = 2;
+}
+
+message EvaluateRequest {
+  string session_id = 1;
+  string ruleset = 2;
+  repeated FactInput facts = 3;
+}
+
+message EvaluateResponse {
+  string decision = 1;
+  string reason = 2;
+  repeated string rule_trace = 3;
+  repeated string module_trace = 4;
+  int64 duration_us = 5;
+}
+
+// ---------------------------------------------------------------------------
+// AssertFact
+// ---------------------------------------------------------------------------
+
+message AssertFactRequest {
+  string session_id = 1;
+  string template = 2;
+  // JSON-encoded slot data.
+  string data_json = 3;
+}
+
+message AssertFactResponse {
+  bool success = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------
+
+message QueryRequest {
+  string session_id = 1;
+  string template = 2;
+  // Optional JSON-encoded filter (e.g. {"agent_id": "a1"}).
+  string filter_json = 3;
+}
+
+message QueryResponse {
+  // Each entry is a JSON-encoded dict representing one fact.
+  repeated string facts_json = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Retract
+// ---------------------------------------------------------------------------
+
+message RetractRequest {
+  string session_id = 1;
+  string template = 2;
+  // Optional JSON-encoded filter.
+  string filter_json = 3;
+}
+
+message RetractResponse {
+  int32 retracted_count = 1;
+}
+
+// ---------------------------------------------------------------------------
+// SubscribeChanges
+// ---------------------------------------------------------------------------
+
+message SubscribeRequest {
+  string session_id = 1;
+}
+
+enum ChangeType {
+  CHANGE_TYPE_UNSPECIFIED = 0;
+  ASSERT = 1;
+  RETRACT = 2;
+}
+
+message FactChange {
+  ChangeType change_type = 1;
+  string template = 2;
+  // JSON-encoded slot data of the changed fact.
+  string data_json = 3;
+}

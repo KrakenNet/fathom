@@ -1,0 +1,30 @@
+templates:
+  - name: phi_policy
+    slots:
+      - name: resource
+        type: symbol
+        required: true
+      - name: role
+        type: symbol
+        required: true
+      - name: access_level
+        type: symbol
+        default: read
+      - name: justification
+        type: string
+        default: ""
+
+  - name: data_transfer
+    slots:
+      - name: source
+        type: symbol
+        required: true
+      - name: destination
+        type: symbol
+        required: true
+      - name: data_type
+        type: symbol
+        default: phi
+      - name: encrypted
+        type: symbol
+        default: "FALSE"

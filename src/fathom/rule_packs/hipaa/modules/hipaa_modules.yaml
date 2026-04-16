@@ -1,0 +1,5 @@
+modules:
+  - name: hipaa
+    description: "HIPAA Privacy and Security Rule enforcement"
+focus_order:
+  - hipaa

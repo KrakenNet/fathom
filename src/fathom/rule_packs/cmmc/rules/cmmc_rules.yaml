@@ -1,0 +1,131 @@
+module: cmmc
+ruleset: cmmc-level2
+version: "1.0"
+rules:
+  - name: ac-l2-authorized-access
+    salience: 100
+    metadata:
+      control: AC.L2-3.1.1
+      framework: CMMC
+      title: Authorized Access Control
+      cmmc_practice: AC.L2-3.1.1
+      cmmc_level: 2
+    when:
+      - template: cui_policy
+        conditions:
+          - slot: justification
+            expression: "equals()"
+          - slot: action
+            expression: "in([read, write, admin])"
+    then:
+      action: deny
+      reason: "CUI access denied: authorized access justification required (AC.L2-3.1.1)"
+      log: full
+      attestation: true
+
+  - name: ac-l2-cui-flow
+    salience: 100
+    metadata:
+      control: AC.L2-3.1.3
+      framework: CMMC
+      title: CUI Flow Enforcement
+      cmmc_practice: AC.L2-3.1.3
+      cmmc_level: 2
+    when:
+      - template: data_transfer
+        conditions:
+          - slot: classification
+            expression: "in([cui_basic, cui_specified, secret, top_secret])"
+          - slot: destination
+            expression: "matches(external|public|untrusted)"
+    then:
+      action: deny
+      reason: "CUI transfer blocked: controlled information cannot flow to external destination (AC.L2-3.1.3)"
+      log: full
+      attestation: true
+
+  - name: ac-l2-least-privilege
+    salience: 100
+    metadata:
+      control: AC.L2-3.1.5
+      framework: CMMC
+      title: Least Privilege
+      cmmc_practice: AC.L2-3.1.5
+      cmmc_level: 2
+    when:
+      - template: cui_policy
+        conditions:
+          - slot: action
+            expression: "in([admin, escalate, override, delete])"
+          - slot: justification
+            expression: "equals()"
+    then:
+      action: deny
+      reason: "Privileged CUI action requires explicit justification (AC.L2-3.1.5)"
+      log: full
+      attestation: true
+
+  - name: au-l2-audit-records
+    salience: 100
+    metadata:
+      control: AU.L2-3.3.1
+      framework: CMMC
+      title: System Audit Records
+      cmmc_practice: AU.L2-3.3.1
+      cmmc_level: 2
+    when:
+      - template: audit_event
+        conditions:
+          - slot: outcome
+            expression: "equals(unknown)"
+          - slot: event_type
+            expression: "in([access, modify, delete, export])"
+    then:
+      action: escalate
+      reason: "Audit record incomplete: outcome must be recorded for CUI events (AU.L2-3.3.1)"
+      log: full
+      attestation: true
+
+  - name: au-l2-traceability
+    salience: 100
+    metadata:
+      control: AU.L2-3.3.2
+      framework: CMMC
+      title: Audit Traceability
+      cmmc_practice: AU.L2-3.3.2
+      cmmc_level: 2
+    when:
+      - template: audit_event
+        conditions:
+          - slot: subject
+            expression: "equals()"
+          - slot: event_type
+            expression: "in([access, modify, delete, export])"
+    then:
+      action: deny
+      reason: "Audit traceability failed: subject identity required for all CUI actions (AU.L2-3.3.2)"
+      log: full
+      attestation: true
+
+  - name: ir-l2-incident-handling
+    salience: 200
+    metadata:
+      control: IR.L2-3.6.1
+      framework: CMMC
+      title: Incident Handling
+      cmmc_practice: IR.L2-3.6.1
+      cmmc_level: 2
+    when:
+      - template: cui_policy
+        conditions:
+          - slot: action
+            expression: "in([read, write, admin, export])"
+        temporal:
+          operator: count_exceeds
+          threshold: 20
+          window_seconds: 600
+    then:
+      action: escalate
+      reason: "Bulk CUI access detected: incident handling evaluation required (IR.L2-3.6.1)"
+      log: full
+      attestation: true

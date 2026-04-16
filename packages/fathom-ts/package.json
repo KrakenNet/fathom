@@ -1,0 +1,37 @@
+{
+  "name": "@fathom-rules/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Fathom policy engine REST API",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "generate": "bash scripts/generate.sh",
+    "build": "tsc",
+    "docs": "typedoc --plugin typedoc-plugin-markdown --readme none --hideBreadcrumbs --gitRevision master --out ../../docs/reference/typescript-sdk src/index.ts",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.45.0",
+    "@types/node": "^20.19.39",
+    "typedoc": "~0.26.11",
+    "typedoc-plugin-markdown": "~4.2.10",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.60.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KrakenNet/fathom",
+    "directory": "packages/fathom-ts"
+  }
+}

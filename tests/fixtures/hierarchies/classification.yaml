@@ -1,0 +1,7 @@
+name: classification
+levels:
+  - unclassified
+  - cui
+  - confidential
+  - secret
+  - top-secret

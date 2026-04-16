@@ -1,0 +1,3 @@
+# `fathom.CompilationError`
+
+::: fathom.CompilationError

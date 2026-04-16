@@ -1,0 +1,36 @@
+templates:
+  - name: tool_call
+    slots:
+      - name: tool_name
+        type: symbol
+        required: true
+      - name: agent_id
+        type: string
+        required: true
+      - name: arguments
+        type: string
+        default: ""
+
+  - name: agent_input
+    slots:
+      - name: content
+        type: string
+        required: true
+      - name: source
+        type: symbol
+        default: user
+      - name: agent_id
+        type: string
+        required: true
+
+  - name: agent_output
+    slots:
+      - name: content
+        type: string
+        required: true
+      - name: destination
+        type: symbol
+        default: user
+      - name: agent_id
+        type: string
+        required: true

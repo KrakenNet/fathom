@@ -1,0 +1,18 @@
+module: governance
+
+rules:
+  - name: deny-insufficient-clearance
+    description: "Deny access when agent clearance is below data classification"
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(secret)"
+      - template: data_request
+        conditions:
+          - slot: classification
+            expression: "equals(top-secret)"
+    then:
+      action: deny
+      reason: "Agent clearance insufficient for requested data classification"

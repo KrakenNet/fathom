@@ -1,0 +1,39 @@
+# Fathom
+
+Deterministic reasoning runtime for AI agents
+
+## Pages
+
+- [Home](https://fathom-rules.dev/_index/)
+- [Getting Started](https://fathom-rules.dev/getting-started/)
+- [Tutorials](https://fathom-rules.dev/tutorials/index/) — Progressive, hands-on tutorials that walk you through building policy engines with Fathom.
+- [Hello-world policy](https://fathom-rules.dev/tutorials/hello-world/) — Install Fathom, write a template and a rule in YAML, evaluate a fact, and inspect the evaluation result.
+- [Modules & salience](https://fathom-rules.dev/tutorials/modules-and-salience/) — Use modules and salience to build a fail-closed policy where deny always overrides allow.
+- [Core Primitives](https://fathom-rules.dev/core/primitives/)
+- [CLIPS Runtime](https://fathom-rules.dev/core/runtime/)
+- [YAML Compiler](https://fathom-rules.dev/core/yaml-compiler/)
+- [Fact Asserter](https://fathom-rules.dev/core/fact-asserter/)
+- [Forward Chaining](https://fathom-rules.dev/core/forward-chaining/)
+- [Working Memory](https://fathom-rules.dev/core/working-memory/)
+- [Audit Log](https://fathom-rules.dev/core/audit-log/)
+- [Attestation Service](https://fathom-rules.dev/core/attestation/)
+- [Templates](https://fathom-rules.dev/yaml/yaml-templates/)
+- [Facts](https://fathom-rules.dev/yaml/yaml-facts/)
+- [Rules](https://fathom-rules.dev/yaml/yaml-rule-language/)
+- [Modules](https://fathom-rules.dev/yaml/yaml-modules/)
+- [Functions](https://fathom-rules.dev/yaml/yaml-functions/)
+- [Reference](https://fathom-rules.dev/reference/index/) — Generated reference for every Fathom SDK, API, and tooling surface.
+- [Python SDK](https://fathom-rules.dev/reference/python-sdk/index/)
+- [Go SDK](https://fathom-rules.dev/reference/go-sdk/index/) — Fathom Go client reference (generated from godoc via gomarkdoc)
+- [TypeScript SDK](https://fathom-rules.dev/reference/typescript-sdk/index/) — Fathom TS client reference (generated from TSDoc via typedoc)
+- [REST API](https://fathom-rules.dev/reference/rest/index/) — Fathom REST API reference, try-it console, and client exports
+- [REST API — Try It](https://fathom-rules.dev/reference/rest/try/) — Interactive Swagger UI against the Fathom REST API
+- [gRPC API](https://fathom-rules.dev/reference/grpc/index/) — Fathom gRPC service reference, generated from protos/fathom.proto
+- [MCP Tool Manifest](https://fathom-rules.dev/reference/mcp/index/) — Machine-readable index of Fathom MCP tools
+- [YAML Reference](https://fathom-rules.dev/reference/yaml/index/) — JSON Schemas for Fathom YAML constructs
+- [CLI Reference](https://fathom-rules.dev/reference/cli/index/) — Index of `fathom` CLI commands
+- [VSCode Tooling](https://fathom-rules.dev/reference/tooling/vscode/index/) — Snippets and JSON Schema association for Fathom YAML files
+- [owasp-agentic](https://fathom-rules.dev/reference/rule-packs/owasp-agentic/) — Rule pack — owasp-agentic
+- [nist-800-53](https://fathom-rules.dev/reference/rule-packs/nist-800-53/) — Rule pack — nist-800-53
+- [hipaa](https://fathom-rules.dev/reference/rule-packs/hipaa/) — Rule pack — hipaa
+- [cmmc](https://fathom-rules.dev/reference/rule-packs/cmmc/) — Rule pack — cmmc

@@ -1,0 +1,63 @@
+module: hipaa
+ruleset: hipaa-privacy-security
+version: "1.0"
+rules:
+  - name: minimum-necessary
+    salience: 100
+    metadata:
+      control: "164.502(b)"
+      framework: HIPAA
+      title: Minimum Necessary Standard
+    when:
+      - template: phi_policy
+        conditions:
+          - slot: access_level
+            expression: "in([read, write, admin])"
+          - slot: justification
+            expression: "equals()"
+    then:
+      action: deny
+      reason: "PHI access denied: minimum necessary justification required (164.502(b))"
+      log: full
+      attestation: true
+
+  - name: transmission-security
+    salience: 100
+    metadata:
+      control: "164.312(e)(1)"
+      framework: HIPAA
+      title: Transmission Security
+    when:
+      - template: data_transfer
+        conditions:
+          - slot: data_type
+            expression: "equals(phi)"
+          - slot: encrypted
+            expression: "equals(FALSE)"
+    then:
+      action: deny
+      reason: "PHI transfer blocked: transmission must be encrypted (164.312(e)(1))"
+      log: full
+      attestation: true
+
+  - name: breach-trigger
+    salience: 200
+    metadata:
+      control: "164.402"
+      framework: HIPAA
+      title: Breach Notification Trigger
+      threshold: 10
+    when:
+      - template: phi_policy
+        conditions:
+          - slot: access_level
+            expression: "in([read, write, admin])"
+        temporal:
+          operator: count_exceeds
+          threshold: 10
+          window_seconds: 300
+    then:
+      action: escalate
+      reason: "Bulk PHI access detected: breach notification evaluation required (164.402)"
+      log: full
+      attestation: true

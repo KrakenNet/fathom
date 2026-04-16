@@ -1,0 +1,10 @@
+functions:
+  - name: count_exceeds
+    type: temporal
+    params: [template, slot, value, threshold]
+  - name: rate_exceeds
+    type: temporal
+    params: [template, slot, value, threshold, window]
+  - name: changed_within
+    type: temporal
+    params: [timestamp, window]

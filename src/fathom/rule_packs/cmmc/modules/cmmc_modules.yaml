@@ -1,0 +1,6 @@
+modules:
+  - name: cmmc
+    description: "CMMC Level 2 cybersecurity maturity model certification"
+focus_order:
+  - nist
+  - cmmc

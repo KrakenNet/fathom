@@ -1,0 +1,152 @@
+site_name: Fathom
+site_description: Deterministic reasoning runtime for AI agents
+site_url: https://fathom-rules.dev
+repo_url: https://github.com/KrakenNet/fathom
+repo_name: KrakenNet/fathom
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - redirects:
+      redirect_maps:
+        advanced/auth.md: reference/rest/index.md
+        advanced/fleet.md: concepts/runtime-and-working-memory.md
+        advanced/rule-assertions.md: reference/yaml/rule.md
+        api/attestation.md: reference/python-sdk/index.md
+        api/audit.md: reference/python-sdk/index.md
+        api/compiler.md: reference/python-sdk/index.md
+        api/engine.md: reference/python-sdk/index.md
+        api/evaluator.md: reference/python-sdk/index.md
+        api/facts.md: reference/python-sdk/index.md
+        core/attestation.md: concepts/audit-attestation.md
+        core/audit-log.md: concepts/audit-attestation.md
+        core/backward-chaining.md: concepts/not-in-v1.md
+        core/cool.md: concepts/not-in-v1.md
+        core/fact-asserter.md: reference/yaml/fact.md
+        core/forward-chaining.md: concepts/runtime-and-working-memory.md
+        core/message-handlers.md: concepts/not-in-v1.md
+        core/primitives.md: concepts/five-primitives.md
+        core/runtime.md: concepts/runtime-and-working-memory.md
+        core/visual-editor.md: reference/planned-integrations.md
+        core/working-memory.md: concepts/runtime-and-working-memory.md
+        core/yaml-compiler.md: concepts/yaml-compilation.md
+        integration.md: how-to/index.md
+        integrations/cli.md: reference/cli/index.md
+        integrations/crew-ai.md: reference/planned-integrations.md
+        integrations/google-adk.md: reference/planned-integrations.md
+        integrations/go-sdk.md: reference/go-sdk/index.md
+        integrations/grpc.md: reference/grpc/index.md
+        integrations/langchain.md: reference/python-sdk/index.md
+        integrations/mcp.md: reference/mcp/index.md
+        integrations/open-ai-agent-sdk.md: reference/planned-integrations.md
+        integrations/prometheus.md: how-to/fastapi.md
+        integrations/sidecar.md: reference/rest/index.md
+        integrations/typescript-sdk.md: reference/typescript-sdk/index.md
+        rule-packs/cmmc.md: reference/rule-packs/cmmc.md
+        rule-packs/hipaa.md: reference/rule-packs/hipaa.md
+        rule-packs/nist-ai-rmf.md: reference/rule-packs/nist-800-53.md
+        rule-packs/owasp-agentic.md: reference/rule-packs/owasp-agentic.md
+        writing-rules.md: how-to/writing-rules.md
+        yaml/yaml-facts.md: reference/yaml/fact.md
+        yaml/yaml-functions.md: reference/yaml/function.md
+        yaml/yaml-modules.md: reference/yaml/module.md
+        yaml/yaml-rule-language.md: reference/yaml/rule.md
+        yaml/yaml-templates.md: reference/yaml/template.md
+  - swagger-ui-tag
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            members_order: source
+
+extra:
+  version:
+    provider: mike
+    default: latest
+    alias: true
+
+nav:
+  - Home: _index.md
+  - Getting Started: getting-started.md
+  - Tutorials:
+      - Overview: tutorials/index.md
+      - Hello-world policy: tutorials/hello-world.md
+      - Modules & salience: tutorials/modules-and-salience.md
+      - Working memory across evaluations: tutorials/working-memory.md
+  - How-to Guides:
+      - Overview: how-to/index.md
+      - Writing rules: how-to/writing-rules.md
+      - Integrating with FastAPI: how-to/fastapi.md
+      - Using the CLI: how-to/cli.md
+      - Registering a Python function: how-to/register-function.md
+      - Loading a rule pack: how-to/load-rule-pack.md
+      - Embedding via SDK: how-to/embed-sdk.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Five Primitives: concepts/five-primitives.md
+      - Runtime & Working Memory: concepts/runtime-and-working-memory.md
+      - YAML Compilation: concepts/yaml-compilation.md
+      - Audit & Attestation: concepts/audit-attestation.md
+      - CLIPS Features Not In v1: concepts/not-in-v1.md
+  - Reference:
+      - Overview: reference/index.md
+      - Python SDK: reference/python-sdk/index.md
+      - Go SDK: reference/go-sdk/index.md
+      - TypeScript SDK: reference/typescript-sdk/index.md
+      - REST API:
+          - Overview: reference/rest/index.md
+          - Try It: reference/rest/try.md
+      - gRPC API: reference/grpc/index.md
+      - MCP Tools: reference/mcp/index.md
+      - YAML:
+          - Schemas: reference/yaml/index.md
+          - Template: reference/yaml/template.md
+          - Rule: reference/yaml/rule.md
+          - Module: reference/yaml/module.md
+          - Function: reference/yaml/function.md
+          - Fact: reference/yaml/fact.md
+      - CLI: reference/cli/index.md
+      - VSCode Tooling: reference/tooling/vscode/index.md
+      - Rule Packs:
+          - OWASP Agentic: reference/rule-packs/owasp-agentic.md
+          - NIST 800-53: reference/rule-packs/nist-800-53.md
+          - HIPAA: reference/rule-packs/hipaa.md
+          - CMMC: reference/rule-packs/cmmc.md
+      - Planned Integrations: reference/planned-integrations.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

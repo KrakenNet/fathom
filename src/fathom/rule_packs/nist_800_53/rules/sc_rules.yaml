@@ -1,0 +1,41 @@
+module: nist
+ruleset: nist-800-53-sc
+version: "1.0"
+rules:
+  - name: boundary-protection
+    salience: 100
+    metadata:
+      control: SC-7
+      framework: NIST-800-53
+      title: Boundary Protection
+    when:
+      - template: data_transfer
+        conditions:
+          - slot: destination
+            expression: "matches(external|public|untrusted|dmz)"
+          - slot: protocol
+            expression: "in([unknown, plaintext, ftp, telnet])"
+    then:
+      action: deny
+      reason: "Data transfer to external boundary requires secure protocol (SC-7)"
+      log: full
+      attestation: true
+
+  - name: transmission-confidentiality
+    salience: 100
+    metadata:
+      control: SC-16
+      framework: NIST-800-53
+      title: Transmission of Security and Privacy Attributes
+    when:
+      - template: data_transfer
+        conditions:
+          - slot: classification
+            expression: "in([secret, top_secret, confidential])"
+          - slot: protocol
+            expression: "in([unknown, plaintext, ftp, telnet])"
+    then:
+      action: deny
+      reason: "Classified data requires secure transmission protocol for attribute protection (SC-16)"
+      log: full
+      attestation: true

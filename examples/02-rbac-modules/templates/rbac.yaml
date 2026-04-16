@@ -1,0 +1,30 @@
+templates:
+  - name: user
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: role
+        type: symbol
+        allowed_values: [guest, viewer, editor, admin]
+        required: true
+      - name: department
+        type: symbol
+        default: none
+
+  - name: action
+    slots:
+      - name: user_id
+        type: string
+        required: true
+      - name: verb
+        type: symbol
+        allowed_values: [read, write, delete, configure]
+        required: true
+      - name: resource
+        type: string
+        required: true
+      - name: sensitivity
+        type: symbol
+        allowed_values: [public, internal, confidential]
+        default: internal

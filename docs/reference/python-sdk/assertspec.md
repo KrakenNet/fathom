@@ -1,0 +1,3 @@
+# `fathom.AssertSpec`
+
+::: fathom.AssertSpec

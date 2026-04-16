@@ -1,0 +1,3 @@
+# `fathom.AssertedFact`
+
+::: fathom.AssertedFact

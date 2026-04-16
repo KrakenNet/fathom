@@ -1,0 +1,79 @@
+module: nist
+ruleset: nist-800-53-ac
+version: "1.0"
+rules:
+  - name: access-enforcement
+    salience: 100
+    metadata:
+      control: AC-3
+      framework: NIST-800-53
+      title: Access Enforcement
+    when:
+      - template: access_request
+        conditions:
+          - slot: clearance
+            expression: "equals(unclassified)"
+          - slot: resource
+            expression: "matches(classified|restricted|secret|top.secret)"
+    then:
+      action: deny
+      reason: "Access denied: subject clearance insufficient for resource (AC-3)"
+      log: full
+      attestation: true
+
+  - name: info-flow-enforcement
+    salience: 100
+    metadata:
+      control: AC-4
+      framework: NIST-800-53
+      title: Information Flow Enforcement
+    when:
+      - template: data_transfer
+        conditions:
+          - slot: classification
+            expression: "in([secret, top_secret, confidential])"
+          - slot: destination
+            expression: "matches(external|public|untrusted)"
+    then:
+      action: deny
+      reason: "Data transfer blocked: classified data cannot flow to external destination (AC-4)"
+      log: full
+      attestation: true
+
+  - name: least-privilege
+    salience: 100
+    metadata:
+      control: AC-6
+      framework: NIST-800-53
+      title: Least Privilege
+    when:
+      - template: access_request
+        conditions:
+          - slot: action
+            expression: "in([admin, escalate, override, delete])"
+          - slot: context
+            expression: "equals()"
+    then:
+      action: deny
+      reason: "Privileged action requires explicit context justification (AC-6)"
+      log: full
+      attestation: true
+
+  - name: remote-access
+    salience: 100
+    metadata:
+      control: AC-17
+      framework: NIST-800-53
+      title: Remote Access
+    when:
+      - template: access_request
+        conditions:
+          - slot: context
+            expression: "matches(remote|vpn|external)"
+          - slot: action
+            expression: "in([admin, escalate, override])"
+    then:
+      action: escalate
+      reason: "Remote privileged access requires additional authorization (AC-17)"
+      log: full
+      attestation: true

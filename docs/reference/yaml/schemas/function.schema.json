@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "YAML function definition (classification, temporal, or raw CLIPS).",
+  "properties": {
+    "body": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Body"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "hierarchy_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hierarchy Ref"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "params": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Params",
+      "type": "array"
+    },
+    "type": {
+      "default": "classification",
+      "enum": [
+        "classification",
+        "temporal",
+        "raw"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "params"
+  ],
+  "title": "FunctionDefinition",
+  "type": "object"
+}

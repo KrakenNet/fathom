@@ -1,0 +1,3 @@
+# `fathom.ValidationError`
+
+::: fathom.ValidationError

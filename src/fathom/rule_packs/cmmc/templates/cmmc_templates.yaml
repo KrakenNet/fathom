@@ -1,0 +1,21 @@
+templates:
+  - name: cui_policy
+    slots:
+      - name: subject
+        type: string
+        required: true
+      - name: resource
+        type: string
+        required: true
+      - name: action
+        type: symbol
+        required: true
+      - name: cui_category
+        type: symbol
+        default: unspecified
+      - name: justification
+        type: string
+        default: ""
+      - name: marking
+        type: symbol
+        default: cui_basic

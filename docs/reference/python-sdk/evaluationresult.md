@@ -1,0 +1,3 @@
+# `fathom.EvaluationResult`
+
+::: fathom.EvaluationResult

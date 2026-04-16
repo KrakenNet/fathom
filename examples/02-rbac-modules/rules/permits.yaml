@@ -1,0 +1,45 @@
+module: role_permits
+ruleset: rbac-permits
+version: "1.0"
+
+rules:
+  - name: admin-full-access
+    salience: 100
+    when:
+      - template: user
+        conditions:
+          - slot: role
+            expression: "equals(admin)"
+    then:
+      action: allow
+      reason: "Admin role permits any action"
+
+  - name: editor-read-write
+    salience: 100
+    when:
+      - template: user
+        conditions:
+          - slot: role
+            expression: "equals(editor)"
+      - template: action
+        conditions:
+          - slot: verb
+            expression: "in([read, write])"
+    then:
+      action: allow
+      reason: "Editor permitted to read/write non-confidential data"
+
+  - name: viewer-and-guest-read
+    salience: 100
+    when:
+      - template: user
+        conditions:
+          - slot: role
+            expression: "in([viewer, guest])"
+      - template: action
+        conditions:
+          - slot: verb
+            expression: "equals(read)"
+    then:
+      action: allow
+      reason: "Read access granted"

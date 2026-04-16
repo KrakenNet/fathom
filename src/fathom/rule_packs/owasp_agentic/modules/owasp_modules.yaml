@@ -1,0 +1,5 @@
+modules:
+  - name: owasp
+    description: "OWASP LLM Top 10 agentic safety rules"
+focus_order:
+  - owasp

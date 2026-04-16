@@ -1,0 +1,139 @@
+module: blp
+ruleset: bell-lapadula
+version: "1.0"
+
+# -----------------------------------------------------------------------
+# Bell-LaPadula rules
+#
+#   Simple Security (no read up): clearance(S) dominates classification(O)
+#   *-Property (no write down):   classification(O) dominates clearance(S)
+#   Need-to-know:                 compartments must match for each direction
+#
+# Pattern ordering matters: cross-fact references like $o.classification must
+# appear AFTER the pattern that binds them. So the resource pattern (alias
+# $o) is listed before the subject pattern when the subject's clearance is
+# compared with the resource's classification, and vice-versa.
+# -----------------------------------------------------------------------
+
+rules:
+  - name: deny-read-up
+    salience: 10
+    metadata:
+      property: simple-security
+    when:
+      - template: access_request
+        alias: $req
+        conditions:
+          - slot: mode
+            expression: "equals(read)"
+      - template: resource
+        alias: $o
+        conditions:
+          - slot: id
+            expression: "equals($req.object_id)"
+          - slot: classification
+            expression: "meets_or_exceeds(unclassified)"
+      - template: subject
+        alias: $s
+        conditions:
+          - slot: id
+            expression: "equals($req.subject_id)"
+          - slot: clearance
+            expression: "below($o.classification)"
+    then:
+      action: deny
+      reason: "Read-up violation: subject clearance below resource classification"
+      log: full
+
+  - name: deny-write-down
+    salience: 10
+    metadata:
+      property: star-property
+    when:
+      - template: access_request
+        alias: $req
+        conditions:
+          - slot: mode
+            expression: "equals(write)"
+      - template: subject
+        alias: $s
+        conditions:
+          - slot: id
+            expression: "equals($req.subject_id)"
+          - slot: clearance
+            expression: "meets_or_exceeds(unclassified)"
+      - template: resource
+        alias: $o
+        conditions:
+          - slot: id
+            expression: "equals($req.object_id)"
+          - slot: classification
+            expression: "below($s.clearance)"
+    then:
+      action: deny
+      reason: "Write-down violation: subject clearance exceeds resource classification"
+      log: full
+
+  - name: allow-read
+    salience: 100
+    when:
+      - template: access_request
+        alias: $req
+        conditions:
+          - slot: mode
+            expression: "equals(read)"
+      - template: resource
+        alias: $o
+        conditions:
+          - slot: id
+            expression: "equals($req.object_id)"
+          - slot: classification
+            expression: "meets_or_exceeds(unclassified)"
+          - slot: compartments
+            expression: 'has_compartments("")'
+            # tautology — empty compartment list is a subset of any set;
+            # used here only to bind the variable for the cross-ref below.
+      - template: subject
+        alias: $s
+        conditions:
+          - slot: id
+            expression: "equals($req.subject_id)"
+          - slot: clearance
+            expression: "meets_or_exceeds($o.classification)"
+          - slot: compartments
+            expression: "has_compartments($o.compartments)"
+    then:
+      action: allow
+      reason: "Read permitted: clearance dominates and compartments cover resource"
+
+  - name: allow-write
+    salience: 100
+    when:
+      - template: access_request
+        alias: $req
+        conditions:
+          - slot: mode
+            expression: "equals(write)"
+      - template: subject
+        alias: $s
+        conditions:
+          - slot: id
+            expression: "equals($req.subject_id)"
+          - slot: clearance
+            expression: "meets_or_exceeds(unclassified)"
+          - slot: compartments
+            expression: 'has_compartments("")'
+            # tautology — empty compartment list is a subset of any set;
+            # used here only to bind the variable for the cross-ref below.
+      - template: resource
+        alias: $o
+        conditions:
+          - slot: id
+            expression: "equals($req.object_id)"
+          - slot: classification
+            expression: "meets_or_exceeds($s.clearance)"
+          - slot: compartments
+            expression: "has_compartments($s.compartments)"
+    then:
+      action: allow
+      reason: "Write permitted: *-property satisfied, resource compartments cover subject"

@@ -1,0 +1,829 @@
+{
+  "event": [],
+  "info": {
+    "_postman_id": "fathom-00000000-0000-0000-0000-000000000000",
+    "description": {
+      "content": "Deterministic reasoning runtime for AI agents",
+      "type": "text/plain"
+    },
+    "name": "Fathom Rules Engine",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "description": "",
+      "item": [
+        {
+          "event": [],
+          "name": "Health",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "auth": null,
+            "body": {},
+            "description": {
+              "content": "Health check endpoint.",
+              "type": "text/plain"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "method": "GET",
+            "name": "Health",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": [],
+              "variable": []
+            }
+          },
+          "response": [
+            {
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"<key>\": \"<value>\"\n}",
+              "code": 200,
+              "cookie": [],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "name": "Successful Response",
+              "originalRequest": {
+                "body": {},
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "health"
+                  ],
+                  "query": [],
+                  "variable": []
+                }
+              },
+              "status": "OK"
+            }
+          ]
+        }
+      ],
+      "name": "health"
+    },
+    {
+      "description": "",
+      "item": [
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
+              "name": "Compile Yaml",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {
+                  "mode": "raw",
+                  "options": {
+                    "raw": {
+                      "headerFamily": "json",
+                      "language": "json"
+                    }
+                  },
+                  "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                },
+                "description": {
+                  "content": "Compile YAML content into CLIPS constructs.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "name": "Compile Yaml",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "compile"
+                  ],
+                  "query": [],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"clips\": \"string\",\n  \"errors\": [\n    \"string\",\n    \"string\"\n  ]\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            }
+          ],
+          "name": "compile"
+        },
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
+              "name": "Evaluate",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {
+                  "mode": "raw",
+                  "options": {
+                    "raw": {
+                      "headerFamily": "json",
+                      "language": "json"
+                    }
+                  },
+                  "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                },
+                "description": {
+                  "content": "Evaluate facts against a ruleset (stateless or stateful).",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "name": "Evaluate",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "evaluate"
+                  ],
+                  "query": [],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"attestation_token\": \"string\",\n  \"decision\": \"string\",\n  \"duration_us\": 0,\n  \"module_trace\": [\n    \"string\",\n    \"string\"\n  ],\n  \"reason\": \"string\",\n  \"rule_trace\": [\n    \"string\",\n    \"string\"\n  ]\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            }
+          ],
+          "name": "evaluate"
+        },
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
+              "name": "List Modules",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {},
+                "description": {
+                  "content": "Return all registered module definitions for a session.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "name": "List Modules",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "modules"
+                  ],
+                  "query": [
+                    {
+                      "description": {
+                        "content": "(Required) Session ID for the engine to introspect",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "session_id",
+                      "value": "string"
+                    }
+                  ],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"<key>\": \"<value>\"\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "modules"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "(Required) Session ID for the engine to introspect",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "session_id",
+                          "value": "string"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "modules"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "(Required) Session ID for the engine to introspect",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "session_id",
+                          "value": "string"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            }
+          ],
+          "name": "modules"
+        },
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
+              "name": "List Rules",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {},
+                "description": {
+                  "content": "Return all loaded rule definitions for a session.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "name": "List Rules",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "rules"
+                  ],
+                  "query": [
+                    {
+                      "description": {
+                        "content": "(Required) Session ID for the engine to introspect",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "session_id",
+                      "value": "string"
+                    }
+                  ],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"<key>\": \"<value>\"\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "rules"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "(Required) Session ID for the engine to introspect",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "session_id",
+                          "value": "string"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "rules"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "(Required) Session ID for the engine to introspect",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "session_id",
+                          "value": "string"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            }
+          ],
+          "name": "rules"
+        },
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
+              "name": "List Templates",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {},
+                "description": {
+                  "content": "Return all registered template definitions for a session.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "name": "List Templates",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "templates"
+                  ],
+                  "query": [
+                    {
+                      "description": {
+                        "content": "(Required) Session ID for the engine to introspect",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "session_id",
+                      "value": "string"
+                    }
+                  ],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"<key>\": \"<value>\"\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "templates"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "(Required) Session ID for the engine to introspect",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "session_id",
+                          "value": "string"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "templates"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "(Required) Session ID for the engine to introspect",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "session_id",
+                          "value": "string"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            }
+          ],
+          "name": "templates"
+        }
+      ],
+      "name": "v1"
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "/"
+    }
+  ]
+}

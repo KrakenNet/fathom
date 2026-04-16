@@ -1,0 +1,77 @@
+module: nist
+ruleset: nist-800-53-au
+version: "1.0"
+rules:
+  - name: audit-events
+    salience: 90
+    metadata:
+      control: AU-2
+      framework: NIST-800-53
+      title: Audit Events
+    when:
+      - template: audit_event
+        conditions:
+          - slot: event_type
+            expression: "in([login, logout, access, modify, delete, escalate])"
+          - slot: outcome
+            expression: "equals(unknown)"
+    then:
+      action: escalate
+      reason: "Auditable event has unknown outcome — requires resolution (AU-2)"
+      log: full
+      attestation: true
+
+  - name: audit-content
+    salience: 90
+    metadata:
+      control: AU-3
+      framework: NIST-800-53
+      title: Content of Audit Records
+    when:
+      - template: audit_event
+        conditions:
+          - slot: subject
+            expression: "equals()"
+    then:
+      action: deny
+      reason: "Audit record missing required subject field (AU-3)"
+      log: full
+      attestation: true
+
+  - name: audit-review-analysis
+    salience: 80
+    metadata:
+      control: AU-6
+      framework: NIST-800-53
+      title: Audit Review, Analysis, and Reporting
+    when:
+      - template: audit_event
+        conditions:
+          - slot: event_type
+            expression: "in([escalate, delete, override])"
+          - slot: outcome
+            expression: "in([denied, failed])"
+    then:
+      action: escalate
+      reason: "Failed privileged action requires review and analysis (AU-6)"
+      log: full
+      attestation: true
+
+  - name: audit-generation
+    salience: 90
+    metadata:
+      control: AU-12
+      framework: NIST-800-53
+      title: Audit Generation
+    when:
+      - template: audit_event
+        conditions:
+          - slot: resource
+            expression: "equals()"
+          - slot: event_type
+            expression: "in([access, modify, delete])"
+    then:
+      action: deny
+      reason: "Audit generation requires resource identification for data events (AU-12)"
+      log: full
+      attestation: true

@@ -1,0 +1,7 @@
+name: clearance
+levels:
+  - unclassified
+  - cui
+  - confidential
+  - secret
+  - top-secret

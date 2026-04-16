@@ -1,0 +1,10 @@
+# Internal dev artifacts
+.github/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+# Example pattern for local-only URLs
+^http://localhost
+^http://127\.0\.0\.1

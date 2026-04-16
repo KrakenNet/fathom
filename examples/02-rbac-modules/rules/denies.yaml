@@ -1,0 +1,71 @@
+module: deny_checks
+ruleset: rbac-denies
+version: "1.0"
+
+rules:
+  - name: guests-cannot-write
+    salience: 10
+    metadata:
+      control: RBAC-001
+    when:
+      - template: user
+        conditions:
+          - slot: role
+            expression: "equals(guest)"
+      - template: action
+        conditions:
+          - slot: verb
+            expression: "in([write, delete, configure])"
+    then:
+      action: deny
+      reason: "Guests may only read"
+      log: full
+
+  - name: viewers-cannot-delete-or-configure
+    salience: 10
+    metadata:
+      control: RBAC-002
+    when:
+      - template: user
+        conditions:
+          - slot: role
+            expression: "equals(viewer)"
+      - template: action
+        conditions:
+          - slot: verb
+            expression: "in([delete, configure])"
+    then:
+      action: deny
+      reason: "Viewers may not delete or configure"
+      log: full
+
+  - name: editors-cannot-configure
+    salience: 10
+    when:
+      - template: user
+        conditions:
+          - slot: role
+            expression: "equals(editor)"
+      - template: action
+        conditions:
+          - slot: verb
+            expression: "equals(configure)"
+    then:
+      action: deny
+      reason: "Only admins may configure"
+
+  - name: non-admins-cannot-touch-confidential
+    salience: 20
+    when:
+      - template: user
+        conditions:
+          - slot: role
+            expression: "not_in([admin])"
+      - template: action
+        conditions:
+          - slot: sensitivity
+            expression: "equals(confidential)"
+    then:
+      action: deny
+      reason: "Confidential resources require admin role"
+      log: full

@@ -1,0 +1,20 @@
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+
+  - name: data_request
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+      - name: classification
+        type: symbol
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+      - name: resource
+        type: string

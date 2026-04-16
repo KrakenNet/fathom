@@ -1,0 +1,174 @@
+[
+  {
+    "id": "cmmc",
+    "modules": [
+      "cmmc"
+    ],
+    "rules": [
+      {
+        "action": "deny",
+        "name": "ac-l2-authorized-access",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "ac-l2-cui-flow",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "ac-l2-least-privilege",
+        "salience": 100
+      },
+      {
+        "action": "escalate",
+        "name": "au-l2-audit-records",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "au-l2-traceability",
+        "salience": 100
+      },
+      {
+        "action": "escalate",
+        "name": "ir-l2-incident-handling",
+        "salience": 200
+      }
+    ],
+    "source": "src/fathom/rule_packs/cmmc",
+    "templates": [
+      "cui_policy"
+    ],
+    "version": "1.0"
+  },
+  {
+    "id": "hipaa",
+    "modules": [
+      "hipaa"
+    ],
+    "rules": [
+      {
+        "action": "deny",
+        "name": "minimum-necessary",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "transmission-security",
+        "salience": 100
+      },
+      {
+        "action": "escalate",
+        "name": "breach-trigger",
+        "salience": 200
+      }
+    ],
+    "source": "src/fathom/rule_packs/hipaa",
+    "templates": [
+      "data_transfer",
+      "phi_policy"
+    ],
+    "version": "1.0"
+  },
+  {
+    "id": "nist-800-53",
+    "modules": [
+      "nist"
+    ],
+    "rules": [
+      {
+        "action": "deny",
+        "name": "access-enforcement",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "info-flow-enforcement",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "least-privilege",
+        "salience": 100
+      },
+      {
+        "action": "escalate",
+        "name": "remote-access",
+        "salience": 100
+      },
+      {
+        "action": "escalate",
+        "name": "audit-events",
+        "salience": 90
+      },
+      {
+        "action": "deny",
+        "name": "audit-content",
+        "salience": 90
+      },
+      {
+        "action": "escalate",
+        "name": "audit-review-analysis",
+        "salience": 80
+      },
+      {
+        "action": "deny",
+        "name": "audit-generation",
+        "salience": 90
+      },
+      {
+        "action": "deny",
+        "name": "boundary-protection",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "transmission-confidentiality",
+        "salience": 100
+      }
+    ],
+    "source": "src/fathom/rule_packs/nist_800_53",
+    "templates": [
+      "access_request",
+      "audit_event",
+      "data_transfer"
+    ],
+    "version": "1.0"
+  },
+  {
+    "id": "owasp-agentic",
+    "modules": [
+      "owasp"
+    ],
+    "rules": [
+      {
+        "action": "escalate",
+        "name": "detect-prompt-injection",
+        "salience": 100
+      },
+      {
+        "action": "deny",
+        "name": "deny-excessive-agency-exec",
+        "salience": 100
+      },
+      {
+        "action": "escalate",
+        "name": "flag-insecure-output-ssn",
+        "salience": 90
+      },
+      {
+        "action": "escalate",
+        "name": "flag-insecure-output-email",
+        "salience": 80
+      }
+    ],
+    "source": "src/fathom/rule_packs/owasp_agentic",
+    "templates": [
+      "agent_input",
+      "agent_output",
+      "tool_call"
+    ],
+    "version": "1.0"
+  }
+]

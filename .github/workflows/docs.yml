@@ -1,0 +1,104 @@
+name: docs
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "docs/**"
+      - "packages/**"
+      - "protos/**"
+      - "CHANGELOG.md"
+      - "mkdocs.yml"
+      - "Makefile"
+      - "scripts/**"
+      - ".github/workflows/docs.yml"
+  push:
+    branches: [master]
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Python deps
+        run: uv sync --extra docs --extra server --extra mcp
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "27.3"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install protoc-gen-doc
+        run: go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@v1.5.1
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Version sync
+        run: uv run python scripts/check_version_sync.py
+
+      - name: Generate docs artifacts
+        run: make docs-gen
+
+      - name: Generate foreign-toolchain docs
+        run: make docs-gen-foreign
+
+      - name: Drift gate
+        run: |
+          if ! git diff --exit-code docs/reference docs/llms.txt docs/llms-full.txt docs/changelog.json; then
+            echo "::error::Generated docs artifacts are stale. Run 'make docs-gen && make docs-gen-foreign' and commit."
+            exit 1
+          fi
+
+      - name: Build (strict)
+        run: uv run mkdocs build --strict
+
+      - name: Docstring coverage
+        run: uv run python scripts/check_docstrings.py
+
+      - name: SDK coverage
+        run: uv run python scripts/check_sdk_coverage.py
+
+      - name: Doc source drift gate
+        run: uv run python scripts/check_doc_sources.py
+
+      - name: Tutorial snippet verification
+        run: uv run python scripts/verify_tutorial_snippets.py docs/tutorials
+        if: hashFiles('docs/tutorials/*.md') != ''
+
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: |
+            docs/**/*.md
+            !docs/reference/**
+            !docs/llms*.txt
+            !docs/superpowers/**
+            !docs/_prompts/**
+
+      - name: Spelling
+        run: uv run codespell docs/ --skip "docs/reference/*,docs/llms*.txt,docs/changelog.json,docs/superpowers/*"
+
+      - name: Link check
+        uses: lycheeverse/lychee-action@v1
+        with:
+          args: --no-progress --exclude-path docs/superpowers docs/
+          fail: true
