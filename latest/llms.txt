@@ -4,7 +4,7 @@ Deterministic reasoning runtime for AI agents
 
 ## Pages
 
-- [Fathom](https://fathom.krakn.ai/_index/)
+- [Fathom](https://fathom.krakn.ai/index/)
 - [Getting Started](https://fathom.krakn.ai/getting-started/)
 - [Tutorials](https://fathom.krakn.ai/tutorials/index/) — Progressive, hands-on tutorials that walk you through building policy engines with Fathom.
 - [Hello-world policy](https://fathom.krakn.ai/tutorials/hello-world/) — Install Fathom, write a template and a rule in YAML, evaluate a fact, and inspect the evaluation result.
