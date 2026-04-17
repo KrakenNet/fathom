@@ -92,4 +92,5 @@ jobs:
             uv run mike set-default --push "${{ steps.label.outputs.alias }}"
           else
             uv run mike deploy --push "${{ steps.label.outputs.version }}"
+            uv run mike set-default --push "${{ steps.label.outputs.version }}"
           fi
