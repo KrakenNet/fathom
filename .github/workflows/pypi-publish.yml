@@ -1,25 +1,28 @@
-# .github/workflows/pypi-publish.yml                                                                                                                                                                                      
-  name: pypi-publish                                                                                                                                                                                                                                                                                                                                                                                                                                    
-  on:                                                                                                                                                                                                                       
-    push:
-      tags:
-        - "v*.*.*"
+name: pypi-publish
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+permissions:
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
 
-  permissions:
-    id-token: write  # required for trusted publishing
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.13"
 
-  jobs:
-    publish:
-      runs-on: ubuntu-latest
-      environment: pypi
-      steps:
-        - uses: actions/checkout@v4
+      - name: Clean old artifacts
+        run: rm -rf dist/
 
-        - name: Install uv
-          uses: astral-sh/setup-uv@v3
+      - name: Build
+        run: uv build
 
-        - name: Build
-          run: uv build
-
-        - name: Publish to PyPI
-          uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
