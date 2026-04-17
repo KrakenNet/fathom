@@ -395,6 +395,302 @@
           "item": [
             {
               "event": [],
+              "name": "Retract Facts",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {
+                  "mode": "raw",
+                  "options": {
+                    "raw": {
+                      "headerFamily": "json",
+                      "language": "json"
+                    }
+                  },
+                  "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                },
+                "description": {
+                  "content": "Retract facts matching template + optional filter from working memory.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404. Retract is by\ntemplate + filter (matches the gRPC surface), not by fact index.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "DELETE",
+                "name": "Retract Facts",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "facts"
+                  ],
+                  "query": [],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"retracted_count\": 0\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            },
+            {
+              "event": [],
+              "name": "Assert Fact",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {
+                  "mode": "raw",
+                  "options": {
+                    "raw": {
+                      "headerFamily": "json",
+                      "language": "json"
+                    }
+                  },
+                  "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                },
+                "description": {
+                  "content": "Assert a single fact into a session's working memory.\n\nUnlike ``/v1/evaluate``, this endpoint does **not** create sessions on\nthe fly \u2014 the ``session_id`` must reference a session previously\ncreated via ``/v1/evaluate``. Unknown session ids return 404.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "name": "Assert Fact",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "facts"
+                  ],
+                  "query": [],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"success\": false\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            }
+          ],
+          "name": "facts"
+        },
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
               "name": "List Modules",
               "protocolProfileBehavior": {
                 "disableBodyPruning": true
@@ -407,6 +703,15 @@
                   "type": "text/plain"
                 },
                 "header": [
+                  {
+                    "description": {
+                      "content": "",
+                      "type": "text/plain"
+                    },
+                    "disabled": false,
+                    "key": "X-Session-Id",
+                    "value": "string"
+                  },
                   {
                     "key": "Accept",
                     "value": "application/json"
@@ -422,17 +727,7 @@
                     "v1",
                     "modules"
                   ],
-                  "query": [
-                    {
-                      "description": {
-                        "content": "(Required) Session ID for the engine to introspect",
-                        "type": "text/plain"
-                      },
-                      "disabled": false,
-                      "key": "session_id",
-                      "value": "string"
-                    }
-                  ],
+                  "query": [],
                   "variable": []
                 }
               },
@@ -453,6 +748,15 @@
                     "body": {},
                     "header": [
                       {
+                        "description": {
+                          "content": "",
+                          "type": "text/plain"
+                        },
+                        "disabled": false,
+                        "key": "X-Session-Id",
+                        "value": "string"
+                      },
+                      {
                         "key": "Accept",
                         "value": "application/json"
                       }
@@ -466,17 +770,7 @@
                         "v1",
                         "modules"
                       ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "(Required) Session ID for the engine to introspect",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "session_id",
-                          "value": "string"
-                        }
-                      ],
+                      "query": [],
                       "variable": []
                     }
                   },
@@ -498,6 +792,15 @@
                     "body": {},
                     "header": [
                       {
+                        "description": {
+                          "content": "",
+                          "type": "text/plain"
+                        },
+                        "disabled": false,
+                        "key": "X-Session-Id",
+                        "value": "string"
+                      },
+                      {
                         "key": "Accept",
                         "value": "application/json"
                       }
@@ -511,17 +814,7 @@
                         "v1",
                         "modules"
                       ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "(Required) Session ID for the engine to introspect",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "session_id",
-                          "value": "string"
-                        }
-                      ],
+                      "query": [],
                       "variable": []
                     }
                   },
@@ -531,6 +824,157 @@
             }
           ],
           "name": "modules"
+        },
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
+              "name": "Query Facts",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {
+                  "mode": "raw",
+                  "options": {
+                    "raw": {
+                      "headerFamily": "json",
+                      "language": "json"
+                    }
+                  },
+                  "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                },
+                "description": {
+                  "content": "Query a session's working memory for facts matching template + filter.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "name": "Query Facts",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "query"
+                  ],
+                  "query": [],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"facts\": [\n    {\n      \"<key>\": \"<value>\"\n    },\n    {\n      \"<key>\": \"<value>\"\n    }\n  ]\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "code": 422,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Validation Error",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                }
+              ]
+            }
+          ],
+          "name": "query"
         },
         {
           "description": "",
@@ -550,6 +994,15 @@
                 },
                 "header": [
                   {
+                    "description": {
+                      "content": "",
+                      "type": "text/plain"
+                    },
+                    "disabled": false,
+                    "key": "X-Session-Id",
+                    "value": "string"
+                  },
+                  {
                     "key": "Accept",
                     "value": "application/json"
                   }
@@ -564,17 +1017,7 @@
                     "v1",
                     "rules"
                   ],
-                  "query": [
-                    {
-                      "description": {
-                        "content": "(Required) Session ID for the engine to introspect",
-                        "type": "text/plain"
-                      },
-                      "disabled": false,
-                      "key": "session_id",
-                      "value": "string"
-                    }
-                  ],
+                  "query": [],
                   "variable": []
                 }
               },
@@ -595,6 +1038,15 @@
                     "body": {},
                     "header": [
                       {
+                        "description": {
+                          "content": "",
+                          "type": "text/plain"
+                        },
+                        "disabled": false,
+                        "key": "X-Session-Id",
+                        "value": "string"
+                      },
+                      {
                         "key": "Accept",
                         "value": "application/json"
                       }
@@ -608,17 +1060,7 @@
                         "v1",
                         "rules"
                       ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "(Required) Session ID for the engine to introspect",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "session_id",
-                          "value": "string"
-                        }
-                      ],
+                      "query": [],
                       "variable": []
                     }
                   },
@@ -640,6 +1082,15 @@
                     "body": {},
                     "header": [
                       {
+                        "description": {
+                          "content": "",
+                          "type": "text/plain"
+                        },
+                        "disabled": false,
+                        "key": "X-Session-Id",
+                        "value": "string"
+                      },
+                      {
                         "key": "Accept",
                         "value": "application/json"
                       }
@@ -653,17 +1104,7 @@
                         "v1",
                         "rules"
                       ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "(Required) Session ID for the engine to introspect",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "session_id",
-                          "value": "string"
-                        }
-                      ],
+                      "query": [],
                       "variable": []
                     }
                   },
@@ -692,6 +1133,15 @@
                 },
                 "header": [
                   {
+                    "description": {
+                      "content": "",
+                      "type": "text/plain"
+                    },
+                    "disabled": false,
+                    "key": "X-Session-Id",
+                    "value": "string"
+                  },
+                  {
                     "key": "Accept",
                     "value": "application/json"
                   }
@@ -706,17 +1156,7 @@
                     "v1",
                     "templates"
                   ],
-                  "query": [
-                    {
-                      "description": {
-                        "content": "(Required) Session ID for the engine to introspect",
-                        "type": "text/plain"
-                      },
-                      "disabled": false,
-                      "key": "session_id",
-                      "value": "string"
-                    }
-                  ],
+                  "query": [],
                   "variable": []
                 }
               },
@@ -737,6 +1177,15 @@
                     "body": {},
                     "header": [
                       {
+                        "description": {
+                          "content": "",
+                          "type": "text/plain"
+                        },
+                        "disabled": false,
+                        "key": "X-Session-Id",
+                        "value": "string"
+                      },
+                      {
                         "key": "Accept",
                         "value": "application/json"
                       }
@@ -750,17 +1199,7 @@
                         "v1",
                         "templates"
                       ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "(Required) Session ID for the engine to introspect",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "session_id",
-                          "value": "string"
-                        }
-                      ],
+                      "query": [],
                       "variable": []
                     }
                   },
@@ -782,6 +1221,15 @@
                     "body": {},
                     "header": [
                       {
+                        "description": {
+                          "content": "",
+                          "type": "text/plain"
+                        },
+                        "disabled": false,
+                        "key": "X-Session-Id",
+                        "value": "string"
+                      },
+                      {
                         "key": "Accept",
                         "value": "application/json"
                       }
@@ -795,17 +1243,7 @@
                         "v1",
                         "templates"
                       ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "(Required) Session ID for the engine to introspect",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "session_id",
-                          "value": "string"
-                        }
-                      ],
+                      "query": [],
                       "variable": []
                     }
                   },

@@ -4,7 +4,7 @@ version = "0.3.0"
 description = "Deterministic reasoning runtime for AI agents, built on CLIPS via clipspy"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -126,7 +126,7 @@ hipaa = "fathom.rule_packs.hipaa"
 cmmc = "fathom.rule_packs.cmmc"
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 99
 src = ["src"]
 
@@ -134,7 +134,7 @@ src = ["src"]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true

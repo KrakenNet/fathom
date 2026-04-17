@@ -4,24 +4,25 @@ Deterministic reasoning runtime for AI agents
 
 ## Pages
 
-- [Home](https://fathom-rules.dev/_index/)
+- [Fathom](https://fathom-rules.dev/_index/)
 - [Getting Started](https://fathom-rules.dev/getting-started/)
 - [Tutorials](https://fathom-rules.dev/tutorials/index/) — Progressive, hands-on tutorials that walk you through building policy engines with Fathom.
 - [Hello-world policy](https://fathom-rules.dev/tutorials/hello-world/) — Install Fathom, write a template and a rule in YAML, evaluate a fact, and inspect the evaluation result.
 - [Modules & salience](https://fathom-rules.dev/tutorials/modules-and-salience/) — Use modules and salience to build a fail-closed policy where deny always overrides allow.
-- [Core Primitives](https://fathom-rules.dev/core/primitives/)
-- [CLIPS Runtime](https://fathom-rules.dev/core/runtime/)
-- [YAML Compiler](https://fathom-rules.dev/core/yaml-compiler/)
-- [Fact Asserter](https://fathom-rules.dev/core/fact-asserter/)
-- [Forward Chaining](https://fathom-rules.dev/core/forward-chaining/)
-- [Working Memory](https://fathom-rules.dev/core/working-memory/)
-- [Audit Log](https://fathom-rules.dev/core/audit-log/)
-- [Attestation Service](https://fathom-rules.dev/core/attestation/)
-- [Templates](https://fathom-rules.dev/yaml/yaml-templates/)
-- [Facts](https://fathom-rules.dev/yaml/yaml-facts/)
-- [Rules](https://fathom-rules.dev/yaml/yaml-rule-language/)
-- [Modules](https://fathom-rules.dev/yaml/yaml-modules/)
-- [Functions](https://fathom-rules.dev/yaml/yaml-functions/)
+- [Working memory across evaluations](https://fathom-rules.dev/tutorials/working-memory/) — Assert facts incrementally across multiple evaluate() calls and learn how to clear working memory when a session ends.
+- [How-to Guides](https://fathom-rules.dev/how-to/index/) — Task-oriented recipes for common Fathom operations.
+- [Writing rules](https://fathom-rules.dev/how-to/writing-rules/) — How to author a Fathom ruleset in YAML, covering patterns, conditions, actions, and salience.
+- [Integrating with FastAPI](https://fathom-rules.dev/how-to/fastapi/) — Mount the bundled Fathom REST app or wrap Engine directly to add rule evaluation to your FastAPI service.
+- [Using the CLI](https://fathom-rules.dev/how-to/cli/) — One-line purpose + worked example for every fathom CLI command.
+- [Registering a Python function](https://fathom-rules.dev/how-to/register-function/) — Expose a Python callable to CLIPS rules via Engine.register_function and call it with a raw-CLIPS test clause.
+- [Loading a rule pack](https://fathom-rules.dev/how-to/load-rule-pack/) — Load rules from a directory or a distributed Python package via Engine.from_rules and Engine.load_pack.
+- [Embedding via SDK](https://fathom-rules.dev/how-to/embed-sdk/) — Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTTP clients to the REST server).
+- [Concepts](https://fathom-rules.dev/concepts/index/) — Understanding-oriented pages on Fathom's primitives, runtime model, and deferred CLIPS features.
+- [Five Primitives](https://fathom-rules.dev/concepts/five-primitives/) — Templates, Facts, Rules, Modules, Functions — the author-level vocabulary Fathom compiles to CLIPS.
+- [Runtime & Working Memory](https://fathom-rules.dev/concepts/runtime-and-working-memory/) — How the Fathom engine runs — sessions, the evaluation loop, module focus, and why deny rules take lower salience under last-write-wins.
+- [YAML Compilation](https://fathom-rules.dev/concepts/yaml-compilation/) — How authored YAML becomes CLIPS source — parse, validate, compile — and why Pydantic sits in the middle as the safety boundary.
+- [Audit & Attestation](https://fathom-rules.dev/concepts/audit-attestation/) — Why every Fathom evaluation is recorded, and how the optional Ed25519 JWT turns a log entry into portable proof.
+- [CLIPS Features Not In v1](https://fathom-rules.dev/concepts/not-in-v1/) — The CLIPS features Fathom deliberately omits from its authored surface in v1, and what to use instead.
 - [Reference](https://fathom-rules.dev/reference/index/) — Generated reference for every Fathom SDK, API, and tooling surface.
 - [Python SDK](https://fathom-rules.dev/reference/python-sdk/index/)
 - [Go SDK](https://fathom-rules.dev/reference/go-sdk/index/) — Fathom Go client reference (generated from godoc via gomarkdoc)
@@ -30,10 +31,16 @@ Deterministic reasoning runtime for AI agents
 - [REST API — Try It](https://fathom-rules.dev/reference/rest/try/) — Interactive Swagger UI against the Fathom REST API
 - [gRPC API](https://fathom-rules.dev/reference/grpc/index/) — Fathom gRPC service reference, generated from protos/fathom.proto
 - [MCP Tool Manifest](https://fathom-rules.dev/reference/mcp/index/) — Machine-readable index of Fathom MCP tools
-- [YAML Reference](https://fathom-rules.dev/reference/yaml/index/) — JSON Schemas for Fathom YAML constructs
+- [YAML Reference](https://fathom-rules.dev/reference/yaml/index/)
+- [Template](https://fathom-rules.dev/reference/yaml/template/) — YAML reference for TemplateDefinition — the deftemplate authoring surface.
+- [Rule](https://fathom-rules.dev/reference/yaml/rule/) — YAML reference for RuleDefinition — the defrule authoring surface.
+- [Module](https://fathom-rules.dev/reference/yaml/module/) — YAML reference for ModuleDefinition — the defmodule authoring surface.
+- [Function](https://fathom-rules.dev/reference/yaml/function/) — YAML reference for FunctionDefinition and HierarchyDefinition — the deffunction authoring surface.
+- [Fact](https://fathom-rules.dev/reference/yaml/fact/) — Reference for Fact assertion and query — the runtime surface for CLIPS working memory.
 - [CLI Reference](https://fathom-rules.dev/reference/cli/index/) — Index of `fathom` CLI commands
 - [VSCode Tooling](https://fathom-rules.dev/reference/tooling/vscode/index/) — Snippets and JSON Schema association for Fathom YAML files
 - [owasp-agentic](https://fathom-rules.dev/reference/rule-packs/owasp-agentic/) — Rule pack — owasp-agentic
 - [nist-800-53](https://fathom-rules.dev/reference/rule-packs/nist-800-53/) — Rule pack — nist-800-53
 - [hipaa](https://fathom-rules.dev/reference/rule-packs/hipaa/) — Rule pack — hipaa
 - [cmmc](https://fathom-rules.dev/reference/rule-packs/cmmc/) — Rule pack — cmmc
+- [Planned Integrations](https://fathom-rules.dev/reference/planned-integrations/) — Reference catalog of scaffolded, partial, and planned Fathom integrations — what exists in-tree, what is missing, and what design.md promises.
