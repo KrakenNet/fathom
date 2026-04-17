@@ -6,10 +6,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 
-**Current version:** 0.3.0
+**Current version:** 0.3.1
+
 **License:** MIT
+
 **Language:** Python 3.14+ (primary), Go and TypeScript SDKs in progress
+
 **Package Manager:** uv
+
 **Maintained by:** [Kraken Networks](https://github.com/KrakenNet)
 
 ---
