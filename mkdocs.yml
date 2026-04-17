@@ -92,7 +92,7 @@ extra:
     alias: true
 
 nav:
-  - Home: _index.md
+  - Home: index.md
   - Getting Started: getting-started.md
   - Tutorials:
       - Overview: tutorials/index.md
