@@ -1,0 +1,3415 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Deterministic reasoning runtime for AI agents">
+      
+      
+      
+        <link rel="canonical" href="https://fathom.krakn.ai/latest/superpowers/specs/2026-04-15-developer-docs-design/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Fathom Developer Documentation — Design - Fathom</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#fathom-developer-documentation-design-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="Fathom" class="md-header__button md-logo" aria-label="Fathom" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Fathom
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Fathom Developer Documentation — Design
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/KrakenNet/fathom" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KrakenNet/fathom
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../_index/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../tutorials/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../how-to/" class="md-tabs__link">
+          
+  
+  
+  How-to Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../concepts/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="Fathom" class="md-nav__button md-logo" aria-label="Fathom" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Fathom
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/KrakenNet/fathom" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KrakenNet/fathom
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../_index/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tutorials/hello-world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hello-world policy
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tutorials/modules-and-salience/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Modules & salience
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tutorials/working-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Working memory across evaluations
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How-to Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How-to Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/writing-rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing rules
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/fastapi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrating with FastAPI
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the CLI
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/register-function/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registering a Python function
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/load-rule-pack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a rule pack
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/embed-sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embedding via SDK
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/five-primitives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five Primitives
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/runtime-and-working-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime & Working Memory
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/yaml-compilation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YAML Compilation
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/audit-attestation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit & Attestation
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../concepts/not-in-v1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLIPS Features Not In v1
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/python-sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python SDK
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/go-sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Go SDK
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/typescript-sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TypeScript SDK
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    REST API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rest/try/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try It
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/grpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gRPC API
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Tools
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_8" id="__nav_6_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YAML
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    YAML
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/yaml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schemas
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/yaml/template/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Template
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/yaml/rule/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/yaml/module/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Module
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/yaml/function/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/yaml/fact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fact
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/tooling/vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VSCode Tooling
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_11" id="__nav_6_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule Packs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rule Packs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rule-packs/owasp-agentic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OWASP Agentic
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rule-packs/nist-800-53/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NIST 800-53
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rule-packs/hipaa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HIPAA
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/rule-packs/cmmc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CMMC
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/planned-integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Planned Integrations
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-goals-audiences-and-non-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Goals, Audiences, and Non-Goals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Goals, Audiences, and Non-Goals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#primary-audiences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primary Audiences
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#non-goals-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-Goals (v1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-site-information-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Site Information Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Site Information Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#existing-page-fate-full-refresh-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Existing-page fate (full-refresh pass)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-sdk-reference-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. SDK Reference Generation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. SDK Reference Generation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python-sdk-pdoc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python SDK — pdoc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#go-sdk-gomarkdoc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go SDK — gomarkdoc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typescript-sdk-typedoc-typedoc-plugin-markdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TypeScript SDK — typedoc + typedoc-plugin-markdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rest-api-openapi-redoc-swagger-ui-postman" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REST API — OpenAPI + Redoc + Swagger UI + Postman
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grpc-api-protoc-gen-doc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        gRPC API — protoc-gen-doc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp-tools-manifest-driven" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Tools — manifest-driven
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli-clicktyper-introspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI — Click/Typer introspection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rule-packs-yaml-introspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rule Packs — YAML introspection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-llm-consumable-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. LLM-Consumable Artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. LLM-Consumable Artifacts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#llmstxt-index-llmstxtorg-spec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /llms.txt — index (llmstxt.org spec)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llms-fulltxt-full-bundled-markdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /llms-full.txt — full bundled Markdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openapi-json-referencerestopenapijson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenAPI JSON — /reference/rest/openapi.json
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grpc-proto-referencegrpcfathomproto" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        gRPC proto — /reference/grpc/fathom.proto
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp-manifest-referencemcpmanifestjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP manifest — /reference/mcp/manifest.json
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#machine-readable-changelog-changelogjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Machine-readable changelog — /changelog.json
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rule-pack-catalog-referencerule-packsrule-packsjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rule-pack catalog — /reference/rule-packs/rule-packs.json
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#robotstxt-llm-crawl-hints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        robots.txt + LLM crawl hints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sitemapxml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sitemap.xml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-fenced-example-manifests-examplesmanifestjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code-fenced example manifests — /examples/manifest.json
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#citationcff-well-knownsecuritytxt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CITATION.cff + .well-known/security.txt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentsmd-at-repo-root" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AGENTS.md at repo root
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#json-schema-for-yaml-referenceyamlschemas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON Schema for YAML — /reference/yaml/schemas/
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vscode-snippets-extension-scaffold-referencetoolingvscode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VSCode snippets + extension scaffold — /reference/tooling/vscode/
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-ci-build-and-publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. CI, Build, and Publishing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. CI, Build, and Publishing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-dev" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local dev
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci-new-githubworkflowsdocsyml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI — new .github/workflows/docs.yml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publishing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#release-time-docs-tasks-added-to-release-runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release-time docs tasks (added to release runbook)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-writing-style-page-templates-and-quality-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Writing Style, Page Templates, and Quality Bar
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Writing Style, Page Templates, and Quality Bar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#voice-and-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Voice and style
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#page-templates-committed-to-docs_templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Page templates (committed to docs/_templates/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#content-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Content rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#frontmatter-on-every-hand-written-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontmatter on every hand-written page
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quality-gates-on-top-of-section-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quality gates (on top of Section 5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#style-linting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Style linting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#contributor-facing-doc-authoring-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributor-facing doc-authoring guide
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-migration-phasing-and-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Migration, Phasing, and Verification
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Migration, Phasing, and Verification">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#migration-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migration model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#waves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Waves
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#handling-of-reviewmd-bugs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handling of REVIEW.md bugs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verification-success-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification (success criteria)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#out-of-scope-deferred-named-so-not-forgotten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope (deferred, named so not forgotten)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#research-notes-section-b-targeted-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research notes (Section B — targeted sources)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-adjacent-deliverables-workstreams-1-and-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix — Adjacent deliverables (Workstreams 1 and 2)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Appendix — Adjacent deliverables (Workstreams 1 and 2)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workstream-1-design-doc-verification-approach-a" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream 1 — Design-doc verification (approach A)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-2-kb-readme-full-refresh-approach-c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream 2 — KB + README full refresh (approach C)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="fathom-developer-documentation-design-spec">Fathom Developer Documentation — Design Spec<a class="headerlink" href="#fathom-developer-documentation-design-spec" title="Permanent link">&para;</a></h1>
+<h2 id="1-goals-audiences-and-non-goals">1. Goals, Audiences, and Non-Goals<a class="headerlink" href="#1-goals-audiences-and-non-goals" title="Permanent link">&para;</a></h2>
+<h3 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">&para;</a></h3>
+<ul>
+<li>A single MkDocs Material site at <code>https://fathom-rules.dev</code> (repo path: <code>docs/</code>) serving all three audiences without forking content.</li>
+<li>SDK reference pages auto-generated from source (pdoc for Python, gomarkdoc for Go, typedoc-markdown for TypeScript) so references never drift from code.</li>
+<li>LLM-friendly surface: <code>llms.txt</code>, <code>llms-full.txt</code>, OpenAPI JSON, gRPC proto, MCP manifest, machine-readable changelog — so agents (including Bosun / Nautilus / Claude-powered tools) can consume Fathom docs as a tool.</li>
+<li>Every public API symbol, every YAML construct, every CLI flag, every REST/gRPC endpoint has a doc page reachable in ≤ 3 clicks from the home page.</li>
+<li>Docs build is part of CI; a broken link, missing docstring on a public symbol, or stale generated reference fails the build.</li>
+</ul>
+<h3 id="primary-audiences">Primary Audiences<a class="headerlink" href="#primary-audiences" title="Permanent link">&para;</a></h3>
+<p>One site, four Diátaxis quadrants shared across audiences, curated audience landing pages that route each reader through the shared content.</p>
+<ul>
+<li><strong>App developers</strong> — embedding Fathom via Python SDK, REST, gRPC, MCP, Go/TS SDKs. Want quickstarts, SDK references, integration recipes.</li>
+<li><strong>Rule authors</strong> — writing YAML templates/rules/modules/functions. Want YAML reference, pattern cookbook, rule-pack catalog.</li>
+<li><strong>Contributors</strong> — hacking on the compiler/engine/CLIPS bridge. Want architecture explanation, internal module reference, testing/release runbooks.</li>
+</ul>
+<h3 id="non-goals-v1">Non-Goals (v1)<a class="headerlink" href="#non-goals-v1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Custom theming beyond MkDocs Material defaults.</li>
+<li>A separate marketing/landing site — the home page lives in MkDocs.</li>
+<li>Interactive "try it in browser" REPL.</li>
+<li>Localization.</li>
+<li>Algolia DocSearch / typesense search integration — MkDocs Material's built-in search suffices for v1.</li>
+<li>Community examples gallery.</li>
+<li>Newsletter / RSS beyond MkDocs Material's built-in RSS plugin.</li>
+</ul>
+<hr />
+<h2 id="2-site-information-architecture">2. Site Information Architecture<a class="headerlink" href="#2-site-information-architecture" title="Permanent link">&para;</a></h2>
+<p>Top-level tabs are the four <strong>Diátaxis quadrants</strong> plus an <strong>Audiences</strong> tab that curates paths through them. Existing pages are folded into the new IA, not discarded; old URLs get 301 redirects via <code>mkdocs-redirects</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Home (/)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── Audiences                         ← curated landing pages, no original content
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   ├── For App Developers
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── For Rule Authors
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   └── For Contributors
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>├── Tutorials                         ← learning-oriented, numbered, linear
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   ├── 1. Your First Rule (10 min)
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│   ├── 2. Working Memory &amp; Cumulative Reasoning
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│   ├── 3. Build a LangChain Guard
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── 4. Ship a Rule Pack
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   └── 5. Run Fathom as a Sidecar (REST + gRPC)
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>├── How-To Guides                     ← task-oriented, standalone recipes
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│   ├── Rule Authoring
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│   │   ├── Write a deny rule
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│   │   ├── Add a custom function
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│   │   ├── Use classification operators
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│   │   ├── Cross-fact references
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>│   │   ├── Temporal patterns
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>│   │   └── Use a rule pack
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>│   ├── Integration
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>│   │   ├── Python SDK · Go SDK · TypeScript SDK
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>│   │   ├── REST · gRPC · MCP tool server
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>│   │   ├── LangChain · Docker sidecar · CLI
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>│   ├── Operations
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>│   │   ├── Configure auth · Jail rule paths
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>│   │   ├── Export Prometheus metrics · Enable attestation
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>│   │   ├── Audit log sinks · Versioning &amp; upgrades
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>│   └── Contributing
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>│       ├── Local dev setup · Run the test suite
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>│       ├── Write a compiler pass · Add a YAML construct
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>│       └── Release a new version
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>│
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>├── Reference                         ← information-oriented, mostly generated
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>│   ├── YAML
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>│   │   ├── Templates · Facts · Rules · Modules · Functions
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>│   │   ├── Operators
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>│   │   └── Schemas (JSON Schema downloads)
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>│   ├── Python SDK (generated, pdoc)
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>│   ├── Go SDK (generated, gomarkdoc)
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>│   ├── TypeScript SDK (generated, typedoc-markdown)
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>│   ├── REST API (generated, OpenAPI → Redoc + Swagger UI + Postman)
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>│   ├── gRPC API (generated from .proto)
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>│   ├── MCP Tools (generated from server manifest)
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>│   ├── CLI (generated from Click/Typer introspection)
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>│   ├── Rule Packs
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>│   │   └── OWASP Agentic · NIST 800-53 · HIPAA · CMMC
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>│   └── Tooling
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>│       └── VSCode snippets · JetBrains templates
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>│
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>├── Explanation                       ← understanding-oriented, prose
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>│   ├── Why Fathom (vs OPA / Cedar / LLM-as-policy)
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>│   ├── CLIPS in 15 Minutes
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>│   ├── The Five Primitives
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>│   ├── Working Memory &amp; Forward Chaining
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>│   ├── Salience, Modules, and Focus Stack
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>│   ├── Audit Log &amp; Attestation Model
+<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>│   ├── Architecture Overview
+<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>│   └── Security Model
+<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a>│
+<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a>└── Meta
+<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a>    ├── Changelog (from CHANGELOG.md)
+<a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>    ├── Roadmap (mirrors design.md roadmap)
+<a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a>    ├── FAQ
+<a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a>    └── llms.txt · llms-full.txt (linked, not rendered as nav)
+</code></pre></div>
+<h3 id="existing-page-fate-full-refresh-pass">Existing-page fate (full-refresh pass)<a class="headerlink" href="#existing-page-fate-full-refresh-pass" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Current path</th>
+<th>Destination</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/core/*</code></td>
+<td><code>docs/explanation/*</code></td>
+<td>Rewrite using Explanation template</td>
+</tr>
+<tr>
+<td><code>docs/yaml/*</code></td>
+<td><code>docs/reference/yaml/*</code></td>
+<td>Rewrite; exhaustive operator tables</td>
+</tr>
+<tr>
+<td><code>docs/integrations/*</code></td>
+<td>Split: <code>docs/explanation/*</code> + <code>docs/how-to/integration/*</code> + <code>docs/reference/*</code></td>
+<td>Split by Diátaxis mode</td>
+</tr>
+<tr>
+<td><code>docs/api/*</code></td>
+<td><code>docs/reference/python-sdk/*</code></td>
+<td>Replace wholesale by pdoc output</td>
+</tr>
+<tr>
+<td><code>docs/rule-packs/*</code></td>
+<td><code>docs/reference/rule-packs/*</code></td>
+<td>Rewrite using Rule Pack template</td>
+</tr>
+<tr>
+<td><code>docs/writing-rules.md</code></td>
+<td>Tutorial 1 + Tutorial 2</td>
+<td>Split and rewrite</td>
+</tr>
+<tr>
+<td><code>docs/getting-started.md</code></td>
+<td>Home page "60-second example" + Tutorial 1</td>
+<td>Split</td>
+</tr>
+<tr>
+<td><code>docs/external/CLIPS</code></td>
+<td><code>docs/explanation/clips-in-15-minutes.md</code></td>
+<td>Move, rewrite</td>
+</tr>
+<tr>
+<td><code>docs/_index.md</code></td>
+<td>New <code>docs/index.md</code> (home)</td>
+<td>Rewrite</td>
+</tr>
+</tbody>
+</table>
+<p>Every pre-migration URL gets a 301 redirect entry in <code>mkdocs.yml</code>.</p>
+<hr />
+<h2 id="3-sdk-reference-generation">3. SDK Reference Generation<a class="headerlink" href="#3-sdk-reference-generation" title="Permanent link">&para;</a></h2>
+<p>Every SDK reference is generated at build time and never hand-maintained. Generation failures fail CI.</p>
+<h3 id="python-sdk-pdoc">Python SDK — <code>pdoc</code><a class="headerlink" href="#python-sdk-pdoc" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tool: <code>pdoc</code> (zero-config, reads type hints + docstrings, emits HTML and Markdown). Already compatible with <code>py.typed</code> shipping.</li>
+<li>Docstring style: Google-style (prevalent in <code>src/fathom/*</code>). Enforced by <code>ruff</code> rule <code>D</code> group (<code>D212</code>, <code>D415</code>, plus a Google-style preset).</li>
+<li>Build step: <code>uv run pdoc --output-directory docs/reference/python-sdk src/fathom</code> → nested Markdown tree MkDocs can index.</li>
+<li>Also retain <code>mkdocstrings</code> (already in <code>mkdocs.yml</code>) for embedded API blocks inside hand-written pages (e.g. "Here's the full API for <code>Engine</code>: ::: fathom.Engine"). Two tools, two jobs.</li>
+<li>Coverage gate: <code>scripts/check_docstrings.py</code> walks <code>fathom.__all__</code> and every public submodule; fails if any public symbol lacks a docstring or contains <code>TODO</code> / <code>FIXME</code>.</li>
+</ul>
+<h3 id="go-sdk-gomarkdoc">Go SDK — <code>gomarkdoc</code><a class="headerlink" href="#go-sdk-gomarkdoc" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tool: <code>gomarkdoc</code> renders <code>godoc</code> as Markdown for MkDocs ingestion.</li>
+<li>Output: <code>docs/reference/go-sdk/</code>.</li>
+<li><strong>Prerequisite</strong>: REVIEW.md <strong>M2</strong> (proto <code>go_package</code> vs <code>go.mod</code> path mismatch) must be resolved before generation succeeds. This spec raises M2 as a Wave-0 blocker task.</li>
+<li>Godoc comments required on every exported identifier; enforced by <code>revive</code> (<code>exported</code> rule) in CI.</li>
+<li>Cross-links to pkg.go.dev from the SDK landing page.</li>
+</ul>
+<h3 id="typescript-sdk-typedoc-typedoc-plugin-markdown">TypeScript SDK — <code>typedoc</code> + <code>typedoc-plugin-markdown</code><a class="headerlink" href="#typescript-sdk-typedoc-typedoc-plugin-markdown" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Output: <code>docs/reference/typescript-sdk/</code>.</li>
+<li>TSDoc comments on all exported symbols; enforced by <code>eslint-plugin-tsdoc</code>.</li>
+<li>Invocation: <code>pnpm --filter fathom-ts run docs</code>.</li>
+</ul>
+<h3 id="rest-api-openapi-redoc-swagger-ui-postman">REST API — OpenAPI + Redoc + Swagger UI + Postman<a class="headerlink" href="#rest-api-openapi-redoc-swagger-ui-postman" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Source of truth: FastAPI emits OpenAPI at runtime. <code>scripts/export_openapi.py</code> imports the app and dumps schema to <code>docs/reference/rest/openapi.json</code> (no server needed).</li>
+<li>Rendering: <strong>Redoc</strong> for reference reading, <strong>Swagger UI</strong> at <code>/reference/rest/try/</code> for interactive try-it.</li>
+<li><strong>Postman collection</strong>: <code>openapi-to-postmanv2</code> converts <code>openapi.json</code> to <code>docs/reference/rest/fathom.postman_collection.json</code>. "Run in Postman" button on the landing page. Insomnia imports OpenAPI directly — link documented.</li>
+<li><strong>Fix M5-adjacent bug</strong>: FastAPI app currently declares <code>version="0.1.0"</code>. Bind it to <code>fathom.__version__</code> at startup as part of this spec's Wave 1.</li>
+</ul>
+<h3 id="grpc-api-protoc-gen-doc">gRPC API — <code>protoc-gen-doc</code><a class="headerlink" href="#grpc-api-protoc-gen-doc" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Output: <code>docs/reference/grpc/fathom.md</code> plus raw <code>.proto</code> served at <code>docs/reference/grpc/fathom.proto</code>.</li>
+<li>Canonical source: <code>protos/fathom.proto</code>.</li>
+<li>Blocked by M2 in the same way as the Go SDK ref.</li>
+</ul>
+<h3 id="mcp-tools-manifest-driven">MCP Tools — manifest-driven<a class="headerlink" href="#mcp-tools-manifest-driven" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>scripts/generate_mcp_manifest.py</code> introspects <code>FathomMCPServer</code> and emits <code>docs/reference/mcp/manifest.json</code> (tool name, description, input schema, output schema).</li>
+<li>A Jinja template renders one Markdown page per tool under <code>docs/reference/mcp/</code>.</li>
+</ul>
+<h3 id="cli-clicktyper-introspection">CLI — Click/Typer introspection<a class="headerlink" href="#cli-clicktyper-introspection" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Emit <code>--help</code> trees via <code>typer-cli utils docs</code> (or Click equivalent) → <code>docs/reference/cli/*.md</code>.</li>
+<li>Every command and flag documented, examples pulled from docstrings.</li>
+</ul>
+<h3 id="rule-packs-yaml-introspection">Rule Packs — YAML introspection<a class="headerlink" href="#rule-packs-yaml-introspection" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>scripts/generate_rule_pack_docs.py</code> walks <code>src/fathom/rule_packs/{owasp_agentic,nist_800_53,hipaa,cmmc}</code> and emits one page per pack: rule count, module mapping, rule table (name / salience / summary / source file / controls covered), example assert/deny scenarios.</li>
+<li>Also emits <code>docs/reference/rule-packs/rule-packs.json</code> for agent consumption.</li>
+</ul>
+<hr />
+<h2 id="4-llm-consumable-artifacts">4. LLM-Consumable Artifacts<a class="headerlink" href="#4-llm-consumable-artifacts" title="Permanent link">&para;</a></h2>
+<p>All artifacts live under <code>docs/</code> and are served at predictable URLs so an agent can fetch a single URL tree and have everything needed to use Fathom.</p>
+<h3 id="llmstxt-index-llmstxtorg-spec"><code>/llms.txt</code> — index (llmstxt.org spec)<a class="headerlink" href="#llmstxt-index-llmstxtorg-spec" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Served at site root. Plain-text, llmstxt.org format: <code># Fathom</code> header, one-paragraph summary, grouped link lists.</li>
+<li>Groups: Core docs · SDK references · How-to recipes (top ~15) · Rule packs · Machine-readable artifacts.</li>
+<li>Generated by <code>scripts/generate_llms_txt.py</code> walking <code>mkdocs.yml</code> nav + page frontmatter summaries.</li>
+</ul>
+<h3 id="llms-fulltxt-full-bundled-markdown"><code>/llms-full.txt</code> — full bundled Markdown<a class="headerlink" href="#llms-fulltxt-full-bundled-markdown" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Concatenation of every doc page in reading order, with <code>## &lt;page path&gt;</code> separators and source URL comments.</li>
+<li>Target size 200–400 KB. If &gt; 500 KB, split into <code>llms-full-core.txt</code> and <code>llms-full-reference.txt</code>.</li>
+<li>Generated by the same script in one pass from post-rendered Markdown sources.</li>
+</ul>
+<h3 id="openapi-json-referencerestopenapijson">OpenAPI JSON — <code>/reference/rest/openapi.json</code><a class="headerlink" href="#openapi-json-referencerestopenapijson" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Versioned in git. CI diff-gates committed copy against freshly exported schema to enforce no drift.</li>
+</ul>
+<h3 id="grpc-proto-referencegrpcfathomproto">gRPC proto — <code>/reference/grpc/fathom.proto</code><a class="headerlink" href="#grpc-proto-referencegrpcfathomproto" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Served as static text.</li>
+</ul>
+<h3 id="mcp-manifest-referencemcpmanifestjson">MCP manifest — <code>/reference/mcp/manifest.json</code><a class="headerlink" href="#mcp-manifest-referencemcpmanifestjson" title="Permanent link">&para;</a></h3>
+<ul>
+<li>JSON manifest of all tools exposed by <code>FathomMCPServer</code>. Lets other MCP servers / agents discover Fathom without running it.</li>
+</ul>
+<h3 id="machine-readable-changelog-changelogjson">Machine-readable changelog — <code>/changelog.json</code><a class="headerlink" href="#machine-readable-changelog-changelogjson" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Emitted from <code>CHANGELOG.md</code> via <code>scripts/changelog_to_json.py</code>. Keep-a-Changelog format → array of <code>{version, date, added, changed, deprecated, removed, fixed, security}</code>.</li>
+</ul>
+<h3 id="rule-pack-catalog-referencerule-packsrule-packsjson">Rule-pack catalog — <code>/reference/rule-packs/rule-packs.json</code><a class="headerlink" href="#rule-pack-catalog-referencerule-packsrule-packsjson" title="Permanent link">&para;</a></h3>
+<ul>
+<li>One record per pack: id, version, module, rules, control coverage, schema. Queryable by agents (e.g. "find rule pack covering HIPAA 164.312(a)").</li>
+</ul>
+<h3 id="robotstxt-llm-crawl-hints"><code>robots.txt</code> + LLM crawl hints<a class="headerlink" href="#robotstxt-llm-crawl-hints" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Permissive. Explicit <code>Allow: /</code> for <code>ClaudeBot</code>, <code>GPTBot</code>, <code>PerplexityBot</code>, <code>Google-Extended</code> — this is a library docs site; we want it retrievable.</li>
+</ul>
+<h3 id="sitemapxml"><code>sitemap.xml</code><a class="headerlink" href="#sitemapxml" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Generated by MkDocs Material by default.</li>
+</ul>
+<h3 id="code-fenced-example-manifests-examplesmanifestjson">Code-fenced example manifests — <code>/examples/manifest.json</code><a class="headerlink" href="#code-fenced-example-manifests-examplesmanifestjson" title="Permanent link">&para;</a></h3>
+<ul>
+<li>For each directory under the repo's <code>examples/</code>: name, summary, files, entrypoint command, expected output. Lets an agent pick and run an example programmatically.</li>
+</ul>
+<h3 id="citationcff-well-knownsecuritytxt"><code>CITATION.cff</code> + <code>.well-known/security.txt</code><a class="headerlink" href="#citationcff-well-knownsecuritytxt" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>CITATION.cff</code> at repo root for academic references.</li>
+<li><code>security.txt</code> at <code>/.well-known/security.txt</code> for responsible disclosure.</li>
+</ul>
+<h3 id="agentsmd-at-repo-root"><code>AGENTS.md</code> at repo root<a class="headerlink" href="#agentsmd-at-repo-root" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Short file pointing LLMs at <code>CLAUDE.md</code>, <code>design.md</code>, <code>docs/llms.txt</code>. Complements <code>CLAUDE.md</code> for non-Claude agents.</li>
+</ul>
+<h3 id="json-schema-for-yaml-referenceyamlschemas">JSON Schema for YAML — <code>/reference/yaml/schemas/</code><a class="headerlink" href="#json-schema-for-yaml-referenceyamlschemas" title="Permanent link">&para;</a></h3>
+<ul>
+<li>One schema per construct: <code>template.schema.json</code>, <code>rule.schema.json</code>, <code>module.schema.json</code>, <code>function.schema.json</code>, <code>ruleset.schema.json</code>, <code>hierarchy.schema.json</code>. Plus a combined <code>fathom.schema.json</code> with top-level <code>oneOf</code> / <code>$defs</code>.</li>
+<li>Source of truth: Pydantic models in <code>src/fathom/models.py</code>. <code>scripts/export_json_schemas.py</code> exports via <code>Model.model_json_schema()</code>. CI diff-gates.</li>
+<li>Register with <strong>SchemaStore.org</strong> so VSCode / IntelliJ / Helix auto-associate <code>.yaml</code> files in <code>templates/</code>, <code>rules/</code>, <code>modules/</code>, <code>functions/</code> folders.</li>
+<li>Docs page shows VSCode <code>yaml.schemas</code> setup and <code>yaml-language-server</code> inline schema header:
+  <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># yaml-language-server: $schema=https://fathom-rules.dev/reference/yaml/schemas/rule.schema.json</span>
+</code></pre></div></li>
+</ul>
+<h3 id="vscode-snippets-extension-scaffold-referencetoolingvscode">VSCode snippets + extension scaffold — <code>/reference/tooling/vscode/</code><a class="headerlink" href="#vscode-snippets-extension-scaffold-referencetoolingvscode" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Snippets file</strong>: <code>fathom.code-snippets</code> with snippets for:</li>
+<li>New template / rule / module / function (YAML skeletons).</li>
+<li>Common condition patterns (<code>below(...)</code>, <code>count_exceeds(...)</code>, <code>$fact.slot</code> cross-ref).</li>
+<li>Common action patterns (deny with reason, allow with scope, assert + bind).</li>
+<li>CLIPS raw-passthrough stubs (<code>deftemplate</code>, <code>defrule</code>, <code>deffunction</code>).</li>
+<li><strong>Delivery</strong>: downloadable <code>.code-snippets</code> file with copy-paste instructions <strong>and</strong> a minimal VSCode extension scaffold at <code>packages/fathom-vscode/</code> that ships snippets + YAML schema association + syntax highlighting. Marketplace publication deferred.</li>
+<li><strong>JetBrains live templates</strong>: mirror XML file, lower priority.</li>
+</ul>
+<hr />
+<h2 id="5-ci-build-and-publishing">5. CI, Build, and Publishing<a class="headerlink" href="#5-ci-build-and-publishing" title="Permanent link">&para;</a></h2>
+<h3 id="local-dev">Local dev<a class="headerlink" href="#local-dev" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>uv run mkdocs serve</code> — live preview of hand-written pages.</li>
+<li>A <code>Makefile</code> at repo root orchestrates generation + build. Targets: <code>docs-gen</code>, <code>docs-build</code>, <code>docs-serve</code>, <code>docs-lint</code>, <code>docs-clean</code>.</li>
+<li><code>make docs-gen</code> order:</li>
+<li><code>scripts/export_openapi.py</code> → <code>docs/reference/rest/openapi.json</code></li>
+<li><code>scripts/export_json_schemas.py</code> → <code>docs/reference/yaml/schemas/*.json</code></li>
+<li><code>scripts/generate_cli_docs.py</code> → <code>docs/reference/cli/*.md</code></li>
+<li><code>scripts/generate_rule_pack_docs.py</code> → <code>docs/reference/rule-packs/*.md</code> + <code>rule-packs.json</code></li>
+<li><code>scripts/generate_mcp_manifest.py</code> → <code>docs/reference/mcp/manifest.json</code></li>
+<li><code>scripts/changelog_to_json.py</code> → <code>docs/changelog.json</code></li>
+<li><code>pdoc</code> → <code>docs/reference/python-sdk/</code></li>
+<li><code>gomarkdoc</code> (via <code>cd packages/fathom-go &amp;&amp; make docs</code>) → <code>docs/reference/go-sdk/</code></li>
+<li><code>typedoc</code> (via <code>pnpm --filter fathom-ts run docs</code>) → <code>docs/reference/typescript-sdk/</code></li>
+<li><code>protoc-gen-doc</code> → <code>docs/reference/grpc/fathom.md</code></li>
+<li><code>openapi-to-postmanv2</code> → <code>docs/reference/rest/fathom.postman_collection.json</code></li>
+<li><code>scripts/generate_llms_txt.py</code> → <code>docs/llms.txt</code> + <code>docs/llms-full.txt</code></li>
+</ul>
+<h3 id="ci-new-githubworkflowsdocsyml">CI — new <code>.github/workflows/docs.yml</code><a class="headerlink" href="#ci-new-githubworkflowsdocsyml" title="Permanent link">&para;</a></h3>
+<p>REVIEW.md notes no CI currently exists. This spec establishes CI for docs only; other CI concerns are out of scope.</p>
+<p>Jobs:</p>
+<ol>
+<li><strong><code>docs-generate</code></strong> — runs <code>make docs-gen</code>; fails if any generator errors.</li>
+<li><strong><code>docs-drift</code></strong> — verifies committed generated artifacts match freshly generated output (<code>git diff --exit-code</code> on <code>docs/reference/**</code>, <code>docs/llms*.txt</code>, <code>docs/changelog.json</code>). Forces regeneration when code changes.</li>
+<li><strong><code>docs-build</code></strong> — <code>mkdocs build --strict</code> (fails on warnings: broken cross-refs, missing pages in nav, orphan files).</li>
+<li><strong><code>docs-lint</code></strong> — <code>markdownlint-cli2</code> on hand-written pages (exclude <code>docs/reference/**</code>).</li>
+<li><strong><code>docs-link-check</code></strong> — <code>lychee --no-progress docs/</code>. External links warn-only; internal failures block.</li>
+<li><strong><code>docs-spelling</code></strong> — <code>codespell</code> with <code>.codespellignore</code> for domain terms (CLIPS, Rete, salience, clipspy, etc.).</li>
+<li><strong><code>docs-docstring-coverage</code></strong> — <code>scripts/check_docstrings.py</code> + Go <code>revive</code> + TS <code>eslint-plugin-tsdoc</code>. Fails if any public symbol lacks docstring.</li>
+<li><strong><code>docs-schema-validation</code></strong> — round-trip: validate each example YAML under <code>examples/</code> against the generated JSON Schema.</li>
+</ol>
+<p>Triggers: PRs touching <code>src/**</code>, <code>docs/**</code>, <code>packages/**</code>, <code>protos/**</code>, <code>CHANGELOG.md</code>, or the docs workflow itself.</p>
+<h3 id="publishing">Publishing<a class="headerlink" href="#publishing" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Primary host</strong>: GitHub Pages from <code>gh-pages</code> branch. <code>mkdocs gh-deploy</code> on merges to <code>master</code> (separate workflow <code>.github/workflows/docs-deploy.yml</code>).</li>
+<li><strong>Custom domain</strong>: <code>fathom-rules.dev</code> via <code>docs/CNAME</code>. Matches <code>site_url</code> in <code>mkdocs.yml</code>.</li>
+<li><strong>Versioned docs</strong>: <code>mike</code> publishes versioned docs (<code>latest</code>, <code>stable</code>, <code>0.3.x</code>, <code>0.2.x</code>). Version selector in header. Release workflow runs <code>mike deploy --push --update-aliases &lt;version&gt; latest</code>.</li>
+<li><strong>Preview deploys</strong>: deferred for v1. Adopt Cloudflare Pages / Netlify previews if PR iteration becomes painful.</li>
+<li><strong><code>llms.txt</code> and friends</strong>: served alongside the site from <code>docs/</code>, so <code>https://fathom-rules.dev/llms.txt</code> works from GitHub Pages directly.</li>
+</ul>
+<h3 id="release-time-docs-tasks-added-to-release-runbook">Release-time docs tasks (added to release runbook)<a class="headerlink" href="#release-time-docs-tasks-added-to-release-runbook" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Bump version in <code>pyproject.toml</code> AND <code>src/fathom/__init__.py</code> (resolves the class of bug in REVIEW.md M1).</li>
+<li><code>scripts/check_version_sync.py</code> runs in CI to prevent recurrence.</li>
+<li>Update <code>CHANGELOG.md</code> — <code>changelog.json</code> derives from it.</li>
+<li><code>mike deploy --push --update-aliases &lt;version&gt; latest</code> on tag.</li>
+<li>Verify <code>/llms.txt</code>, <code>/openapi.json</code>, <code>/changelog.json</code> are current on deployed site.</li>
+</ul>
+<hr />
+<h2 id="6-writing-style-page-templates-and-quality-bar">6. Writing Style, Page Templates, and Quality Bar<a class="headerlink" href="#6-writing-style-page-templates-and-quality-bar" title="Permanent link">&para;</a></h2>
+<h3 id="voice-and-style">Voice and style<a class="headerlink" href="#voice-and-style" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Diátaxis discipline</strong>: each page serves one mode. Tutorials teach (imperative, "you"), how-tos instruct (imperative, goal-first), references describe (declarative, third-person), explanations narrate (expository).</li>
+<li><strong>Tone</strong>: terse, confident, no marketing. Match <code>design.md</code> and <code>README.md</code> voice (short declarative sentences, concrete examples, no hedging).</li>
+<li><strong>No emoji</strong> in docs body. Admonitions (<code>!!! note</code>, <code>!!! warning</code>) instead.</li>
+<li><strong>Second person singular</strong> ("you") in tutorials and how-tos. <strong>Never "I"</strong> except in FAQ entries.</li>
+<li><strong>Present tense, active voice</strong>.</li>
+<li><strong>Banned words</strong>: "simply", "just", "easily", "obviously". Enforced by <code>vale</code> Write-Good lint.</li>
+<li><strong>Short sentences</strong> — target ≤ 25 words.</li>
+<li><strong>Code before prose</strong> where possible — show the snippet, then explain.</li>
+</ul>
+<h3 id="page-templates-committed-to-docs_templates">Page templates (committed to <code>docs/_templates/</code>)<a class="headerlink" href="#page-templates-committed-to-docs_templates" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Tutorial</strong> — goal · prerequisites · numbered steps with concrete output · "what you learned" · next tutorial.</li>
+<li><strong>How-to</strong> — task statement · prerequisites · steps · verification · related how-tos.</li>
+<li><strong>Reference (manual)</strong> — one-line summary · signature/schema · parameters table · return/emits · examples · notes · see also.</li>
+<li><strong>Reference (auto)</strong> — frontmatter only; body generated.</li>
+<li><strong>Explanation</strong> — the question this page answers · context · the concept · trade-offs · implications · further reading.</li>
+<li><strong>Integration recipe</strong> — target system · prerequisites · install · minimal example · advanced config · troubleshooting.</li>
+<li><strong>Rule pack</strong> — pack id + version · coverage matrix · rule list table · module layout · install · example decisions · upgrade notes.</li>
+</ol>
+<h3 id="content-rules">Content rules<a class="headerlink" href="#content-rules" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Every page has a one-line TL;DR</strong> under the H1. Feeds <code>llms.txt</code> summaries.</li>
+<li><strong>Every code sample runs</strong> where feasible. Python/YAML samples extracted and tested in CI by <code>pytest --doctest-glob='docs/**/*.md'</code>. Non-runnable snippets get <code># not runnable — illustrative</code>.</li>
+<li><strong>No dead links</strong>. Lychee (internal blocking, external warn-only). Every cross-ref uses relative MkDocs paths.</li>
+<li><strong>Every public symbol referenced by name</strong> has an <code>mkdocstrings</code> block.</li>
+<li><strong>Diagrams</strong> via Mermaid (fenced <code>mermaid</code> blocks). ASCII art from <code>design.md</code> promoted to Mermaid where sensible.</li>
+<li><strong>Consistent naming</strong>: "Fathom", "CLIPS", "working memory", "rule pack", <code>deftemplate</code>/<code>defrule</code>/<code>defmodule</code>/<code>deffunction</code> in code font, lowercase.</li>
+</ul>
+<h3 id="frontmatter-on-every-hand-written-page">Frontmatter on every hand-written page<a class="headerlink" href="#frontmatter-on-every-hand-written-page" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nn">---</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Your First Rule</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">summary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Load a YAML rule, assert a fact, evaluate, and read the decision.</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">app-developers</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">rule-authors</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nt">diataxis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tutorial</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nt">reading_time</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">stable | draft | experimental</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nt">last_verified</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-04-15</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="nn">---</span>
+</code></pre></div>
+<p><code>summary</code> + <code>audience</code> + <code>diataxis</code> feed audience landing pages and <code>llms.txt</code> grouping. <code>last_verified</code> is checked by a scheduled CI job that warns on pages &gt; 180 days stale.</p>
+<h3 id="quality-gates-on-top-of-section-5">Quality gates (on top of Section 5)<a class="headerlink" href="#quality-gates-on-top-of-section-5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>All hand-written pages have required frontmatter (<code>scripts/check_frontmatter.py</code>).</li>
+<li>No page exceeds 1,500 words (forces how-to + explanation pairs).</li>
+<li>Every tutorial has numbered steps and a concrete "you'll know it worked when…" verification.</li>
+<li>References to unreleased features must have <code>status: experimental</code> frontmatter.</li>
+</ul>
+<h3 id="style-linting">Style linting<a class="headerlink" href="#style-linting" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>markdownlint-cli2</code> (config at <code>.markdownlint.jsonc</code>).</li>
+<li><code>vale</code> with Write-Good + Microsoft-Writing-Style-Guide packages, configured as <strong>warning</strong> (not blocker).</li>
+<li><code>codespell</code> blocks build.</li>
+</ul>
+<h3 id="contributor-facing-doc-authoring-guide">Contributor-facing doc-authoring guide<a class="headerlink" href="#contributor-facing-doc-authoring-guide" title="Permanent link">&para;</a></h3>
+<ul>
+<li>New page <code>Contributing / Writing Docs</code> documents templates, banned-words list, frontmatter schema, <code>make docs-serve</code> workflow.</li>
+</ul>
+<hr />
+<h2 id="7-migration-phasing-and-verification">7. Migration, Phasing, and Verification<a class="headerlink" href="#7-migration-phasing-and-verification" title="Permanent link">&para;</a></h2>
+<h3 id="migration-model">Migration model<a class="headerlink" href="#migration-model" title="Permanent link">&para;</a></h3>
+<p><strong>Parallel-write, then cut-over.</strong> Existing <code>docs/</code> tree stays in place; new pages are written under new paths; <code>mkdocs.yml</code> nav flips in one commit at the end of each wave. Redirects via <code>mkdocs-redirects</code> preserve all existing URLs.</p>
+<h3 id="waves">Waves<a class="headerlink" href="#waves" title="Permanent link">&para;</a></h3>
+<p><strong>Wave 0 — Infra (no user-visible content)</strong>
+- Add <code>mkdocs-redirects</code>, <code>mike</code>, generator scripts, Makefile targets, CI workflow.
+- Fix prerequisites: REVIEW.md <strong>M2</strong> (proto ↔ go.mod path mismatch) blocks Wave 1 Go SDK reference. Flagged as explicit gating task.
+- Ship <code>llms.txt</code> and <code>llms-full.txt</code> for existing content as a quick win.
+- Fix <code>mkdocs.yml:5</code> <code>repo_name</code> to <code>KrakenNet/fathom</code> (REVIEW.md m5).</p>
+<p><strong>Wave 1 — Reference (mostly generated, lowest risk)</strong>
+- Generate and publish Python/Go/TS SDK refs, REST OpenAPI + Swagger/Postman, gRPC, MCP, CLI, JSON Schemas, rule-pack catalog, VSCode snippets bundle.
+- Bind FastAPI <code>version</code> to <code>fathom.__version__</code> (fixes REVIEW.md's stale <code>version="0.1.0"</code> note).
+- Redirect <code>docs/api/*</code>, <code>docs/yaml/*</code>, <code>docs/rule-packs/*</code> → new <code>docs/reference/*</code> paths.</p>
+<p><strong>Wave 2 — Explanation</strong>
+- Rewrite <code>docs/core/*</code> into <code>docs/explanation/*</code> using Explanation template.
+- Move <code>docs/external/CLIPS</code> → <code>docs/explanation/clips-in-15-minutes.md</code>.
+- Redirect old URLs.</p>
+<p><strong>Wave 3 — How-to guides</strong>
+- Extract task-oriented content from <code>docs/integrations/*</code> into <code>docs/how-to/integration/*</code>.
+- Write new how-tos for gaps identified in Section 2.
+- Retire <code>docs/integrations/</code> after content is re-homed.</p>
+<p><strong>Wave 4 — Tutorials</strong>
+- Five tutorials from scratch, each tied to a runnable example under <code>examples/</code>.
+- <code>examples/manifest.json</code> emitted so each tutorial has a corresponding runnable folder.</p>
+<p><strong>Wave 5 — Audience landing pages + home + meta</strong>
+- Three audience landing pages, new home page, FAQ, roadmap mirror, changelog page.
+- Flip <code>mkdocs.yml</code> nav to final Section 2 layout.
+- Redirect old top-level pages (<code>getting-started.md</code>, <code>writing-rules.md</code>, <code>integration.md</code>, <code>_index.md</code>).</p>
+<p><strong>Wave 6 — Polish</strong>
+- Vale pass, Mermaid diagrams, cross-link audit, <code>last_verified</code> sweep.
+- Tag docs v1.0 via <code>mike</code>.</p>
+<h3 id="handling-of-reviewmd-bugs">Handling of REVIEW.md bugs<a class="headerlink" href="#handling-of-reviewmd-bugs" title="Permanent link">&para;</a></h3>
+<p>Docs spec cannot cleanly ship without these being resolved. Each lands as an explicit task gate in the plan:</p>
+<ul>
+<li><strong>M1</strong> (version skew <code>pyproject.toml</code> vs <code>__init__.py</code>) — Wave 0 pre-req task. Adds <code>scripts/check_version_sync.py</code> CI check.</li>
+<li><strong>M2</strong> (proto ↔ go.mod mismatch) — Wave 0 pre-req task; blocks Wave 1 Go SDK generation.</li>
+<li><strong>m3</strong> (silent slot-drop in <code>ConditionEntry</code>) — out of scope; kicked to its own issue.</li>
+<li><strong>m5</strong> (<code>mkdocs.yml</code> <code>repo_name</code>) — Wave 0 fix while editing the file.</li>
+<li><strong>FastAPI <code>version="0.1.0"</code></strong> — Wave 1 fix during OpenAPI export task.</li>
+</ul>
+<h3 id="verification-success-criteria">Verification (success criteria)<a class="headerlink" href="#verification-success-criteria" title="Permanent link">&para;</a></h3>
+<p>Spec is complete when every item is mechanically verifiable:</p>
+<ul>
+<li>[ ] <code>make docs-build</code> succeeds with zero warnings on a clean checkout.</li>
+<li>[ ] CI workflow <code>docs.yml</code> green on a PR.</li>
+<li>[ ] Every public Python symbol in <code>fathom.__all__</code> has a generated reference page.</li>
+<li>[ ] <code>gh pages</code> deploy produces a live site at <code>https://fathom-rules.dev/</code> with working version selector.</li>
+<li>[ ] <code>curl https://fathom-rules.dev/llms.txt</code> returns a valid llms.txt document.</li>
+<li>[ ] <code>curl https://fathom-rules.dev/llms-full.txt</code> returns &lt; 500 KB of Markdown.</li>
+<li>[ ] <code>curl .../reference/rest/openapi.json</code> returns valid OpenAPI 3.1 matching the running FastAPI app.</li>
+<li>[ ] <code>curl .../reference/yaml/schemas/rule.schema.json</code> validates <code>examples/01-hello-allow-deny</code> YAML.</li>
+<li>[ ] Every tutorial example runs end-to-end when executed from a clean environment (CI runs them).</li>
+<li>[ ] 301 redirects in place for every pre-migration URL (tested via <code>lychee</code> on a seed list).</li>
+<li>[ ] Audience landing pages list at least 5 curated links each.</li>
+<li>[ ] <code>scripts/check_docstrings.py</code> reports 100% coverage on public API.</li>
+<li>[ ] README links the docs site and the three audience landing pages.</li>
+<li>[ ] Postman collection imports cleanly.</li>
+<li>[ ] VSCode snippets bundle loads in a test workspace and expands at least one snippet per family.</li>
+</ul>
+<h3 id="out-of-scope-deferred-named-so-not-forgotten">Out of scope (deferred, named so not forgotten)<a class="headerlink" href="#out-of-scope-deferred-named-so-not-forgotten" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Algolia DocSearch / typesense.</li>
+<li>Interactive REPL / playground.</li>
+<li>Community examples gallery.</li>
+<li>i18n.</li>
+<li>Marketing microsite / design system beyond MkDocs Material defaults.</li>
+<li>Newsletter / RSS (beyond Material's built-in RSS plugin).</li>
+<li>Preview deploys per PR (adopt later if needed).</li>
+<li>JetBrains marketplace publication of snippets.</li>
+<li>VSCode marketplace publication of the extension (scaffold ships, publication deferred).</li>
+</ul>
+<hr />
+<h2 id="research-notes-section-b-targeted-sources">Research notes (Section B — targeted sources)<a class="headerlink" href="#research-notes-section-b-targeted-sources" title="Permanent link">&para;</a></h2>
+<p>Design informed by current patterns from the following projects and specs:</p>
+<ul>
+<li><strong>Diátaxis framework</strong> (diataxis.fr) — four-quadrant doc taxonomy. Adopted wholesale for top-level IA.</li>
+<li><strong>Stripe Docs</strong> — "Run in Postman" affordance, audience-curated landing pages, terse voice.</li>
+<li><strong>Supabase Docs</strong> — SDK references per language alongside shared conceptual pages; MkDocs/Nextra hybrid approach informs the "one site, multiple generated refs" decision.</li>
+<li><strong>Prisma Docs</strong> — "API Reference" as a generated surface with hand-written guides alongside; schema-as-source-of-truth.</li>
+<li><strong>FastAPI Docs</strong> — MkDocs Material + mkdocstrings reference model; OpenAPI-as-source-of-truth for REST.</li>
+<li><strong>OPA Docs</strong> — policy-engine parallel; Rego reference + integration recipes layout maps cleanly to Fathom's YAML reference + integration how-tos.</li>
+<li><strong>llmstxt.org spec</strong> (Jeremy Howard, 2024) — <code>/llms.txt</code> and <code>/llms-full.txt</code> conventions for LLM-consumable docs.</li>
+<li><strong>SchemaStore.org</strong> — registration process for YAML schema auto-association in editors.</li>
+</ul>
+<hr />
+<h2 id="appendix-adjacent-deliverables-workstreams-1-and-2">Appendix — Adjacent deliverables (Workstreams 1 and 2)<a class="headerlink" href="#appendix-adjacent-deliverables-workstreams-1-and-2" title="Permanent link">&para;</a></h2>
+<p>This spec covers Workstream 3 (dev docs). The other two workstreams execute directly as immediate work:</p>
+<h3 id="workstream-1-design-doc-verification-approach-a">Workstream 1 — Design-doc verification (approach A)<a class="headerlink" href="#workstream-1-design-doc-verification-approach-a" title="Permanent link">&para;</a></h3>
+<p>Audit <code>design.md</code> roadmap against shipped code. Check off completed items, add a Status column per phase, note deferred or changed items. In place. No separate artifact.</p>
+<h3 id="workstream-2-kb-readme-full-refresh-approach-c">Workstream 2 — KB + README full refresh (approach C)<a class="headerlink" href="#workstream-2-kb-readme-full-refresh-approach-c" title="Permanent link">&para;</a></h3>
+<p>Rewrite thin or outdated KB pages, normalize tone and style, add diagrams where helpful. README refreshed to reflect actual shipped state, including version, package name, integration surface, and links to the upcoming docs site.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

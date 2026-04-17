@@ -1,0 +1,4550 @@
+## _index.md
+
+# Fathom
+
+Fathom is a deterministic reasoning runtime for AI agents, built on CLIPS via
+clipspy. Rules are authored in YAML, compiled to CLIPS constructs, and
+evaluated in microseconds with auditable traces.
+
+Current release: `fathom-rules` 0.3.0 (requires Python 3.14+).
+
+## Start here
+
+- [Getting Started](getting-started.md) — install, first template, first rule,
+  first evaluation.
+- [Tutorial 1 — Hello-world policy](tutorials/hello-world.md) — the same
+  material, guided step by step.
+
+## Documentation by quadrant
+
+The docs follow the [Diátaxis](https://diataxis.fr) framework. Pick the
+quadrant that matches what you're doing.
+
+### Learn — Tutorials
+
+- [Hello-world policy](tutorials/hello-world.md)
+- [Modules and salience](tutorials/modules-and-salience.md)
+- [Working memory across evaluations](tutorials/working-memory.md)
+
+### Solve a task — How-to Guides
+
+- [Writing rules](how-to/writing-rules.md)
+- [Integrating with FastAPI](how-to/fastapi.md)
+- [Using the CLI](how-to/cli.md)
+- [Registering a Python function](how-to/register-function.md)
+- [Loading a rule pack](how-to/load-rule-pack.md)
+- [Embedding via SDK](how-to/embed-sdk.md)
+
+### Understand — Concepts
+
+- [Five Primitives](concepts/five-primitives.md)
+- [Runtime and Working Memory](concepts/runtime-and-working-memory.md)
+- [YAML Compilation](concepts/yaml-compilation.md)
+- [Audit and Attestation](concepts/audit-attestation.md)
+- [CLIPS Features Not in v1](concepts/not-in-v1.md)
+
+### Look up — Reference
+
+- YAML: [Template](reference/yaml/template.md) ·
+  [Rule](reference/yaml/rule.md) ·
+  [Module](reference/yaml/module.md) ·
+  [Function](reference/yaml/function.md) ·
+  [Fact](reference/yaml/fact.md)
+- APIs: [REST](reference/rest/index.md) ·
+  [gRPC](reference/grpc/index.md) ·
+  [MCP Tools](reference/mcp/index.md)
+- [CLI](reference/cli/index.md)
+- SDKs: [Python](reference/python-sdk/index.md) ·
+  [Go](reference/go-sdk/index.md) ·
+  [TypeScript](reference/typescript-sdk/index.md)
+- [Rule Packs](reference/rule-packs/owasp-agentic.md)
+- [Planned Integrations](reference/planned-integrations.md)
+
+## What is not in v1
+
+Fathom v1 is forward-chaining only and deliberately narrow. Backward chaining,
+COOL (CLIPS object system), and message handlers are out of scope for this
+release. See [CLIPS Features Not in v1](concepts/not-in-v1.md) for the full
+list and the rationale.
+
+
+## getting-started.md
+
+# Fathom -- Getting Started
+
+Fathom is a deterministic reasoning runtime built on CLIPS via clipspy. Define rules in YAML, evaluate in microseconds, get auditable results with zero hallucinations.
+
+## Installation
+
+Requires Python 3.14 or later.
+
+```bash
+uv add fathom-rules
+```
+
+The only core dependency is `clipspy`. No other external packages are required.
+
+## Create Your First Template
+
+Templates define the shape of facts. Create a file `templates/agent.yaml`:
+
+```yaml
+templates:
+  - name: agent
+    description: "An AI agent requesting access or action"
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+      - name: purpose
+        type: symbol
+        required: true
+      - name: session_id
+        type: string
+        required: true
+
+  - name: data_request
+    description: "A request to access a data source"
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+      - name: target
+        type: string
+        required: true
+      - name: classification
+        type: symbol
+        required: true
+      - name: action
+        type: symbol
+        allowed_values: [read, write, delete]
+        default: read
+```
+
+Each slot has a `type` (`string`, `symbol`, `float`) and optional constraints (`required`, `allowed_values`, `default`). Fathom validates facts against these schemas at assertion time.
+
+## Write Your First Rule
+
+Rules define pattern-matching logic that fires when facts match conditions. Create `rules/access-control.yaml`:
+
+```yaml
+ruleset: access-control
+version: 1.0
+module: governance
+
+rules:
+  - name: deny-insufficient-clearance
+    description: "Deny access when agent clearance is below data classification"
+    salience: 10
+    when:
+      agent:
+        clearance: below($data.classification)
+      data_request:
+        as: $data
+    then:
+      action: deny
+      reason: "Agent clearance '{agent.clearance}' insufficient for '{$data.classification}' data"
+      log: full
+```
+
+`salience` controls firing priority -- higher values fire first. The evaluator uses last-write-wins on `__fathom_decision` facts, so the rule firing LAST wins. Deny rules should have LOWER salience than allow rules so they fire last and override any prior allow, enforcing fail-closed behavior.
+
+## Set Up Modules
+
+Modules namespace rules into isolated groups with controlled execution order. Create `modules.yaml`:
+
+```yaml
+modules:
+  - name: classification
+    description: "Classification and clearance evaluation"
+    priority: 1
+
+  - name: governance
+    description: "Action-level governance rules"
+    priority: 2
+
+focus_order: [classification, governance]
+```
+
+The `focus_order` list determines evaluation sequence. Rules in `classification` fire before rules in `governance`. Each rule file declares which module it belongs to via the `module` field.
+
+## Run Your First Evaluation
+
+```python
+from fathom import Engine
+
+engine = Engine()
+engine.load_templates("templates/")
+engine.load_modules("modules.yaml")
+engine.load_rules("rules/access-control.yaml")
+
+engine.assert_fact("agent", {
+    "id": "agent-alpha",
+    "clearance": "secret",
+    "purpose": "threat-analysis",
+    "session_id": "sess-001"
+})
+
+engine.assert_fact("data_request", {
+    "agent_id": "agent-alpha",
+    "target": "hr_records",
+    "classification": "top-secret",
+    "action": "read"
+})
+
+result = engine.evaluate()
+
+print(result.decision)     # "deny"
+print(result.reason)       # "Agent clearance 'secret' insufficient for 'top-secret' data"
+print(result.rule_trace)   # ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
+print(result.module_trace) # ["classification", "governance"]
+print(result.duration_us)  # 47
+```
+
+The result object contains five fields:
+
+- `decision` -- the action taken (`allow`, `deny`, `escalate`, etc.)
+- `reason` -- human-readable explanation with interpolated variables
+- `rule_trace` -- ordered list of rules that fired, prefixed by module name
+- `module_trace` -- ordered list of modules that were evaluated
+- `duration_us` -- evaluation time in microseconds
+
+Working memory persists across evaluations within a session. This enables cumulative reasoning ("agent accessed PII from 3 sources -- deny the 4th") and temporal patterns that stateless engines cannot express.
+
+## Next Steps
+
+- [Tutorial 1 -- Hello-world policy](tutorials/hello-world.md) -- the guided version of this same material
+- [Five Primitives](concepts/five-primitives.md) -- templates, facts, rules, modules, and functions in depth
+- [YAML Rule reference](reference/yaml/rule.md) -- operators, conditions, actions, and rule packs
+- [Runtime and Working Memory](concepts/runtime-and-working-memory.md) -- session state, queries, cumulative reasoning
+- [Planned Integrations](reference/planned-integrations.md) -- library, sidecar, MCP tool, and framework adapters
+
+## Do Not
+
+- Do not skip template definitions and assert untyped facts -- Fathom validates at assertion time.
+- Do not set deny rules to higher salience than allow rules -- deny must have lower salience so it fires last and wins under last-write-wins (fail-closed).
+- Do not assume working memory resets between `evaluate()` calls within the same session -- it persists.
+- Do not use raw CLIPS constructs when YAML equivalents exist -- YAML is the primary authoring interface.
+
+
+## tutorials/index.md
+
+# Tutorials
+
+1. [Hello-world policy](hello-world.md) — install Fathom, write your first rule, evaluate a fact.
+2. [Modules & salience](modules-and-salience.md) — split rules across modules, control execution order.
+3. [Working memory across evaluations](working-memory.md) — persist facts between `evaluate()` calls.
+
+Each tutorial takes ~20 minutes and assumes no prior CLIPS or Fathom knowledge.
+
+
+## tutorials/hello-world.md
+
+# Hello-world policy
+
+In this tutorial you'll install Fathom, define one template and one rule in YAML, load them into an engine, assert a fact, and read the evaluation result that comes back.
+
+## 1. Install
+
+```bash no-verify
+pip install fathom-rules
+```
+
+## 2. Define a template
+
+A template is the schema for a fact. Save this as `agent.yaml`:
+
+```yaml
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [public, confidential, secret]
+```
+
+## 3. Define a rule
+
+Save this as `rules.yaml`:
+
+```yaml
+ruleset: demo
+version: "1.0"
+module: MAIN
+rules:
+  - name: allow-public
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "== public"
+    then:
+      action: allow
+```
+
+## 4. Load and evaluate
+
+```python no-verify
+from fathom.engine import Engine
+
+engine = Engine()
+engine.load_templates("agent.yaml")
+engine.load_rules("rules.yaml")
+
+engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
+result = engine.evaluate()
+
+print(result.decision)      # -> "allow"
+print(result.rule_trace)    # -> ["allow-public"]
+```
+
+The `no-verify` tag skips snippet execution because the install step and file paths aren't part of the test harness. The engine calls themselves are verified in [working memory](working-memory.md), which builds on this example with a real in-memory path.
+
+## What just happened?
+
+- Fathom compiled your YAML to CLIPS constructs via `fathom.compiler.Compiler` and loaded them into an embedded CLIPS environment.
+- Your fact matched the condition `clearance == public`, the rule fired, and the rule's `then.action: allow` became the decision on the evaluation result.
+- The `EvaluationResult` captures which rules fired (`rule_trace`), the final `decision`, and the evaluation duration — see [Audit & Attestation](../concepts/audit-attestation.md).
+
+## Next
+
+- [Modules & salience](modules-and-salience.md) — add a deny rule with lower salience so it fires last and wins.
+
+
+## tutorials/modules-and-salience.md
+
+# Modules & salience
+
+This tutorial builds on [Hello-world policy](hello-world.md). You will add a
+deny rule alongside an allow rule, tune their salience so the deny always wins,
+and confirm the fail-closed outcome.
+
+## How salience and last-write-wins interact
+
+Fathom compiles your YAML to CLIPS via `fathom.compiler.Compiler`. CLIPS fires
+eligible rules in salience order — the **highest** salience rule fires **first**.
+The `Evaluator` uses a **last-write-wins** strategy: the final
+`__fathom_decision` fact asserted into working memory becomes the result that
+`Engine.evaluate` returns as `EvaluationResult.decision`.
+
+Put those two facts together and the fail-closed design becomes clear:
+
+- Give the **allow** rule a **high** salience (e.g. 100) so it fires first.
+- Give the **deny** rule a **low** salience (e.g. 10) so it fires after.
+- Because the deny fact is written last, it overwrites the allow fact and wins.
+
+`RuleDefinition.salience` (in `src/fathom/models.py`) is an `int` that defaults
+to `0`. Any positive integer is valid.
+
+## 1. Install
+
+```bash no-verify
+pip install fathom-rules
+```
+
+## 2. Define a template
+
+Save as `agent.yaml`:
+
+```yaml no-verify
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [public, confidential, secret]
+```
+
+## 3. Define a module
+
+Rules in Fathom must belong to a named module. `Compiler.compile_module`
+(in `src/fathom/compiler.py`) emits the CLIPS `defmodule` construct; modules are
+loaded into the engine with `Engine.load_modules`.
+
+Save as `modules.yaml`:
+
+```yaml no-verify
+modules:
+  - name: governance
+    description: Access-control governance layer
+focus_order:
+  - governance
+```
+
+The optional `focus_order` list tells the engine which modules to activate and
+in what order. Internally, `Compiler.compile_focus_stack` reverses this list
+before building the CLIPS `(focus ...)` command because CLIPS uses push
+semantics — the last module pushed ends up on top of the execution stack and
+therefore runs first.
+
+## 4. Define two rules with different salience
+
+Both rules match an agent whose `clearance` slot equals `public`. The allow
+rule fires first (`salience: 100`); the deny rule fires second (`salience: 10`)
+and overwrites the allow decision via last-write-wins.
+
+Save as `rules.yaml`:
+
+```yaml no-verify
+module: governance
+rules:
+  - name: allow-public
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: allow
+
+  - name: deny-public
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: deny
+      reason: "Public clearance is not sufficient"
+```
+
+## 5. Load, assert, and evaluate
+
+The Python block below writes the three YAML definitions to a temporary
+directory, loads them in the required order (templates → modules → rules),
+asserts a fact, and verifies the deny outcome.
+
+```python
+import pathlib, tempfile
+from fathom.engine import Engine
+
+TEMPLATES_YAML = """
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        required: true
+        allowed_values: [public, confidential, secret]
+"""
+
+MODULES_YAML = """
+modules:
+  - name: governance
+    description: Access-control governance layer
+focus_order:
+  - governance
+"""
+
+RULES_YAML = """
+module: governance
+rules:
+  - name: allow-public
+    salience: 100
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: allow
+
+  - name: deny-public
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: "equals(public)"
+    then:
+      action: deny
+      reason: "Public clearance is not sufficient"
+"""
+
+with tempfile.TemporaryDirectory() as tmp:
+    d = pathlib.Path(tmp)
+    (d / "agent.yaml").write_text(TEMPLATES_YAML)
+    (d / "modules.yaml").write_text(MODULES_YAML)
+    (d / "rules.yaml").write_text(RULES_YAML)
+
+    engine = Engine()
+    engine.load_templates(str(d / "agent.yaml"))
+    engine.load_modules(str(d / "modules.yaml"))
+    engine.load_rules(str(d / "rules.yaml"))
+
+    engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
+    result = engine.evaluate()
+
+    assert result.decision == "deny", f"expected deny, got {result.decision!r}"
+    assert "governance::deny-public" in result.rule_trace, (
+        f"rule_trace was {result.rule_trace}"
+    )
+```
+
+Both rules match. `allow-public` fires first (salience 100) and writes an allow
+fact. `deny-public` fires second (salience 10) and writes a deny fact. Because
+the evaluator uses last-write-wins, the deny fact is the winner.
+
+`result.decision` is `"deny"` and `result.rule_trace` includes
+`"governance::deny-public"` (rules are recorded as `module::rule_name`).
+
+## What just happened?
+
+- **Modules** give rules a namespace. `Compiler.compile_module` emits
+  `(defmodule governance (import MAIN ?ALL))` so governance rules can reference
+  the internal decision template defined in `MAIN`.
+- **Focus stack** — `Compiler.compile_focus_stack(["governance"])` produces
+  `(focus governance)`. The evaluator pushes that onto the CLIPS agenda before
+  running the forward-chain cycle.
+- **Salience** controls firing order. Lower-salience rules fire later. The last
+  decision fact written wins, so the deny rule at salience 10 overrides the
+  allow rule at salience 100. This is the fail-closed design: allow rules can
+  only succeed when no deny rule fires after them.
+- `EvaluationResult.decision` and `EvaluationResult.rule_trace` (defined in
+  `src/fathom/models.py`) capture the outcome.
+
+## Next
+
+- Explore [Working memory](working-memory.md) to see how facts persist across
+  multiple evaluations within a session.
+
+
+## tutorials/working-memory.md
+
+# Working memory across evaluations
+
+This tutorial builds on [Modules & salience](modules-and-salience.md). You will
+assert facts in two separate steps, call `Engine.evaluate` after each step, and
+confirm that the second evaluation sees facts from both steps. You will also
+learn how to clear working memory when a session is done.
+
+## Why this matters
+
+Systems like OPA and Cedar are stateless: every evaluation starts from a blank
+slate. Fathom is different — **facts asserted into a `Engine` instance persist
+across `evaluate()` calls** for the lifetime of that instance. This is the
+core design choice that makes Fathom useful for session-level reasoning: rules
+can accumulate evidence across many events before reaching a conclusion.
+
+A concrete example: an access-control policy that counts API calls made in the
+last minute. Each `assert_fact` adds a new event to working memory. A rate rule
+checks whether the total count exceeds a threshold. The count grows across
+evaluations — no external state store required.
+
+## How working memory works
+
+When you call `engine.assert_fact(template, data)`, the fact is written into
+the embedded CLIPS environment that `Engine` wraps. That environment is stateful:
+facts remain until you explicitly retract them or reset the environment.
+`engine.evaluate()` runs the forward-chain cycle against *all* facts currently
+in working memory — not just the ones asserted since the last call.
+
+## Demonstration
+
+The block below proves persistence with a rule that requires **two facts** — one
+asserted in the first step, one in the second. That combined rule can only fire
+on the second evaluation because it needs both facts in working memory at once.
+
+1. Loads a template and rules into a single `Engine`.
+2. Asserts `agent a-1` (`role: "requester"`), evaluates — the combined rule
+   cannot fire yet because `agent a-2` is missing; only the single-fact rule fires.
+3. Asserts `agent a-2` (`role: "approver"`), evaluates again — *both* facts are
+   now in working memory, the combined rule fires.
+
+```python
+import pathlib, tempfile
+from fathom.engine import Engine
+
+TEMPLATES_YAML = """
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: role
+        type: symbol
+        required: true
+        allowed_values: [requester, approver]
+"""
+
+MODULES_YAML = """
+modules:
+  - name: access
+    description: Access-control module
+focus_order:
+  - access
+"""
+
+RULES_YAML = """
+module: access
+rules:
+  - name: allow-requester-alone
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: role
+            expression: "equals(requester)"
+    then:
+      action: allow
+      reason: "requester present"
+
+  - name: allow-dual-approval
+    salience: 20
+    when:
+      - template: agent
+        conditions:
+          - slot: role
+            expression: "equals(requester)"
+      - template: agent
+        conditions:
+          - slot: role
+            expression: "equals(approver)"
+    then:
+      action: allow
+      reason: "dual approval confirmed"
+"""
+
+with tempfile.TemporaryDirectory() as tmp:
+    d = pathlib.Path(tmp)
+    (d / "agent.yaml").write_text(TEMPLATES_YAML)
+    (d / "modules.yaml").write_text(MODULES_YAML)
+    (d / "rules.yaml").write_text(RULES_YAML)
+
+    engine = Engine()
+    engine.load_templates(str(d / "agent.yaml"))
+    engine.load_modules(str(d / "modules.yaml"))
+    engine.load_rules(str(d / "rules.yaml"))
+
+    # --- First evaluation: only the requester fact is in working memory ---
+    engine.assert_fact("agent", {"id": "a-1", "role": "requester"})
+    result1 = engine.evaluate()
+
+    assert "access::allow-dual-approval" not in result1.rule_trace, (
+        f"dual-approval should not fire yet, got {result1.rule_trace}"
+    )
+
+    # --- Second evaluation: approver fact is added; requester fact persists ---
+    engine.assert_fact("agent", {"id": "a-2", "role": "approver"})
+    result2 = engine.evaluate()
+
+    # allow-dual-approval fires because BOTH facts are in working memory:
+    # the requester fact asserted in step 1 is still present.
+    assert "access::allow-dual-approval" in result2.rule_trace, (
+        f"allow-dual-approval should fire on second evaluation, "
+        f"got {result2.rule_trace}"
+    )
+    assert result2.reason == "dual approval confirmed", (
+        f"unexpected reason: {result2.reason!r}"
+    )
+```
+
+The key proof is `result2.rule_trace`: `allow-dual-approval` can only fire when
+both a requester fact **and** an approver fact exist. The requester fact was
+asserted in the first step, never retracted, and therefore still present when
+the second evaluation runs. A stateless system would see only the approver fact
+on the second call and the combined rule would never fire.
+
+## Contrast with stateless systems
+
+| | Fathom | OPA / Cedar |
+|---|---|---|
+| Facts between calls | Persist until retracted or reset | Discarded after each evaluation |
+| Session-level accumulation | Built-in | Requires an external store |
+| Rate / count policies | Native (working memory grows) | Must pass full history on every call |
+
+## Clearing working memory
+
+Two methods let you start fresh without constructing a new `Engine`:
+
+### `engine.clear_facts()`
+
+Retracts all user-asserted facts from every registered template. Internal CLIPS
+facts (the decision template, `initial-fact`) are left intact. Rules and
+templates remain loaded — only the data changes.
+
+Use this when you want to start a new session but keep the same rule set.
+
+```python no-verify
+engine.clear_facts()
+# Working memory is now empty; templates and rules are still loaded.
+result = engine.evaluate()  # No facts → default decision ("deny")
+```
+
+### `engine.reset()`
+
+Calls the underlying `clips.Environment.reset()`, which clears **all** facts
+(including internal ones) and re-asserts `(initial-fact)`. The `__fathom_decision`
+template is rebuilt automatically. Deftemplates, defmodules, and defrules survive
+the reset — only facts are cleared.
+
+Use this for a full session reset that mirrors starting a new CLIPS environment
+while keeping compiled constructs.
+
+```python no-verify
+engine.reset()
+```
+
+### When to create a new `Engine`
+
+If you need to change the rule set — load different templates, modules, or rules —
+construct a new `Engine`. The current version does not support unloading individual
+constructs. `clear_facts()` and `reset()` only affect data, not compiled constructs.
+
+## What just happened?
+
+- `Engine` wraps a single `clips.Environment` instance. That environment is
+  stateful: `assert_fact` writes a CLIPS fact that persists until removed.
+- `evaluate()` runs `env.run()` to quiescence each time. It does not reset the
+  environment first, so all previously asserted facts participate in every run.
+- `EvaluationResult.rule_trace` (defined in `src/fathom/models.py`) records
+  every rule that fired during the run as `module::rule_name` strings.
+- `clear_facts()` calls `FactManager.clear_all()`, which iterates the template
+  registry and retracts each template's facts individually.
+- `reset()` delegates to `clips.Environment.reset()`, which is the CLIPS standard
+  reset — facts gone, constructs preserved.
+
+## Next
+
+- [Audit & Attestation](../concepts/audit-attestation.md) — every `evaluate()`
+  call emits a structured JSON audit record; learn how to wire in a custom sink.
+
+
+## how-to/index.md
+
+# How-to Guides
+
+- [Writing rules](writing-rules.md)
+- [Integrating with FastAPI](fastapi.md)
+- [Using the CLI](cli.md)
+- [Registering a Python function](register-function.md)
+- [Loading a rule pack](load-rule-pack.md)
+- [Embedding via SDK](embed-sdk.md)
+
+
+## how-to/writing-rules.md
+
+# Writing rules
+
+Fathom rules are YAML files that compile to CLIPS `defrule` constructs. This guide covers
+the full structure of a ruleset file, each field that the compiler accepts, and the
+validation constraints enforced by the Pydantic models.
+
+## Rule skeleton
+
+Every rule file is a single YAML document that matches the `RulesetDefinition` model
+(`src/fathom/models.py`).
+
+```yaml
+ruleset: access-control          # unique name — CLIPS identifier chars only
+version: "1.0"                   # free string; no runtime effect
+module: governance               # CLIPS module all rules belong to
+
+rules:
+  - name: deny-low-clearance
+    description: "Deny when agent clearance is below data classification"
+    salience: 10
+    when:
+      - template: agent
+        conditions:
+          - slot: clearance
+            expression: unclassified
+    then:
+      action: deny
+      reason: "Clearance insufficient"
+```
+
+The four top-level keys map directly to `RulesetDefinition` fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `ruleset` | string | CLIPS identifier — `[A-Za-z_][A-Za-z0-9_-]*` |
+| `version` | string | Defaults to `"1.0"` |
+| `module` | string | CLIPS identifier; routes rules to a CLIPS module |
+| `rules` | list | One or more `RuleDefinition` objects |
+
+Each rule inside `rules` is a `RuleDefinition` and must supply `name`, `when`, and `then`.
+`description` and `salience` are optional (salience defaults to `0`).
+
+## `when` clauses: `FactPattern`
+
+Each entry in `when` is a `FactPattern` (`src/fathom/models.py`). It matches a single
+fact type in working memory.
+
+```yaml
+when:
+  - template: data-request       # name of the deftemplate to match
+    alias: req                   # optional — bind the whole fact to a CLIPS variable
+    conditions:
+      - slot: action
+        expression: read
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `template` | yes | Must match a loaded `TemplateDefinition` name |
+| `alias` | no | When set, the compiler emits `?alias <- (template ...)` |
+| `conditions` | yes | List of `ConditionEntry` objects |
+
+A rule with two `when` entries fires only when **both** facts exist simultaneously in
+working memory — CLIPS evaluates the conjunction.
+
+## `ConditionEntry` fields
+
+`ConditionEntry` (`src/fathom/models.py`, lines 105–171) represents one slot constraint
+inside a `FactPattern`. At least one of `expression`, `bind`, or `test` must be present.
+
+### `slot` + `expression`: value match
+
+Use `expression` to require an exact slot value (compiled to a CLIPS equality
+constraint).
+
+```yaml
+conditions:
+  - slot: status
+    expression: active
+```
+
+`slot` is required when `expression` is set.
+
+### `slot` + `bind`: capture a value
+
+Use `bind` to capture a slot value into a CLIPS variable for use in other conditions or
+the `then` block. The value **must start with `?`** — the validator rejects anything else.
+
+```yaml
+conditions:
+  - slot: subject-id
+    bind: "?sid"
+```
+
+`slot` is required when `bind` is set.
+
+### `test`: standalone CLIPS expression
+
+Use `test` for arbitrary CLIPS conditional elements — custom functions registered via
+`Engine.register_function`, or any CLIPS built-in not in Fathom's operator allow-list.
+The value **must be a parenthesized expression** (start with `(`, end with `)`).
+
+```yaml
+conditions:
+  - test: "(my-fn ?sid)"
+```
+
+The compiler emits `(test (my-fn ?sid))` on the rule LHS after all slot patterns.
+
+You can combine `bind` and `test` in the same `ConditionEntry` to both capture a slot
+and run a test against it:
+
+```yaml
+conditions:
+  - slot: subject-id
+    bind: "?sid"
+    test: "(> (string-length ?sid) 0)"
+```
+
+**Validator rules enforced by `ConditionEntry`:**
+
+- `bind` must start with `?` — e.g. `?sid`, not `sid`.
+- `test` must be a parenthesized CLIPS expression — e.g. `(my-fn ?sid)`.
+- `slot` must be present when `expression` or `bind` is set.
+- Setting `slot` alongside `test` alone (no `expression` or `bind`) is **rejected** —
+  the compiler has no slot position to emit; either add `expression`/`bind` or drop
+  `slot`.
+- At least one of `expression`, `bind`, or `test` must be set.
+
+## `then` block: `ThenBlock`
+
+The `then` block is a `ThenBlock` (`src/fathom/models.py`). It declares the decision and
+any side effects when the rule fires.
+
+```yaml
+then:
+  action: deny
+  reason: "Subject ?sid is not authorized"
+  log: full
+  notify: [security-ops]
+  attestation: true
+  metadata:
+    control: AC-3
+  assert:
+    - template: audit-record
+      slots:
+        subject: "?sid"
+        outcome: denied
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `action` | `ActionType` or null | The decision outcome (see below) |
+| `reason` | string | Human-readable explanation; defaults to `""` |
+| `log` | `LogLevel` | `none`, `summary` (default), or `full` |
+| `notify` | list of strings | Channel names to notify |
+| `attestation` | bool | Whether to produce an attestation token |
+| `metadata` | dict | Arbitrary string key-value pairs |
+| `scope` | string or null | Scope qualifier for `scope` actions |
+| `assert` | list of `AssertSpec` | Facts to assert when the rule fires |
+
+Either `action` or a non-empty `assert` list is required — a `ThenBlock` with neither
+is rejected by the model validator.
+
+Note: in YAML files use the key `assert`; in Python you may use the attribute name
+`asserts` (the model sets `populate_by_name=True`).
+
+### `assert` examples
+
+`AssertSpec` (`src/fathom/models.py`) lets rules write new facts into working memory.
+Slot values starting with `?` are emitted as CLIPS variable references; values starting
+with `(` are emitted as CLIPS s-expressions; all other values are emitted as quoted
+string literals.
+
+```yaml
+assert:
+  - template: decision
+    slots:
+      subject: "?sid"          # ?-prefixed → CLIPS variable reference
+      outcome: "denied"        # plain string → CLIPS quoted literal
+      score: "(compute-score ?sid)"  # (...) → CLIPS s-expression
+```
+
+Validators on `AssertSpec`:
+
+- `template` must be a valid CLIPS identifier.
+- Slot names must be valid CLIPS identifiers.
+- `?`-prefixed values must be valid CLIPS variable references (e.g. `?sid`).
+- `(`-prefixed values must have balanced parentheses.
+
+## Salience overview
+
+Salience is an integer on each `RuleDefinition` that controls firing order within a
+module. Higher salience fires first. When salience is omitted it defaults to `0`.
+
+Under Fathom's last-write-wins convention for the `__fathom_decision` fact, the rule
+that fires **last** sets the final decision. This means **deny rules should be given
+lower salience** so they fire after allow rules and their outcome wins. See
+[Modules and salience](../tutorials/modules-and-salience.md) for a full worked example
+and focus-stack ordering.
+
+## Action values
+
+The `action` field accepts any value from the `ActionType` enum
+(`src/fathom/models.py`):
+
+| Value | Meaning |
+|-------|---------|
+| `allow` | Permit the request |
+| `deny` | Reject the request |
+| `escalate` | Route to a human or higher-authority system |
+| `scope` | Narrow the permission to a specific scope |
+| `route` | Redirect to an alternate handler or service |
+
+
+## how-to/fastapi.md
+
+# Integrating with FastAPI
+
+## What ships
+
+Fathom includes a ready-made FastAPI application at
+`src/fathom/integrations/rest.py`. The module-level object is named `app`
+(a `FastAPI` instance). It exposes bearer-token-authenticated endpoints for
+evaluation, compilation, and session inspection. For a full description of
+every endpoint, request model, and response model, see
+[REST API Reference](../reference/rest/index.md).
+
+## Option A: Mount the bundled app
+
+If you already have a FastAPI application and want to add Fathom under a
+path prefix, import `app` from the integration module and mount it.
+
+```python no-verify
+from fastapi import FastAPI
+from fathom.integrations.rest import app as fathom_app
+
+app = FastAPI()
+app.mount("/fathom", fathom_app)
+```
+
+After mounting, every Fathom endpoint is available under the `/fathom`
+prefix — for example `/fathom/v1/evaluate` and `/fathom/v1/compile`. The
+`FATHOM_API_TOKEN` and `FATHOM_RULESET_ROOT` environment variables must be
+set before starting the server (see [Auth](#auth) below).
+
+## Option B: Wrap Engine directly
+
+For callers who need custom endpoints — different request shapes, streaming
+responses, or tighter control over fact lifecycle — you can instantiate
+`Engine` yourself and wire it into your own FastAPI routes.
+
+```python no-verify
+from fastapi import FastAPI
+from fathom.engine import Engine
+from fathom.models import FactInput
+
+engine = Engine()
+engine.load_templates("rules/templates")
+engine.load_rules("rules/rulesets")
+
+app = FastAPI()
+
+@app.post("/evaluate")
+def evaluate(fact: FactInput):
+    engine.assert_fact(fact.template, fact.data)
+    result = engine.evaluate()
+    return {
+        "decision": result.decision,
+        "reason": result.reason,
+        "rule_trace": result.rule_trace,
+        "module_trace": result.module_trace,
+        "duration_us": result.duration_us,
+    }
+```
+
+`Engine.evaluate()` returns an `EvaluationResult` with the fields shown
+above. The engine accumulates facts across calls in this example; call
+`engine.clear_facts()` or `engine.reset()` between requests if you need
+stateless evaluation.
+
+For stateless, per-request evaluation, use the class method
+`Engine.from_rules(path)` inside the route handler instead:
+
+```python no-verify
+from fastapi import FastAPI
+from fathom.engine import Engine
+from fathom.models import FactInput
+
+app = FastAPI()
+
+@app.post("/evaluate")
+def evaluate(fact: FactInput):
+    engine = Engine.from_rules("rules/")
+    engine.assert_fact(fact.template, fact.data)
+    result = engine.evaluate()
+    return {"decision": result.decision, "rule_trace": result.rule_trace}
+```
+
+## Auth
+
+The bundled `app` enforces bearer-token authentication on every endpoint
+except `GET /health`. The implementation lives in
+`src/fathom/integrations/auth.py` and works as follows:
+
+1. Every protected endpoint declares `Depends(_require_auth)`.
+2. `_require_auth` reads the `Authorization` HTTP header and calls
+   `verify_token`.
+3. `verify_token` expects the header value to be `Bearer <token>` and
+   compares the presented token against `FATHOM_API_TOKEN` using a
+   constant-time `hmac.compare_digest` to prevent timing attacks.
+4. A missing, malformed, or incorrect token returns `401 Unauthorized`.
+
+**Required environment variables when running the bundled app:**
+
+| Variable | Purpose |
+|---|---|
+| `FATHOM_API_TOKEN` | Bearer token that clients must send in the `Authorization` header |
+| `FATHOM_RULESET_ROOT` | Filesystem root that the server jails all ruleset paths under |
+
+Set both before starting `uvicorn`:
+
+```bash
+export FATHOM_API_TOKEN="$(openssl rand -hex 32)"
+export FATHOM_RULESET_ROOT="/var/lib/fathom/rulesets"
+uvicorn fathom.integrations.rest:app --host 0.0.0.0 --port 8080
+```
+
+Clients pass the token in every request:
+
+```bash
+curl -H "Authorization: Bearer $FATHOM_API_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"ruleset": "access-control", "facts": [{"template": "request", "data": {"action": "read"}}]}' \
+     http://localhost:8080/v1/evaluate
+```
+
+**Option B (Engine directly):** the bare `Engine` class has no built-in
+auth. Add authentication via FastAPI middleware, an `HTTPBearer` dependency,
+or a reverse proxy such as nginx or a cloud API gateway before exposing the
+endpoint in production.
+
+### OpenAPI / Swagger UI
+
+API docs are disabled by default to avoid leaking route names to
+unauthenticated callers. Set `FATHOM_EXPOSE_DOCS=1` to re-enable them for
+local development:
+
+```bash
+FATHOM_EXPOSE_DOCS=1 uvicorn fathom.integrations.rest:app --reload
+```
+
+## Next
+
+- [REST API Reference](../reference/rest/index.md) — full Swagger spec,
+  request/response schemas, and error codes.
+- [Python SDK Reference](../reference/python-sdk/index.md) — `Engine`
+  constructor, `assert_fact`, `evaluate`, and the full public surface.
+
+
+## how-to/cli.md
+
+# Using the CLI
+
+Install the CLI extra with `pip install fathom-rules[cli]`. The entry
+point is the `fathom` command, built on Typer. To confirm installation,
+print the runtime version with the global flag:
+
+```shell
+fathom --version
+```
+
+The short form `-V` works identically. The sections below cover every
+sub-command, in the order they appear in `src/fathom/cli.py`, with a
+worked example against one of the example rule packs shipped under
+`examples/`.
+
+## validate
+
+Parse every YAML file under the given path and check that each document
+is a well-formed Fathom template, module, rule, or function definition.
+
+```shell
+fathom validate examples/01-hello-allow-deny
+```
+
+Pass either a single file or a directory; the command walks directories
+recursively and reports all parse and schema errors at once. It exits 0
+on success, 1 on validation errors, and 2 when no YAML files are found.
+
+## compile
+
+Lower YAML definitions to the CLIPS constructs the engine actually
+executes. Useful for debugging code generation or feeding constructs
+into a raw CLIPS environment.
+
+```shell
+fathom compile examples/02-rbac-modules
+```
+
+The `--format` / `-f` option selects the output style: `raw` (the
+default, a single flat string of valid CLIPS) or `pretty`, which inserts
+newlines at the top-level paren boundaries so each construct sits on
+its own line.
+
+```shell
+fathom compile examples/02-rbac-modules --format pretty
+```
+
+## info
+
+Load a rule pack and print a summary of everything the engine sees:
+templates (with slot names and types), modules (with priority and the
+configured focus order), rules (with salience), and registered
+functions.
+
+```shell
+fathom info examples/03-classification-blp
+```
+
+Use `info` as a sanity check after editing a pack — if a template or
+rule is missing from the listing, it did not compile into the engine.
+
+## test
+
+Run a YAML suite of test cases against a compiled rule pack. The
+command takes two arguments: the rule pack directory and a test file
+(or directory of test files).
+
+```shell
+fathom test examples/01-hello-allow-deny tests/cases.yaml
+```
+
+Each test file is a YAML list of cases. Every case recognises three
+keys:
+
+- `name` — a human-readable label printed in PASS/FAIL lines.
+- `facts` — a list of fact specs, each with a `template` and a `data`
+  mapping that the CLI asserts into a freshly reset engine.
+- `expected_decision` — the decision string the evaluation must return
+  for the case to pass.
+
+```yaml
+- name: admin can read
+  facts:
+    - template: subject
+      data: { role: admin }
+    - template: resource
+      data: { kind: report }
+  expected_decision: allow
+```
+
+The command exits non-zero if any case fails.
+
+## bench
+
+Measure evaluation latency for a rule pack. The benchmark resets the
+engine between each iteration and reports p50, p95, p99, and mean
+timings in microseconds.
+
+```shell
+fathom bench examples/04-temporal-anomaly
+```
+
+Two options tune the run:
+
+- `--iterations` / `-n` — number of measured iterations (default
+  `1000`).
+- `--warmup` / `-w` — number of warmup iterations that run first and
+  are excluded from the statistics (default `100`).
+
+```shell
+fathom bench examples/04-temporal-anomaly -n 5000 -w 500
+```
+
+## repl
+
+Start an interactive session for asserting facts and evaluating rules
+by hand. Pass `--rules` / `-r` to preload a pack; without it, the REPL
+starts with an empty engine.
+
+```shell
+fathom repl --rules examples/05-langchain-guardrails
+```
+
+Inside the REPL, these sub-commands are available:
+
+- `assert <template> <json_data>` — assert a fact (the data argument
+  is parsed as JSON).
+- `evaluate` — run an evaluation and print decision, reason, and rule
+  trace.
+- `query <template>` — list facts whose template matches.
+- `retract <template>` — retract all facts matching the template.
+- `facts` — list every fact currently in working memory.
+- `reset` — reset engine state.
+- `help` — print the command list.
+- `quit` / `exit` — leave the REPL.
+
+Example session:
+
+```text
+fathom> assert subject {"role": "admin"}
+Asserted subject fact.
+fathom> evaluate
+  decision: allow
+  reason: admin override
+fathom> quit
+```
+
+## Full reference
+
+For the complete flag matrix, exit codes, and error behaviour of each
+command, see the generated reference pages:
+
+- [CLI reference index](../reference/cli/index.md)
+- [validate](../reference/cli/validate.md)
+- [compile](../reference/cli/compile.md)
+- [info](../reference/cli/info.md)
+- [test](../reference/cli/test.md)
+- [bench](../reference/cli/bench.md)
+- [repl](../reference/cli/repl.md)
+
+
+## how-to/register-function.md
+
+# Registering a Python function
+
+Sometimes a predicate or classifier is much easier to express in Python than in CLIPS —
+regex matching, set overlap, temporal math, or an external lookup. Fathom lets you
+register a plain Python callable once, then invoke it from the left-hand side of any
+rule through the raw-CLIPS `test:` escape hatch on a `ConditionEntry`.
+
+## Register the function
+
+Call `Engine.register_function(name, callable)`. The callable becomes invokable from
+CLIPS as `(name arg1 arg2 ...)`.
+
+```python
+from fathom.engine import Engine
+
+engine = Engine()
+engine.register_function("overlaps", lambda a, b: bool(set(a) & set(b)))
+```
+
+A few constraints worth knowing up front (see `src/fathom/engine.py`):
+
+- `name` must be non-empty and match the regex `[A-Za-z][A-Za-z0-9_-]*`.
+- `name` must not start with the reserved `fathom-` prefix — that namespace is
+  reserved for builtins the engine registers itself.
+- The callable takes positional arguments only.
+- Re-registering an existing name overwrites the prior binding. This matches
+  clipspy's semantics and is documented behaviour, not an error.
+
+## Call it from a rule
+
+`ConditionEntry.test` (defined in `src/fathom/models.py`) is the escape hatch for
+calling user-registered functions from a rule's LHS. It emits a raw `(test <expr>)`
+conditional element verbatim, so Fathom's operator allow-list does not apply — you
+get the full CLIPS expression language, including any function you registered.
+
+The value of `test` must be a parenthesized CLIPS expression. The Pydantic validator
+rejects anything that does not both start with `(` and end with `)`.
+
+```yaml
+ruleset: demo
+module: MAIN
+rules:
+  - name: route-shared-tag
+    when:
+      - template: request
+        conditions:
+          - slot: tags
+            bind: ?req_tags
+      - template: allowed
+        conditions:
+          - slot: tags
+            bind: ?allowed_tags
+          - test: "(overlaps ?req_tags ?allowed_tags)"
+    then:
+      action: allow
+```
+
+The `(fn-name ?arg1 ?arg2)` form is the convention: the function name comes first and
+the arguments follow, all inside a single pair of parentheses. Bindings established
+earlier in the `when:` block (here `?req_tags` and `?allowed_tags`) are in scope for
+the test expression.
+
+`test` may appear standalone in a `ConditionEntry` (no `slot`, `expression`, or
+`bind`), in which case the pattern emits only the test CE. Combined with a slot
+constraint, as above, both are emitted on the LHS.
+
+## Name restrictions
+
+`register_function` raises `ValueError` at registration time when the name violates
+any of these rules:
+
+- The name must be non-empty.
+- The name must match `[A-Za-z][A-Za-z0-9_-]*` — an ASCII letter followed by letters,
+  digits, underscores, or hyphens.
+- The name must not start with the reserved `fathom-` prefix.
+
+All three errors are raised synchronously by `register_function` before the callable
+is handed to the underlying CLIPS environment, so misnamed registrations fail fast.
+
+## When not to use this
+
+Prefer the built-in YAML operators whenever the check can be expressed as a slot
+comparison. A condition like `expression: equals(critical)` keeps the logic in YAML,
+stays inside Fathom's operator allow-list, and is visible to static tooling.
+
+Reach for `register_function` plus a `test:` clause only when you need Python that
+CLIPS cannot express directly: regex matching, set membership or overlap, arithmetic
+on timestamps, or calling out to an external service. Every custom function widens
+your rule surface beyond what the allow-list can vet, so use it deliberately and
+keep each registered callable small, pure, and deterministic.
+
+## Related reading
+
+- [Python SDK reference](../reference/python-sdk/index.md)
+- [Writing rules](writing-rules.md)
+
+
+## how-to/load-rule-pack.md
+
+# Loading a rule pack
+
+Fathom supports two ways to ship rules into an `Engine`: as a directory tree
+you maintain alongside your application, or as an installable Python package
+discovered at runtime through a setuptools entry point. Both routes funnel
+through the same loaders, so the YAML you author looks identical either way —
+only the delivery mechanism differs.
+
+## Load from a directory
+
+`Engine.from_rules(path, **kwargs)` is a classmethod that returns a configured
+`Engine`. Any keyword arguments are forwarded to the `Engine(...)` constructor.
+
+```python
+from fathom.engine import Engine
+
+engine = Engine.from_rules("examples/01-hello-allow-deny")
+result = engine.evaluate()
+```
+
+The loader tries two discovery strategies, in order:
+
+1. **Subdirectory convention** (preferred). If the pack directory contains any
+   of `templates/`, `modules/`, `functions/`, or `rules/`, each present
+   subdirectory is passed to the matching `engine.load_templates`,
+   `load_modules`, `load_functions`, or `load_rules` method.
+2. **Key-inspection fallback**. If none of those subdirectories exist, every
+   `*.yaml` file directly under `path` is opened and routed by its top-level
+   key: `templates` → templates loader, `modules` or `focus_order` → modules
+   loader, `functions` → functions loader, `rules` or `ruleset` → rules
+   loader.
+
+Both strategies load in the same fixed order: **templates → modules →
+functions → rules**. The order matters because templates define the slot
+schemas that rules bind against, modules establish the namespaces that rules
+live in, and functions may be referenced from a rule's left-hand side via the
+raw-CLIPS `test:` clause — so everything a rule depends on must be compiled
+before the rule itself.
+
+## Directory layout
+
+For anything larger than a toy example, use the subdirectory convention. The
+reference shape is what `examples/01-hello-allow-deny` ships with:
+
+```
+my-pack/
+├── templates/
+│   └── *.yaml
+├── modules/
+│   └── *.yaml
+├── functions/
+│   └── *.yaml
+└── rules/
+    └── *.yaml
+```
+
+Every YAML file under a given subdirectory is loaded. The glob is `*.yaml`
+only — files ending in `.yml` are **not** picked up by `from_rules`, so stick
+to the long extension. Empty or missing subdirectories are fine; the loader
+simply skips them.
+
+The key-inspection fallback is handy for tiny single-file packs where
+splitting into subdirectories would be overkill, but it's strictly less
+expressive: it only scans the top level of `path` (no recursion) and each
+file must declare exactly one top-level key that the loader recognises.
+
+## Load a distributed pack via entry point
+
+Once a pack is packaged as a Python distribution, load it by name:
+
+```python
+from fathom.engine import Engine
+
+engine = Engine()
+engine.load_pack("owasp-agentic")
+```
+
+`Engine.load_pack` delegates to `RulePackLoader`, which walks the
+`fathom.packs` entry-point group, imports the registered module, resolves its
+on-disk location via `module.__path__`, and then runs the same
+`templates/` → `modules/` → `functions/` → `rules/` subdirectory load as
+`from_rules` does.
+
+To expose your own pack, add an entry to your `pyproject.toml`:
+
+```toml
+[project.entry-points."fathom.packs"]
+my-pack = "my_package.rules"
+```
+
+Here `my_package/rules/` is an importable package directory that contains the
+familiar `templates/`, `modules/`, `functions/`, and `rules/` subdirectories
+full of YAML. After `pip install`, any process with Fathom installed can call
+`engine.load_pack("my-pack")`.
+
+### Packs shipped with Fathom
+
+Fathom currently ships four first-party rule packs, registered under the same
+entry-point group in its own `pyproject.toml`:
+
+- `owasp-agentic`
+- `nist-800-53`
+- `hipaa`
+- `cmmc`
+
+### Error handling
+
+If you pass a name that isn't registered under `fathom.packs`,
+`RulePackLoader.discover` raises `CompilationError` with
+`construct="pack:<name>"`. The same error is raised if the registered module
+has no resolvable path (neither `__path__` nor `__file__`), which in practice
+only happens for exotic namespace-package setups.
+
+## When to use which
+
+- **`Engine.from_rules(path)`** — your application owns the rules, they live
+  in a directory inside the repo (or a mounted volume), and you want the
+  fastest edit-reload loop. Best for development, single-tenant deployments,
+  and environment-specific overrides.
+- **`engine.load_pack(name)`** — the rules are a redistributable asset
+  consumed by multiple applications, need independent versioning, and can be
+  published alongside your Python wheels. Enables `pip install
+  compliance-pack` style workflows and clean upgrades.
+
+Nothing stops you from mixing both in one `Engine`: call `load_pack` for a
+shared baseline, then `load_rules` or `load_templates` on a local directory
+for application-specific overlays.
+
+## Related reading
+
+- [Python SDK reference](../reference/python-sdk/index.md) — full `Engine`
+  API, including every `load_*` method used here.
+- [Writing rules](writing-rules.md) — YAML authoring conventions for the
+  files inside a pack.
+- [YAML schema reference](../reference/yaml/index.md) — the top-level keys
+  (`templates`, `modules`, `functions`, `rules`) that the key-inspection
+  fallback looks for.
+
+
+## how-to/embed-sdk.md
+
+# Embedding via SDK
+
+Fathom ships three client surfaces. Pick one based on how your application
+is shaped:
+
+- **Python in-process** (`fathom-rules`) — the `Engine` class runs in your
+  process, holding working memory directly in memory. No server, lowest
+  latency.
+- **Go HTTP client** (`packages/fathom-go`) — talks to a running Fathom
+  REST server at `POST /v1/evaluate` and friends. Session state lives on
+  the server.
+- **TypeScript HTTP client** (`@fathom-rules/sdk`) — same REST server,
+  same four operations, `fetch`-based.
+
+All three expose the same four working-memory operations —
+`evaluate`, `assert_fact`, `query`, and `retract` — but Python embeds
+the engine in your process while Go and TypeScript are thin wrappers
+around the REST API.
+
+## Python — in-process Engine
+
+Install the package:
+
+```bash
+pip install fathom-rules
+```
+
+Load a rules directory with `Engine.from_rules`, assert facts, and
+evaluate:
+
+```python
+from fathom.engine import Engine
+
+engine = Engine.from_rules("examples/01-hello-allow-deny")
+engine.assert_fact("access", {"role": "admin", "resource": "db"})
+
+result = engine.evaluate()
+print(result.decision)      # "allow" | "deny" | "escalate" | None
+print(result.reason)
+print(result.rule_trace)    # list[str] — rules that fired
+print(result.module_trace)  # list[str] — modules traversed
+print(result.duration_us)   # int — evaluation time in microseconds
+```
+
+`EvaluationResult` also carries `attestation_token` and `metadata`
+(see [`EvaluationResult`](../reference/python-sdk/evaluationresult.md)).
+
+### Working memory across calls
+
+The embedded `Engine` is stateful — facts you assert remain in working
+memory until you retract them or call `engine.reset()`. A second
+`evaluate()` call on the same engine still sees the fact from the
+first round:
+
+```python
+engine.assert_fact("access", {"role": "admin", "resource": "db"})
+engine.evaluate()  # rules see the fact
+engine.evaluate()  # second call — the fact is still there
+
+engine.reset()     # clear all facts and reinitialise the environment
+```
+
+Use `engine.clear_facts()` to drop user facts without rebuilding
+templates and rules.
+
+### Query and retract
+
+`query` returns facts matching a template and optional slot filter;
+`retract` removes them and returns how many rows it pulled out:
+
+```python
+engine.query("access")
+# [{"role": "admin", "resource": "db"}]
+
+engine.query("access", fact_filter={"role": "admin"})
+# [{"role": "admin", "resource": "db"}]
+
+removed = engine.retract("access", fact_filter={"role": "admin"})
+# removed == 1
+```
+
+Both operate on live working memory, so the results reflect rules
+that asserted during the most recent `evaluate()` plus anything you
+asserted by hand.
+
+## Go — HTTP client
+
+The Go client is published as a standalone module. Install it:
+
+```bash
+go get github.com/KrakenNet/fathom-go
+```
+
+Prerequisite: a running Fathom REST server — see the
+[FastAPI how-to](fastapi.md) for how to start one and configure
+`FATHOM_API_TOKEN` and `FATHOM_RULESET_ROOT`.
+
+Minimal example — construct a client with a bearer token and call
+`Evaluate`:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    fathom "github.com/KrakenNet/fathom-go"
+)
+
+func main() {
+    client := fathom.NewClient(
+        "http://localhost:8000",
+        fathom.WithBearerToken("your-token"),
+    )
+
+    resp, err := client.Evaluate(context.Background(), &fathom.EvaluateRequest{
+        Ruleset:   "",
+        SessionID: "session-1",
+        Facts: []fathom.FactInput{
+            {Template: "access", Data: map[string]any{"role": "admin", "resource": "db"}},
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(resp.Decision, resp.Reason)
+    fmt.Println(resp.RuleTrace)
+    fmt.Println(resp.DurationUS)
+}
+```
+
+`Ruleset` is a path under the server's `FATHOM_RULESET_ROOT`; empty
+string evaluates against the root itself. `SessionID` is optional for
+stateless evaluation — passing one creates a server-side session that
+later `AssertFact` / `Query` / `Retract` calls can reuse.
+
+### Working memory across calls
+
+`AssertFact`, `Query`, and `Retract` all operate on a session
+previously created by an `Evaluate` call with the same `session_id`.
+Unknown session ids return `404`.
+
+```go
+ctx := context.Background()
+
+// Create the session by evaluating once.
+_, _ = client.Evaluate(ctx, &fathom.EvaluateRequest{
+    Ruleset:   "",
+    SessionID: "session-1",
+    Facts:     []fathom.FactInput{},
+})
+
+_, err := client.AssertFact(ctx, &fathom.AssertFactRequest{
+    SessionID: "session-1",
+    Template:  "access",
+    Data:      map[string]any{"role": "admin", "resource": "db"},
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+q, _ := client.Query(ctx, &fathom.QueryRequest{
+    SessionID: "session-1",
+    Template:  "access",
+    Filter:    map[string]any{"role": "admin"},
+})
+fmt.Println(q.Facts) // []map[string]any{{"role": "admin", "resource": "db"}}
+
+r, _ := client.Retract(ctx, &fathom.RetractRequest{
+    SessionID: "session-1",
+    Template:  "access",
+    Filter:    map[string]any{"role": "admin"},
+})
+fmt.Println(r.RetractedCount) // 1
+```
+
+All methods return `(*Response, error)`; a non-2xx HTTP status is
+surfaced as an `error` that includes the server's status code and
+response body.
+
+## TypeScript — HTTP client
+
+Install the package:
+
+```bash
+npm install @fathom-rules/sdk
+```
+
+Construct a `FathomClient` and call `evaluate`:
+
+```ts
+import { FathomClient } from "@fathom-rules/sdk";
+
+const client = new FathomClient({
+  baseURL: "http://localhost:8000",
+  bearerToken: "your-token",
+});
+
+const result = await client.evaluate({
+  facts: [{ template: "access", data: { role: "admin", resource: "db" } }],
+  ruleset: "",
+  session_id: "session-1",
+});
+
+console.log(result.decision);    // "allow" | "deny" | "escalate" | null
+console.log(result.reason);
+console.log(result.rule_trace);  // string[]
+console.log(result.duration_us); // number
+```
+
+The constructor accepts `baseURL` (required), `bearerToken` (optional
+— injected as `Authorization: Bearer <token>`), and `headers` (optional
+extras). Prefer `bearerToken` over hand-crafting an `Authorization`
+header; the option takes precedence.
+
+### Working memory across calls
+
+`assertFact`, `query`, and `retract` target a server session created
+by a prior `evaluate` call with the same `session_id`. Request
+payloads use snake-case keys to match the REST schema:
+
+```ts
+await client.evaluate({
+  ruleset: "",
+  session_id: "session-1",
+  facts: [],
+});
+
+await client.assertFact({
+  session_id: "session-1",
+  template: "access",
+  data: { role: "admin", resource: "db" },
+});
+
+const q = await client.query({
+  session_id: "session-1",
+  template: "access",
+  filter: { role: "admin" },
+});
+console.log(q.facts); // [{ role: "admin", resource: "db" }]
+
+const r = await client.retract({
+  session_id: "session-1",
+  template: "access",
+  filter: { role: "admin" },
+});
+console.log(r.retracted_count); // 1
+```
+
+### Error handling
+
+Every failure raises a typed subclass of `FathomError`. Discriminate
+with `instanceof`:
+
+- `PolicyViolation` — HTTP `403`, the engine denied the request.
+- `ValidationError` — HTTP `400` or `422`, the request body failed
+  validation.
+- `ConnectionError` — HTTP `>= 500` or a network/abort failure
+  (status `0`).
+- `FathomError` — base class, used for any other non-2xx status.
+
+```ts
+import {
+  FathomClient,
+  PolicyViolation,
+  ValidationError,
+  ConnectionError,
+} from "@fathom-rules/sdk";
+
+try {
+  await client.evaluate({ ruleset: "", facts: [] });
+} catch (e) {
+  if (e instanceof PolicyViolation) { /* 403 */ }
+  else if (e instanceof ValidationError) { /* 400 / 422 */ }
+  else if (e instanceof ConnectionError) { /* 5xx or network */ }
+  else throw e;
+}
+```
+
+## Picking the right embedding
+
+| Mode | When to choose it |
+|---|---|
+| **Python in-process** | Lowest latency, single-process Python app, no need to share session state with other processes or tenants. |
+| **Go or TypeScript HTTP client** | Multi-language stack, multi-process deployment, centralised session state, horizontal scaling of the engine tier. |
+
+REST trades a network hop for operational simplicity: one server
+serves any language, sessions survive client restarts, and the engine
+tier scales independently. The embedded Engine wins on latency and
+removes the server from the deployment diagram entirely.
+
+## Related reading
+
+- [Integrating with FastAPI](fastapi.md) — run the REST server the
+  Go and TypeScript clients talk to.
+- [Python SDK reference](../reference/python-sdk/index.md) — full
+  `Engine` surface including `EvaluationResult` fields.
+- [Go SDK reference](../reference/go-sdk/fathom-go.md) — generated
+  reference for every exported type and method.
+- [TypeScript SDK reference](../reference/typescript-sdk/index.md)
+  — typedoc-generated client, interface, and error reference.
+
+
+## concepts/index.md
+
+# Concepts
+
+- [Five Primitives](five-primitives.md) — templates, facts, rules, modules, functions.
+- [Runtime & Working Memory](runtime-and-working-memory.md) — evaluation loop, focus stack, fail-closed salience.
+- [YAML Compilation](yaml-compilation.md) — how YAML documents become CLIPS constructs.
+- [Audit & Attestation](audit-attestation.md) — audit sinks, Ed25519 JWT attestation.
+- [CLIPS Features Not In v1](not-in-v1.md) — COOL, backward chaining, generics, and other deferred features.
+
+
+## concepts/five-primitives.md
+
+# Five Primitives
+
+Fathom's YAML author surface is deliberately small: five primitives that compile
+one-to-one to CLIPS constructs running inside clipspy. Four of them —
+**Templates**, **Rules**, **Modules**, **Functions** — are written by hand. The
+fifth, **Facts**, is a runtime artifact: facts are instances of a template,
+asserted by your application or by rules as they fire. Understanding where each
+primitive lives (author-time vs. runtime) and what it becomes in CLIPS is the
+shortest path to a working mental model of the engine.
+
+The rest of this page walks the five in the order the engine loads them
+(`templates → modules → functions → rules` — see
+`src/fathom/engine.py`, `Engine.from_rules`, lines 452–489) and closes with how
+they fit together at evaluate time.
+
+## Templates
+
+A **template** declares the schema of a kind of fact: its name, its slots, and
+per-slot typing and constraints. Templates are the only way to introduce a new
+fact shape; everything downstream — rule patterns, asserts, working memory —
+references a template by name.
+
+The `TemplateDefinition` model (`src/fathom/models.py`) carries:
+
+- `name` — a CLIPS identifier.
+- `description` — free prose for generated reference docs.
+- `slots` — a list of `SlotDefinition`, each with a `name`, a `type`, and
+  optional `required`, `allowed_values`, and `default`.
+- `ttl` — optional integer time-to-live used by the fact manager.
+- `scope` — `"session"` (default) or `"fleet"`.
+
+Slot types come from the `SlotType` enum and map directly to CLIPS primitives:
+`string`, `symbol`, `float`, `integer`.
+
+A minimal template:
+
+```yaml
+templates:
+  - name: session
+    description: An authenticated session.
+    slots:
+      - { name: session_id, type: string, required: true }
+      - { name: user_role,  type: symbol, allowed_values: [admin, user, guest] }
+      - { name: created_at, type: integer }
+```
+
+The compiler (`compile_template`, `src/fathom/compiler.py` around line 90)
+emits a single CLIPS construct scoped to the `MAIN` module:
+
+```clips
+(deftemplate MAIN::session
+    (slot session_id (type STRING))
+    (slot user_role  (type SYMBOL) (allowed-symbols admin user guest))
+    (slot created_at (type INTEGER)))
+```
+
+Templates always live in `MAIN` so that any user-defined module can reference
+them after importing `MAIN` (see Modules, below).
+
+## Facts
+
+A **fact** is a runtime instance of a template — the data rules actually match
+against. Facts are **not** authored in YAML alongside the other primitives;
+they enter working memory at runtime in one of three ways:
+
+- The host program calls `Engine.assert_fact(template, data)` to inject facts
+  from request payloads, database rows, or upstream events.
+- A rule's `then:` block includes an `assert:` clause, which the compiler
+  represents as an `AssertSpec` (`src/fathom/models.py`). When the rule fires,
+  CLIPS materializes the spec into a new fact.
+- A bundled rule pack may ship sample facts to load via `load_rules`-adjacent
+  helpers, but these are still asserted at runtime, not compiled.
+
+Two types describe facts at different lifecycle stages:
+
+- **`AssertSpec`** — the *compile-time* description of a fact a rule will
+  assert. Its `slots` are `dict[str, str]` because the values are CLIPS source
+  text: either a literal, or a `?var` bound on the LHS and spliced into the
+  RHS by the compiler.
+- **`AssertedFact`** — a *runtime* snapshot captured for audit, with
+  `slots: dict[str, Any]` because the values have been materialized by CLIPS
+  back into Python types (int, str, symbol, float).
+
+Facts in working memory persist across `Engine.evaluate` calls within the same
+`Engine` instance. This is the core difference between Fathom and stateless
+policy engines: forward chaining can accumulate derived facts over many
+evaluations until you explicitly retract them or the session ends. The Runtime
+concept page goes into the focus stack and working-memory lifecycle in more
+detail.
+
+## Rules
+
+A **rule** is a pattern-action pair: a list of fact patterns to match, and a
+`then` block describing what to do when the LHS becomes satisfied. The
+`RuleDefinition` model (`src/fathom/models.py`) carries `name`, `description`,
+`salience`, `when`, and `then`; rules are grouped into a `RulesetDefinition`
+that declares which `module` they belong to.
+
+Each entry in `when` is a `FactPattern` — a template name plus a list of
+`ConditionEntry` items. A condition entry has four shapes, and which slots you
+set determines which one the compiler emits:
+
+1. **`slot` + `expression`** — constrain a slot with an operator (`== "admin"`,
+   `> 3`, etc.).
+2. **`slot` + `bind`** — capture the slot's value into a `?var` for use
+   elsewhere in the rule.
+3. **`slot` + `bind` + `expression`** — bind and constrain in one step.
+4. **`test` alone** — a raw parenthesized CLIPS expression emitted verbatim as
+   a `(test …)` conditional element; the escape hatch for calling
+   Python-registered functions or CLIPS built-ins outside the allow-list.
+
+The `then` block is a `ThenBlock` with an `action` (one of `allow`, `deny`,
+`escalate`, `scope`, `route`), a `reason`, a `log` level, optional `notify`,
+`attestation`, `metadata`, and `scope`, and an `asserts` list (spelled
+`assert:` in YAML) of `AssertSpec` entries for facts the rule should add to
+working memory when it fires.
+
+The compiler (`compile_rule`, `src/fathom/compiler.py` around line 137) emits
+a rule qualified by the owning module:
+
+```clips
+(defrule governance::deny-low-clearance
+    (declare (salience -10))
+    (session (user_role ?role))
+    (test (eq ?role guest))
+    =>
+    (assert (__fathom_decision (action deny) (reason "guest role"))))
+```
+
+### Salience
+
+`salience` is an integer; higher values fire first within a module. Fathom's
+decision model is **last-write-wins**: whichever decision fact is written last
+becomes the result. To make denial fail-closed by default, `deny` rules
+conventionally get **lower** salience than `allow` rules so they fire *after*
+allow and overwrite the allow decision. The `runtime-and-working-memory.md`
+concept page and [`../how-to/writing-rules.md`](../how-to/writing-rules.md)
+cover the convention and its trade-offs in depth.
+
+## Modules
+
+A **module** is a namespace for rules. The `ModuleDefinition` model
+(`src/fathom/models.py`) is intentionally tiny — `name`, `description`, and a
+`priority` integer — because a module's job at author time is just to exist
+and let rules declare their home.
+
+`compile_module` (`src/fathom/compiler.py` line 352) emits:
+
+```clips
+(defmodule governance (import MAIN ?ALL))
+```
+
+Every non-MAIN module imports all exports from `MAIN`, which is why templates
+declared in `MAIN` are visible everywhere. Modules never contain inline rules
+in Fathom's YAML surface; a rule's membership is set by the `module:` field on
+its enclosing `RulesetDefinition`, and `compile_rule` prefixes the emitted
+defrule name with `<module>::`.
+
+At runtime, modules are the unit of ordered evaluation: the CLIPS **focus
+stack** controls which module's agenda is active, and `load_modules` honours
+an optional `focus_order` in the module file. Ordering, the focus stack, and
+how `(focus …)` interacts with `allow`/`deny` salience belong in the Runtime
+concept page.
+
+## Functions
+
+A **function** is a named, pure-ish computation callable from rule LHS `test`
+CEs or from slot expressions. The `FunctionDefinition` model
+(`src/fathom/models.py`) has `name`, `description`, `params`, an optional
+`hierarchy_ref`, and a `type` field with three values:
+
+- **`classification`** — generated from a `HierarchyDefinition` (e.g. a
+  clearance ladder like `[public, confidential, secret, top-secret]`). Used
+  for ordered-level comparisons; the `hierarchy_ref` points at the hierarchy
+  the function is derived from.
+- **`temporal`** — a time-window or decay helper generated from the YAML spec.
+- **`raw`** — an escape hatch: the `body` is emitted verbatim as CLIPS source,
+  so you can write any `(deffunction …)` you want.
+
+`compile_function` (`src/fathom/compiler.py` line 359) emits one or more
+`(deffunction <name> …)` constructs.
+
+A second path exists for host-language helpers: `Engine.register_function(name,
+callable)` makes a Python callable visible to CLIPS under the given name, so
+a rule's `test` CE can invoke it like any other function. See
+[`../how-to/register-function.md`](../how-to/register-function.md) for the
+contract and the supported parameter/return shapes.
+
+## How they fit together
+
+The primitives layer cleanly because their dependencies run in one direction.
+At load time, `Engine.from_rules` (and the `load_*` methods on `Engine`) walk
+the bundle in a fixed order so every construct has what it needs:
+
+```
+templates        (deftemplate MAIN::…)
+   │
+   ▼
+modules          (defmodule … (import MAIN ?ALL))
+   │
+   ▼
+functions        (deffunction … )
+   │
+   ▼
+rules            (defrule <module>::… … => … )
+```
+
+- Templates come first so module-scoped rules can pattern-match on them.
+- Modules come next because rules are emitted qualified by their module.
+- Functions come before rules because `test` CEs and slot expressions may
+  reference them.
+- Rules come last; loading a rule whose module is not yet registered is a
+  `CompilationError`.
+
+At evaluate time the picture inverts: the host asserts facts, CLIPS matches
+them against rule LHS patterns, the rule with the highest salience on the
+active module's agenda fires, its `then` block emits a decision and any
+`AssertSpec` facts, and those new facts feed further matches. Working memory
+accumulates across `evaluate` calls on the same `Engine` until you retract or
+discard the session.
+
+## Related reading
+
+- [Writing rules](../how-to/writing-rules.md) — field-by-field reference for
+  `RulesetDefinition` and the salience/last-write-wins convention.
+- [Registering a function](../how-to/register-function.md) — how host-language
+  callables become available to rule LHS expressions.
+- [YAML reference](../reference/yaml/index.md) — generated schema index for
+  every primitive's YAML surface.
+
+
+## concepts/runtime-and-working-memory.md
+
+# Runtime & Working Memory
+
+The [Five Primitives](./five-primitives.md) page introduces the author-level
+vocabulary — templates, facts, rules, modules, functions — and how each one
+compiles to a CLIPS construct. This page is about the other half of the picture:
+what actually happens when you call `evaluate()`. It walks the runtime's
+moving parts from the top down — the session, how facts enter working memory,
+the evaluation loop, module focus, and the salience/last-write-wins contract
+that makes deny rules fail closed.
+
+The mental model to hold: a Fathom engine is a stateful CLIPS environment with
+a thin orchestration layer that drives the inference loop and reads a single
+distinguished fact template back out.
+
+## The engine as a session
+
+Each `Engine` instance owns exactly one CLIPS environment, stored on
+`self._env` in `src/fathom/engine.py`:
+
+```python
+self._env: clips.Environment = clips.Environment()
+```
+
+That environment is the session. Templates are built into it once at load
+time, rules are built once at load time, and working memory — the full
+collection of asserted facts — lives on it for as long as the engine lives.
+
+This is the main thing that distinguishes Fathom from stateless policy
+engines like OPA or Cedar. Those evaluate a single input document against a
+policy and return a decision; nothing carries over. A Fathom engine can hold
+facts asserted by one request, receive new facts from a second request, and
+let rules that match on the combination fire on the third — all inside one
+process, all without re-parsing rule sources. Rate-limit rules, trust-score
+aggregation, and any policy whose correct answer depends on prior events are
+expressible precisely because working memory persists across `evaluate()`
+calls within a session.
+
+Sessions do not persist to disk by default. If the process exits, working
+memory goes with it. The REST layer adds a `SessionStore` with TTL and a
+session cap to manage many concurrent engines — see the
+[FastAPI how-to](../how-to/fastapi.md) for those transport details. This
+page is about the runtime in isolation.
+
+An engine can also be cleared without being destroyed. `Engine.reset()`
+calls `env.reset()` (which clears facts and re-asserts `(initial-fact)`) and
+then rebuilds the internal `__fathom_decision` template. `Engine.clear_facts()`
+is narrower: it retracts only the user-asserted facts and leaves CLIPS
+internals alone.
+
+## Entry paths for facts
+
+A fact is an instance of a template. There are three ways one lands in
+working memory:
+
+1. **REST / gRPC transports.** `POST /v1/facts` and the equivalent gRPC RPC
+   call `Engine.assert_fact()` under the hood. Both transports accept one or
+   many facts per request.
+2. **Direct Python call.** `Engine.assert_fact(template, data)` from embedded
+   use. `assert_facts([...])` is the atomic multi-fact form: every fact is
+   validated against its template before any is asserted, so a bad slot value
+   in the fifth entry aborts the whole batch.
+3. **Rule RHS.** A rule's `then.asserts` list — modeled as `AssertSpec` in
+   `src/fathom/models.py` — compiles to additional `(assert ...)` forms on
+   the rule's right-hand side. When the rule fires, those facts enter working
+   memory alongside the `__fathom_decision` fact that carries the rule's
+   action.
+
+In all three paths, Python values cross into CLIPS through clipspy: strings
+become `STRING`, ints and floats become their CLIPS numeric counterparts,
+and slot-level type constraints declared on the template are enforced at
+assertion time, not at rule-fire time. Facts that successfully assert are
+read back out as `AssertedFact` records in query results and audit
+snapshots.
+
+## The evaluation loop
+
+`Engine.evaluate()` is short; the work is delegated to
+`src/fathom/evaluator.py`. The sequence inside `Evaluator.evaluate()` is:
+
+1. **Push the focus stack.** `_setup_focus_stack()` emits a single
+   `(focus ...)` eval with the registered module order reversed, so the
+   first module in the configured list ends up on top of the stack and
+   runs first.
+2. **Expire TTL facts.** If a `FactManager` is wired in, expired facts are
+   retracted before any rules get a chance to match them.
+3. **Run to quiescence.** `self._env.run()` fires rules until no activations
+   remain on any focused module.
+4. **Read the winning decision.** `_read_decision()` iterates the
+   `__fathom_decision` facts that rules emitted and picks a winner (next
+   section).
+5. **Capture traces.** `_capture_trace()` walks the same decision facts in
+   order and records every rule that fired plus the modules those rules
+   came from.
+6. **Clean up.** All `__fathom_decision` facts are retracted so the next
+   `evaluate()` call starts with a clean decision slate. User facts are
+   not touched.
+
+The return value is an `EvaluationResult` — decision, reason, rule trace,
+module trace, duration in microseconds, and parsed metadata. If an
+`AttestationService` is configured on the engine, the engine layer signs
+the result before returning it.
+
+One thing worth noting: `env.run()` is the single point where CLIPS does
+inference. Fathom never calls it more than once per `evaluate()`. A rule
+that needs to react to facts another rule asserted sees them because the
+rete network is notified as part of that same run, not because the
+runtime loops.
+
+## Module focus
+
+CLIPS's focus stack is the mechanism Fathom uses to make module ordering
+deterministic. The compiler emits every non-MAIN module as:
+
+```clips
+(defmodule <n> (import MAIN ?ALL))
+```
+
+(see `Compiler.compile_module` in `src/fathom/compiler.py`). `MAIN` itself
+is created with `(defmodule MAIN (export ?ALL))` the first time modules are
+loaded, so every module can see the shared `__fathom_decision` template.
+
+At evaluation, the runtime pushes each registered module onto the focus
+stack. CLIPS only considers activations from the module at the top of the
+stack; when no rules in that module can fire, it pops, and the next module
+gets its turn. Fathom's rule is that the first module in `focus_order` is
+the first to run, which is why `_setup_focus_stack()` emits modules in
+reverse order — the last `(focus X)` argument ends up on top.
+
+The practical upshot is that modules are a coarse-grained ordering tool.
+If `policy` comes before `logging` in the focus order, every
+activatable `policy` rule fires before any `logging` rule gets a chance,
+regardless of salience across module boundaries. Within a single module,
+salience takes over.
+
+## Fail-closed salience and last-write-wins
+
+This is the section [Five Primitives](./five-primitives.md) deferred.
+
+When a rule with an `action` fires, its compiled right-hand side asserts a
+`__fathom_decision` fact carrying the action (`allow`, `deny`, `escalate`,
+`scope`, or `route`), a reason string, the rule name, and JSON-serialized
+metadata. The compiler emits this block verbatim; see
+`Compiler._compile_action` in `src/fathom/compiler.py`.
+
+After `env.run()` returns, the evaluator reads decisions back in the order
+they were asserted:
+
+```python
+facts = list(self._iter_decision_facts())
+...
+winner = facts[-1]
+```
+
+That is `src/fathom/evaluator.py`, around line 127. The last decision fact
+asserted wins. Everything else about the salience contract follows from
+that single line.
+
+CLIPS fires higher-salience rules first. If an `allow` rule has salience
+100 and a `deny` rule has salience 50, the `allow` rule fires first, then
+the `deny` rule. Both assert `__fathom_decision` facts, both get collected,
+and `facts[-1]` — the `deny` fact, the one asserted second — wins. The
+final decision is deny.
+
+That is Fathom's fail-closed default. To get it, author deny rules with
+**lower** salience than allow rules. If you inverted the numbers, deny
+would fire first and allow would overwrite it, which is the opposite of
+what a safety-oriented policy usually wants.
+
+A few consequences follow:
+
+- **No rule fires ⇒ default decision.** The engine is constructed with
+  `default_decision="deny"`, so an empty `facts` list after `env.run()`
+  returns `("deny", "default decision (no rules fired)", {})`. The only
+  way to get `allow` out of a Fathom engine is to have a rule explicitly
+  assert one.
+- **One rule fires ⇒ that decision wins trivially.** No ordering concerns.
+- **Both fire ⇒ salience determines order, last-asserted wins.** The
+  failure mode to avoid is giving deny rules *higher* salience than the
+  allow rules they are supposed to override, because then deny asserts
+  first and allow clobbers it.
+- **Reason strings track the winner.** The `reason` field on
+  `EvaluationResult` comes from the winning decision fact, not a
+  concatenation of every rule that fired. If you need the full firing
+  history, use `rule_trace`.
+
+The salience field is declared on each rule's YAML and compiles to
+`(declare (salience N))` inside the `defrule` — see
+`Compiler.compile_rule` around line 165. Salience 0 is the default and is
+omitted from the compiled output. For authoring guidance, see the
+[writing rules how-to](../how-to/writing-rules.md).
+
+## Conflict resolution within a salience bucket
+
+What if two rules share the same salience and both activate? CLIPS uses a
+conflict resolution strategy to break the tie. The default is `depth`,
+which roughly prefers activations whose supporting facts were asserted
+more recently. Fathom does not override this.
+
+The strategy is deterministic given a fixed CLIPS state, but the order
+it produces is an implementation detail of CLIPS, not a contract Fathom
+exposes. Do not rely on it for semantic ordering. If two rules should fire
+in a specific order, give them distinct salience values and make the
+intent explicit in the YAML.
+
+The pragmatic rule: use salience coarsely. A handful of well-known bands
+(for example, a `deny` band below an `allow` band below a logging band) is
+easier to audit than dozens of one-off values.
+
+## How it all fits together
+
+Reading back through the primitives with the runtime in hand:
+
+1. **Templates** define the shape of facts and build CLIPS `deftemplate`
+   constructs on the environment at load time.
+2. **Facts** populate working memory — asserted through the REST/gRPC
+   transports, the SDK, or by rules firing.
+3. **Modules** namespace rules and are pushed onto the focus stack in the
+   order the author declared; the top module runs to local quiescence
+   before the next one is considered.
+4. **Functions** extend the conditions and actions rules can express —
+   custom CLIPS deffunctions or Python callables exposed through clipspy.
+5. **Rules** fire during `env.run()` in order of salience within a module,
+   asserting `__fathom_decision` facts on their RHS.
+6. **The evaluator** reads the last `__fathom_decision` fact as the winner
+   and returns an `EvaluationResult`.
+
+The stateful working memory in step 2 and the last-write-wins contract in
+step 6 are the two properties that most shape how a Fathom policy behaves
+in practice. The rest of the runtime is plumbing arranged around them.
+
+For the mechanics of expressing the rules themselves, see
+[writing rules](../how-to/writing-rules.md).
+
+
+## concepts/yaml-compilation.md
+
+# YAML Compilation
+
+The [Five Primitives](./five-primitives.md) page describes *what* you author
+in Fathom's YAML. The
+[Runtime & Working Memory](./runtime-and-working-memory.md) page describes
+*what happens* once the engine is running. This page is about the pipeline
+in between: how a YAML file becomes the CLIPS source string that clipspy's
+`env.build()` consumes.
+
+## The pipeline in one picture
+
+Compilation is three stages — **parse**, **validate**, **compile** —
+with two models in between:
+
+```
+YAML text
+  │  yaml.safe_load()       (parse)
+  ▼
+Python dicts / lists
+  │  Pydantic validation    (validate)
+  ▼
+TemplateDefinition / RuleDefinition / ModuleDefinition / FunctionDefinition
+  │  Compiler.compile_*     (compile)
+  ▼
+CLIPS source string
+  │  env.build(...)
+  ▼
+Construct live in the CLIPS environment
+```
+
+Parsing is boring: `yaml.safe_load` turns text into nested Python
+containers. Validation is where the interesting work happens — Pydantic
+rejects malformed or unsafe input *before* any CLIPS source is generated.
+Compilation is a string transform: each validated model goes through a
+matching `Compiler.compile_*` method that returns a CLIPS construct as
+text. The compiler never talks to CLIPS directly; the engine is what
+hands the output to `env.build()`.
+
+## Why Pydantic sits in the middle
+
+Fathom emits CLIPS source as text. clipspy's `env.build()` takes a source
+string and parses it — there is no structured builder API for assembling
+a `deftemplate` piece by piece. Every name and every slot value Fathom
+writes into that string has to be safe.
+
+The Pydantic layer is where that safety is enforced. Two regexes in
+`src/fathom/models.py` define the safe grammar:
+
+- `_CLIPS_IDENT_RE = r"^[A-Za-z_][A-Za-z0-9_\-]*$"` — all identifiers
+  (template names, rule names, module names, function names, slot names,
+  and the `AssertSpec.template` field) must match this pattern.
+- `_SLOT_VAR_RE = r"^\?[A-Za-z_][A-Za-z0-9_\-]*$"` — LHS bind variables
+  and `?var` references inside `AssertSpec.slots` must match this pattern.
+
+Two helpers apply them. `_validate_clips_ident(name, kind)` is called
+from field validators on every identifier field — `TemplateDefinition.name`,
+`RuleDefinition.name`, `ModuleDefinition.name`, `FunctionDefinition.name`,
+`RulesetDefinition.ruleset`/`module`, and `AssertSpec.template`.
+`_validate_slot_value(value)` inspects each value in `AssertSpec.slots`:
+values starting with `?` must match `_SLOT_VAR_RE`; values starting with
+`(` must be balanced s-expressions; plain string values are accepted
+provided they contain no NUL bytes.
+
+Invalid input produces a structured Pydantic error pointing at the
+offending field. Valid input produces models the compiler can emit
+without further escaping of names — only slot string *literals* need
+quoting, because those are the only place user-supplied text lands
+inside a CLIPS double-quoted string.
+
+## What each YAML construct compiles to
+
+Each top-level model has a dedicated `compile_*` method on `Compiler`.
+
+`TemplateDefinition` → a `deftemplate` scoped to `MAIN`:
+
+```clips
+(deftemplate MAIN::session
+    (slot session_id (type STRING))
+    (slot user_role  (type SYMBOL) (allowed-symbols admin user guest)))
+```
+
+Emitted by `compile_template`. Templates always live in `MAIN` so every
+module can see them via `(import MAIN ?ALL)`. Slot type and
+allowed-value directives come from `_CLIPS_TYPE_MAP` and
+`_CLIPS_ALLOWED_MAP`; string defaults are quoted and escaped.
+
+`ModuleDefinition` → a `defmodule` that imports everything from `MAIN`:
+
+```clips
+(defmodule governance (import MAIN ?ALL))
+```
+
+Emitted by `compile_module`. `ModuleDefinition` carries a `priority`
+integer consumed by focus-stack ordering at load time, not serialized
+into the CLIPS source.
+
+`RuleDefinition` → a `defrule` qualified by its owning module:
+
+```clips
+(defrule governance::deny-low-clearance
+    (declare (salience -10))
+    (session (user_role ?role))
+    (test (eq ?role guest))
+    =>
+    (assert (__fathom_decision (action deny) (reason "guest role") ...)))
+```
+
+Emitted by `compile_rule(defn, module)`. A `(declare (salience N))` clause
+appears only when `salience != 0`. LHS and RHS rendering are covered below.
+
+`FunctionDefinition` → one or more `deffunction` constructs:
+
+```clips
+(deffunction MAIN::classification-rank (?level)
+    (switch ?level
+        (case public then 0)
+        (case secret then 1)
+        (default -1)))
+```
+
+Emitted by `compile_function`. The `type` field is a literal of
+`"classification" | "temporal" | "raw"`. Classification functions come
+from a `HierarchyDefinition` as a family of deffunctions (`<hier>-rank`,
+`<hier>-below`, `<hier>-meets-or-exceeds`, `<hier>-within-scope`) plus
+backward-compatible unscoped shims for the first hierarchy loaded.
+Temporal functions are registered as Python externals by a later stage
+and return an empty string here. Raw functions return `defn.body`
+verbatim — the escape hatch for hand-written CLIPS.
+
+## The LHS: fact patterns and condition entries
+
+Every entry in a rule's `when` list is a `FactPattern`: one template name,
+an optional `alias`, and a list of `ConditionEntry` items. The compiler
+emits one parenthesized pattern per `FactPattern` on the rule's LHS.
+
+A `ConditionEntry` has four shapes, enforced by the `model_validator` on
+the model:
+
+1. **`slot` + `expression`** — constrain a slot with an operator
+   (`equals(admin)`, `greater_than(3)`, and so on).
+2. **`slot` + `bind`** — capture the slot's value into a `?var` that peer
+   conditions and the RHS can reference.
+3. **`slot` + `bind` + `expression`** — bind and constrain in one step.
+4. **`test` alone** — an already-parenthesized CLIPS expression, emitted
+   verbatim as a `(test …)` conditional element.
+
+`Compiler._compile_fact_pattern` walks the list into two buckets: slot
+constraints (concatenated inside the fact pattern) and test CEs (appended
+*after* all fact patterns, because CLIPS semantics require tests to
+reference variables already bound by earlier patterns).
+`_compile_condition` produces the per-slot string, including the
+`?bind&<expr>` form when a condition both binds and constrains.
+
+Shape 4 is the primary escape hatch on the LHS. A `test` entry lets a
+rule call any CLIPS-visible function, including host-language callables
+registered via `Engine.register_function`. See
+[Registering a Python function](../how-to/register-function.md).
+
+## The RHS: asserts and decisions
+
+Every `AssertSpec` in `then.asserts` becomes one `(assert …)` form on the
+rule's RHS. For each spec, the compiler emits:
+
+```clips
+(assert (<template> (<slot> <value>) (<slot> <value>) ...))
+```
+
+Slot values go through `Compiler._emit_slot_value`, which is a three-way
+switch mirroring `_validate_slot_value`:
+
+- Starts with `?` → emitted verbatim as a variable reference.
+- Starts with `(` → emitted verbatim as an s-expression.
+- Otherwise → emitted as a quoted, escaped CLIPS string literal.
+
+This is why `AssertSpec.slots` is typed `dict[str, str]` even though the
+materialized fact can hold ints, symbols, and floats at runtime: at
+compile time the value *is* a fragment of CLIPS source.
+
+If `then.action` is set, `_compile_action` prepends an `__fathom_decision`
+assert before any user asserts. `action` is emitted as a SYMBOL
+(unquoted); `reason` becomes a quoted literal, or a `(str-cat …)`
+expression interpolating LHS binds when it contains `{variable}`
+placeholders. The engine reads `__fathom_decision` facts back at the end
+of `evaluate()` to determine the winning decision — see
+[Runtime & Working Memory](./runtime-and-working-memory.md). Assert-only
+rules (no `action`) skip the decision block entirely.
+
+## Safety: why the validators matter
+
+Because Fathom builds CLIPS source by string concatenation, a malicious
+or accidental identifier like `"foo) (deftemplate evil"` would break out
+of the enclosing construct. Substituted into `compile_template`, it would
+produce two top-level constructs where the author wrote one:
+
+```clips
+(deftemplate MAIN::foo) (deftemplate evil
+    (slot ...))
+```
+
+The Pydantic layer blocks this before the compiler runs.
+`_validate_clips_ident` rejects anything outside
+`[A-Za-z_][A-Za-z0-9_-]*`, and `_validate_slot_value` ensures that a
+slot value starting with `(` is a balanced s-expression — so an attacker
+cannot smuggle a `))` that terminates the surrounding assert form.
+
+The general rule: **if it ends up as raw text in CLIPS source without
+quoting, it goes through `_validate_clips_ident` or
+`_validate_slot_value` first**. Identifier validation on
+`AssertSpec.template` and every slot key inside `AssertSpec.slots`
+closes the loop on the RHS.
+
+## The raw escape hatch
+
+Some things the YAML surface does not express directly — complex
+deffunctions, custom conditional elements, CLIPS-side state machinery.
+Two escape hatches exist, and both sit on the far side of the safety
+validators on purpose.
+
+`FunctionDefinition(type="raw", body=...)` emits arbitrary CLIPS
+function source:
+
+```yaml
+functions:
+  - name: my-helper
+    type: raw
+    params: ["?x"]
+    body: |
+      (deffunction MAIN::my-helper (?x)
+          (+ ?x 1))
+```
+
+`compile_function` returns `defn.body` verbatim when `type == "raw"`.
+The `params` field is informational in this path; the author owns the
+entire deffunction source.
+
+`ConditionEntry(test="(my-fn ?x)")` emits an arbitrary `(test …)` CE on
+the LHS:
+
+```yaml
+rules:
+  - name: flag-risky
+    when:
+      - template: session
+        conditions:
+          - slot: session_id
+            bind: "?sid"
+          - test: "(risk-score-exceeds ?sid 0.9)"
+    then:
+      action: deny
+      reason: risky session
+```
+
+This is how you reach anything registered via `Engine.register_function`
+or any CLIPS built-in outside Fathom's operator allow-list. The `test`
+field is only checked for being a non-empty parenthesized expression;
+the contents are not parsed. That is the point — it is the escape hatch
+— and raw passthrough sidesteps the per-operator safety net. With the
+hatch comes the author's responsibility for the CLIPS it emits.
+
+## Loading order
+
+Compiled constructs are loaded into the CLIPS environment in a fixed
+order — templates, modules, functions, rules — reflecting the dependency
+graph between primitives. See
+[Runtime & Working Memory](./runtime-and-working-memory.md) for why this
+order is the only one that works.
+
+## Related reading
+
+- [Five Primitives](./five-primitives.md) — what each YAML construct means
+  before compilation.
+- [Runtime & Working Memory](./runtime-and-working-memory.md) — what the
+  compiled constructs do once loaded.
+- [Registering a Python function](../how-to/register-function.md) — the
+  companion to the `test` escape hatch on the LHS.
+
+
+## concepts/audit-attestation.md
+
+# Audit & Attestation
+
+The [Five Primitives](./five-primitives.md) page describes what rules look like
+and how they compile. The [Runtime & Working Memory](./runtime-and-working-memory.md)
+page describes what happens when you call `evaluate()`. This page is about what
+Fathom writes down *afterwards* — the record of each decision, and the optional
+cryptographic signature that turns that record into something you can show a
+third party months later.
+
+Two separate mechanisms share this page because they solve two halves of the
+same problem:
+
+- **The audit log** answers "what did the engine decide, on what inputs,
+  citing which rules?" for every evaluation. It's a local, append-only record.
+- **Attestation** answers "prove it." An Ed25519 signature over the decision
+  and input digest lets an off-site verifier confirm the record is genuine
+  without trusting the box that produced it.
+
+The audit log is always available (default sink is a no-op). Attestation is
+opt-in — you construct the engine with a key.
+
+## Why a decision engine keeps records
+
+Fathom is deterministic: given the same rule pack, the same working memory,
+and the same module focus stack, it produces the same decision. That's only
+useful if you can reconstruct what happened on a specific call weeks later
+— which facts were present, which rules fired, what the final decision was.
+
+Stateless policy engines can get away with "replay the request" — the input
+fully determines the output. Fathom can't, because [working memory persists
+across evaluations](./runtime-and-working-memory.md). The fact that caused a
+deny today was asserted by a request three hours ago. Without a record
+written at decision time, that context is gone.
+
+The audit log is that record. Attestation adds one property on top: a
+signature bound to the decision and inputs, so the record can survive
+leaving the box it was written on.
+
+## Audit log shape
+
+Every successful evaluation produces one `AuditRecord`
+(`src/fathom/models.py`):
+
+```python
+class AuditRecord(BaseModel):
+    timestamp: str
+    session_id: str
+    input_facts: list[dict[str, Any]] | None = None
+    modules_traversed: list[str]
+    rules_fired: list[str]
+    decision: str | None
+    reason: str | None
+    duration_us: int
+    metadata: dict[str, str] = Field(default_factory=dict)
+    asserted_facts: list[AssertedFact] | None = None
+```
+
+Field by field:
+
+- **`timestamp`** — UTC ISO-8601, set inside `AuditLog.record()` via
+  `datetime.now(UTC).isoformat()`. Not taken from the caller, so clients
+  can't back-date entries.
+- **`session_id`** — the engine's session identifier. Lets you stitch
+  evaluations together when reconstructing what a single agent did.
+- **`input_facts`** — optional. The caller can pass a representation of the
+  facts asserted for this evaluation; Fathom does not snapshot working
+  memory into this field automatically.
+- **`modules_traversed`** / **`rules_fired`** — copied from
+  `EvaluationResult.module_trace` and `rule_trace`. The modules active
+  during inference and the fully-qualified `module::rule` names in fire
+  order.
+- **`decision`** / **`reason`** — the `action` and `reason` read off the
+  last `__fathom_decision` fact. `None` if no rule asserted a decision.
+- **`duration_us`** — microseconds spent in the inference loop.
+- **`metadata`** — arbitrary string key/value pairs propagated from the
+  decision's rule.
+- **`asserted_facts`** — populated only when at least one loaded rule
+  declares an RHS `asserts` block (see below).
+
+Records are written one-per-line as JSON. JSON Lines is trivially grep-able,
+`jq`-able, and concatenatable; it's what most log aggregators expect.
+Append-only at the process level means a local attacker can truncate or
+overwrite the file but not silently rewrite a past entry without touching
+its bytes — detection lives at the filesystem boundary (log shipper,
+immutable volume, or WORM bucket underneath).
+
+## Audit sinks
+
+`AuditSink` is a tiny `Protocol` with one method
+(`src/fathom/audit.py`):
+
+```python
+@runtime_checkable
+class AuditSink(Protocol):
+    def write(self, record: AuditRecord) -> None: ...
+```
+
+Two implementations ship with Fathom:
+
+- **`FileSink(path)`** — writes `record.model_dump_json() + "\n"` to the
+  given file in append mode. The constructor creates parent directories and
+  `touch`es the file, so pointing it at a fresh path Just Works.
+- **`NullSink`** — `write()` is a no-op. This is the default when you
+  construct an `Engine` without passing `audit_sink`.
+
+Anything satisfying the protocol is a valid sink. A production deployment
+might write to S3, publish to Kafka, call out to syslog, or fan out to
+several of those — none of which Fathom provides out of the box, but all of
+which are ten lines of Python on top of the protocol.
+
+## Default is off
+
+```python
+from fathom import Engine
+from fathom.audit import FileSink
+
+engine = Engine(audit_sink=FileSink("/var/log/fathom/audit.jsonl"))
+```
+
+Without that argument, `Engine.__init__` installs a `NullSink`:
+
+```python
+self._audit_log = AuditLog(audit_sink or NullSink())
+```
+
+Audit is opt-in for a reason: many embedding contexts — tests, notebooks,
+short-lived agents — have no use for a durable log, and making file I/O
+mandatory would turn every `evaluate()` into a write. Production passes a
+real sink; everything else keeps working with zero ceremony.
+
+## What gets recorded when
+
+The recording happens inside `Engine.evaluate()`. The sequence:
+
+1. **Pre-snapshot user facts** — but only if `self._has_asserting_rules` is
+   true. That flag is set at load time when any compiled rule declares a
+   non-empty `asserts` block. If no loaded rule can assert new facts, the
+   snapshot is skipped entirely — there's nothing to diff against.
+2. **Run inference** — `self._evaluator.evaluate()` returns an
+   `EvaluationResult` with `decision`, `reason`, `rule_trace`,
+   `module_trace`, and `duration_us`.
+3. **Sign, if configured** — if the engine was constructed with an
+   `attestation_service`, call `sign(result, self._session_id)` and store the
+   returned JWT on `result.attestation_token`.
+4. **Diff pre/post snapshots** — a second `_snapshot_user_facts()` call,
+   differenced against the pre-snapshot, yields the facts the rules
+   asserted during this evaluation. Order is preserved from the post
+   snapshot; equality is keyed on `(template, sorted(slots.items()))`.
+5. **Record** — `self._audit_log.record(result, session_id,
+   asserted_facts=...)` constructs the `AuditRecord` and hands it to the
+   sink.
+6. **Metrics** — `self._metrics.record_evaluation(...)` runs in a `finally`
+   so metrics are updated even if recording raised.
+
+Two things worth flagging:
+
+- `asserted_facts` is `None` when no loaded rule has an `asserts` block,
+  and also when asserting rules exist but none fired. An empty list is
+  collapsed to `None`, so the record distinguishes "didn't try to capture
+  this" from "captured nothing."
+- Signing happens *before* the audit record is written. The JWT ends up
+  on the `EvaluationResult` the caller receives but is **not** one of the
+  `AuditRecord` fields — the log records the decision; the token is
+  returned to the caller to store or forward separately.
+
+## Attestation as signed proof
+
+`AttestationService` (`src/fathom/attestation.py`) turns an evaluation into a
+JWT signed with an Ed25519 key. Construct one of two ways:
+
+```python
+from fathom.attestation import AttestationService
+
+# Ephemeral keypair — fine for tests, wrong for production.
+service = AttestationService.generate_keypair()
+
+# Stable key — load from secure storage at startup.
+service = AttestationService.from_private_key_bytes(pem_bytes)
+```
+
+Pass it to the engine alongside (or instead of) a sink:
+
+```python
+engine = Engine(
+    audit_sink=FileSink("/var/log/fathom/audit.jsonl"),
+    attestation_service=service,
+)
+```
+
+The algorithm is `EdDSA` (PyJWT's name for Ed25519-over-JWT). Ed25519 was
+picked because signatures are 64 bytes, verification is fast, and the
+public-key PEM is small enough to embed in a verifier image.
+
+The payload is deliberately narrow:
+
+```python
+{
+    "iss":        "fathom",
+    "iat":        int(time.time()),
+    "decision":   result.decision,
+    "rule_trace": result.rule_trace,
+    "input_hash": sha256(json.dumps(input_facts or [], sort_keys=True)).hexdigest(),
+    "session_id": session_id,
+}
+```
+
+What's **in** the signature: the decision, the rules that produced it, the
+session, an issuance timestamp, and a hash of the caller-supplied input
+facts. What's **not**: the facts themselves (they're hashed, not embedded),
+the reason string, the metadata dict, and the evaluation duration — those
+remain in the audit log but sit outside the signed envelope. The JWT
+alone proves *what* was decided; to prove *why*, pair it with the
+matching audit-log line.
+
+## Verifying an attestation
+
+```python
+from fathom.attestation import verify_token
+
+payload = verify_token(jwt_string, service.public_key)
+```
+
+`verify_token` re-decodes the JWT with `algorithms=["EdDSA"]` and the
+supplied public key, returning the payload dict. Any failure — bad
+signature, malformed token, wrong algorithm — raises `AttestationError`.
+
+The public key can be serialised for distribution:
+
+```python
+pem = service.public_key_pem()  # PEM SubjectPublicKeyInfo bytes
+```
+
+Two fields in the payload are worth calling out:
+
+- **`iat`** gives freshness. A verifier that has its own clock and a known
+  signing-key issuance window can reject tokens from outside it without
+  contacting the signer.
+- **`input_hash`** binds the token to a specific input fact set. A verifier
+  reconstructs the hash from the inputs it has and compares; a mismatch
+  means someone changed either the facts or the token.
+
+## Threat model
+
+What audit + attestation *do* protect against:
+
+- **Disputes about what was decided.** A signed `decision` and `rule_trace`
+  pin down the answer and the rules that produced it.
+- **Tampering with exported logs.** An attacker who modifies an audit line
+  after export can't re-sign it without the private key; `verify_token`
+  fails.
+- **Input substitution.** The `input_hash` commits the token to a specific
+  set of facts. Swap the facts and the hash stops matching.
+
+What they *don't* protect against:
+
+- **A compromised engine.** If the process producing audit records is
+  controlled by an attacker, it simply never calls `AuditLog.record()`, or
+  signs a fabricated result. Fathom cannot attest to its own integrity;
+  that's the job of whatever loads the binary.
+- **Private-key theft.** Ed25519 is only as strong as the secrecy of the
+  signing key. Key custody is out of scope.
+- **Side channels.** Nothing here prevents an observer from inferring
+  decisions from timing, cache behaviour, or downstream effects.
+
+## Declaring attestation on a rule
+
+`ThenBlock` carries an `attestation: bool` field
+(`src/fathom/models.py`). It is compiled into the `__fathom_decision`
+fact's `attestation` slot — the `TRUE`/`FALSE` value is visible to
+anything reading the decision fact and surfaces through the audit log's
+decision chain. It is **not** a switch that turns JWT signing on or off:
+the engine decides whether to sign based on whether an
+`attestation_service` was passed to `Engine(...)`, not on the flag in the
+rule. Think of the rule-level `attestation` field as declarative
+metadata — "this rule claims its decisions should be attested" — that
+downstream consumers (audit readers, policy linters) can act on.
+
+## How they fit together
+
+Audit is the always-on local story: every evaluation gets one
+`AuditRecord`, written synchronously to whatever sink the engine was given.
+`NullSink` by default, `FileSink` for development, anything that satisfies
+the `AuditSink` protocol in production.
+
+Attestation is the optional portable story: construct the engine with an
+`AttestationService` and each `EvaluationResult` comes back carrying an
+Ed25519-signed JWT. The token travels independently of the log; the log
+keeps the full context; together they give a downstream auditor everything
+they need.
+
+See [Runtime & Working Memory](./runtime-and-working-memory.md) for the
+evaluation loop these records describe, and
+[Writing Rules](../how-to/writing-rules.md) for the YAML-level `attestation`
+flag on a rule's `then` block.
+
+
+## concepts/not-in-v1.md
+
+# CLIPS Features Not In v1
+
+Fathom is not "CLIPS with YAML." It's a curated subset of CLIPS with an
+opinionated authoring surface — the [Five Primitives](./five-primitives.md) —
+and most of CLIPS's surface area is deliberately left out. This page lists
+what's missing and why, so if you come from a CLIPS background and find
+yourself hunting for a feature that isn't there, you can stop hunting.
+
+There are two lists below. The first is the short, canonical list from
+`design.md` — three features that are explicitly deferred. The second is
+longer and less formal: parts of CLIPS that simply aren't plumbed through the
+YAML grammar or the Python API. Those aren't *forbidden* — a determined
+embedder can still hand-build raw CLIPS constructs — but they sit outside the
+Pydantic safety layer that makes authored rules reviewable.
+
+## Explicitly deferred (per `design.md`)
+
+These three are called out by name in the design document's
+"Explicitly Not in v1" section.
+
+### COOL — the CLIPS Object System
+
+CLIPS ships a full object layer — `defclass`, `definstances`,
+`defmessage-handler`, slot inheritance, message dispatch. It's powerful,
+and it's a different mental model from the rule-and-fact model Fathom is
+built around. The design note is blunt: the OOP layer "adds massive surface
+area," and the use cases it covers are covered well enough by Templates plus
+Functions.
+
+What to use instead: model your domain with `TemplateDefinition` slots and
+express behavior with rules that match those templates. If you want shared
+computation, lift it into a `FunctionDefinition`.
+
+### Backward chaining
+
+CLIPS supports goal-driven reasoning — "does this fact follow from what we
+know?" — in addition to the forward chaining Fathom uses. Fathom's target
+problems (governance, routing, classification) are natural fits for forward
+chaining: you have a situation, you want to know what decision applies.
+The design note marks backward chaining as a v2 consideration.
+
+What to use instead: frame the question as forward chaining. Assert the
+facts that describe the situation, `evaluate()`, and read the decision.
+
+### Generic functions and message handlers
+
+CLIPS's `defgeneric` / `defmethod` lets you dispatch a function call to
+different implementations based on argument types — the procedural equivalent
+of method resolution in an OO language. The design note calls it
+"over-engineering for the current problem space," and that's accurate: the
+rule pack is already a dispatch layer, and `deffunction` plus clear naming
+covers the rest.
+
+What to use instead: author distinct `FunctionDefinition` instances with
+clear names, or do the type branching inside a single function body.
+
+## Not exposed in the YAML grammar
+
+These aren't in the design doc's deferred list, but they aren't surfaced
+in the authored YAML or the Pydantic models either. They're omitted by
+absence rather than by policy.
+
+### `defglobal` — global variables
+
+CLIPS `defglobal` lets you declare module-scoped mutable variables
+(`?*max-retries*`, for instance) that rules can read and write. Fathom has
+no top-level YAML key for globals, and no `GlobalDefinition` in
+`models.py`. The design choice is that all interesting state should live
+in working memory — as typed facts — where it's visible to the audit log,
+queryable, and versioned through the normal assert/retract path.
+
+What to use instead: model what you'd put in a global as a small
+single-instance template (e.g. `config` with the knobs as slots), assert one
+fact at session start, and match against it in rules that need it.
+
+### `deffacts` — initial facts blocks
+
+CLIPS `deffacts` lets a construct file declare facts that get asserted
+when the environment is reset. Fathom's rule packs have no `facts:` section
+that auto-asserts on engine start — facts enter working memory through
+`Engine.assert_fact()`, the REST/gRPC fact endpoints, or the RHS of a rule.
+The compiler never emits `deffacts`.
+
+What to use instead: if you need a consistent set of starting facts, assert
+them from your application's bootstrap code right after constructing the
+engine, or drive them from a rule that fires once under a startup focus.
+
+### Logical CEs (truth maintenance)
+
+CLIPS supports `(logical ...)` on the LHS of a rule: facts asserted by that
+rule's RHS are *logically dependent* on the matched LHS facts, and when a
+supporting fact is retracted, the derived facts are retracted with it.
+Fathom's `ConditionEntry` doesn't model `logical`, and the compiler doesn't
+emit it. Truth maintenance is useful but carries subtle semantics, and
+getting it wrong is hard to debug.
+
+What to use instead: keep dependencies explicit. If a derived fact should
+go away when an input fact does, retract it yourself — either from a rule
+that watches for the input's absence, or from application code after the
+next `evaluate()`.
+
+### Conflict-resolution strategy configuration
+
+CLIPS exposes several strategies for picking which activation fires next
+when multiple rules are ready: `depth`, `breadth`, `lex`, `mea`, `random`,
+`simplicity`, `complexity`. Fathom uses the CLIPS default (`depth`) and does
+not expose a configuration knob. The [Runtime & Working Memory](./runtime-and-working-memory.md)
+page explains how salience and the module focus stack give you enough
+ordering control for the problem classes Fathom targets.
+
+What to use instead: set explicit `salience` on rules that must fire in a
+particular order, and use modules plus focus to partition evaluation into
+phases.
+
+### Runtime agenda inspection
+
+CLIPS provides `(get-agenda)`, `(refresh-agenda)`, and similar functions to
+inspect or manipulate the agenda — the queue of rule activations — at
+runtime. Fathom's Python API doesn't expose these, and there's no YAML way
+to ask "what's about to fire?" from inside a rule pack.
+
+What to use instead: inspect the `rule_trace` and `module_trace` fields on
+the `EvaluationResult` after the fact. That tells you what fired and in
+which module, which is what most agenda questions are really asking.
+
+### Pattern-network and debug introspection
+
+CLIPS has `(watch rules)`, `(watch facts)`, `(dribble-on)`, and a suite of
+debug hooks that dump RETE activity to stderr. Fathom doesn't expose these
+as YAML features or Python API, because the audit log and the
+`rule_trace` / `module_trace` fields on `EvaluationResult` cover the same
+need with structured output that a host application can parse.
+
+What to use instead: read the audit log for decisions, and the evaluation
+traces for the firing sequence.
+
+### FuzzyCLIPS and temporal CLIPS extensions
+
+These are third-party CLIPS extensions (fuzzy-set reasoning; temporal
+operators). They aren't part of base CLIPS, `clipspy` doesn't ship them, and
+Fathom hasn't re-implemented them.
+
+What to use instead: encode uncertainty or time explicitly as slot values
+(confidence scores, timestamps) and reason about them with ordinary
+conditions and custom functions.
+
+## The raw escape hatch
+
+The YAML grammar is a safety layer, not a cage. When you genuinely need
+CLIPS expressiveness that the authored surface doesn't reach, Fathom offers
+three documented escape hatches:
+
+- **`FunctionDefinition(type="raw", body=...)`** — write a CLIPS
+  `deffunction` body verbatim. Useful for CLIPS built-ins that Fathom's
+  expression operators don't cover, or for multi-line CLIPS logic that
+  would be awkward to shoehorn into a structured function.
+- **`ConditionEntry(test=...)`** — emit a raw `(test ...)` conditional
+  element on the rule LHS. This is the most common use of the escape hatch:
+  calling a custom Python function you've registered.
+- **`Engine.register_function(name, fn)`** — expose a Python callable as a
+  CLIPS external function, callable from rule RHS actions or from `test`
+  conditional elements. See
+  [Register a function](../how-to/register-function.md) for the recipe.
+
+The [YAML Compilation](./yaml-compilation.md) page describes the compiler's
+raw-passthrough paths in more detail. The rule of thumb: prefer the
+structured YAML surface, and reach for raw only when the alternative would
+be contorted.
+
+## What's shipped vs what's deferred
+
+| Feature | Status |
+|---|---|
+| Templates (`deftemplate`) | Shipped |
+| Facts (assert/retract/query) | Shipped |
+| Rules (`defrule`) with salience | Shipped |
+| Modules + focus stack | Shipped |
+| Functions (`deffunction`) — structured + raw | Shipped |
+| Custom Python functions via `register_function` | Shipped |
+| Audit log + attestation | Shipped |
+| COOL (`defclass`, message handlers) | Not in v1 |
+| Backward chaining | v2 consideration |
+| Generic functions (`defgeneric`, `defmethod`) | Not in v1 |
+| `defglobal` | Not exposed |
+| `deffacts` | Not exposed |
+| Logical CEs / truth maintenance | Not exposed |
+| Conflict-resolution strategy config | Uses CLIPS default (`depth`) |
+| Agenda inspection at runtime | Not exposed |
+| `watch` / `dribble` debug hooks | Not exposed (use `rule_trace`) |
+| FuzzyCLIPS / temporal extensions | Not shipped |
+
+## Versioning
+
+v1 is the Phase 3 milestone on the Fathom roadmap. "v2 considerations" —
+notably backward chaining — are possibilities, not commitments, and the
+design document doesn't promise dates. If a feature on this page matters
+to you, open an issue describing the use case; that's the input the v2
+scoping will work from.
+
+
+## reference/index.md
+
+# Reference
+
+Every public surface of Fathom is documented here. All pages under this tab
+are generated from source — hand edits will be overwritten on next build.
+
+## SDKs
+
+- [Python SDK](python-sdk/index.md)
+- [Go SDK](go-sdk/index.md)
+- [TypeScript SDK](typescript-sdk/index.md)
+
+## APIs
+
+- [REST](rest/index.md) · [Try It](rest/try.md)
+- [gRPC](grpc/index.md)
+- [MCP Tools](mcp/index.md)
+
+## YAML
+
+- [Schemas](yaml/index.md)
+
+## Tooling
+
+- [CLI](cli/index.md)
+- [VSCode snippets + schemas](tooling/vscode/index.md)
+
+## Rule Packs
+
+- [OWASP Agentic](rule-packs/owasp-agentic.md)
+- [NIST 800-53](rule-packs/nist-800-53.md)
+- [HIPAA](rule-packs/hipaa.md)
+- [CMMC](rule-packs/cmmc.md)
+
+
+## reference/python-sdk/index.md
+
+# Python SDK Reference
+
+Generated from `fathom.__all__` at docs-build time via mkdocstrings.
+
+## Public symbols
+
+- [`Engine`](engine.md)
+- [`CompilationError`](compilationerror.md)
+- [`EvaluationError`](evaluationerror.md)
+- [`ValidationError`](validationerror.md)
+- [`AssertSpec`](assertspec.md)
+- [`AssertedFact`](assertedfact.md)
+- [`EvaluationResult`](evaluationresult.md)
+
+
+## reference/go-sdk/index.md
+
+# Go SDK
+
+Module path: `github.com/KrakenNet/fathom-go`
+
+- **Generated reference:** [`fathom-go.md`](fathom-go.md)
+- **Source:** [`packages/fathom-go`](https://github.com/KrakenNet/fathom/tree/master/packages/fathom-go)
+- **pkg.go.dev:** [pkg.go.dev/github.com/KrakenNet/fathom-go](https://pkg.go.dev/github.com/KrakenNet/fathom-go)
+
+
+## reference/typescript-sdk/index.md
+
+# TypeScript SDK
+
+Package path: `packages/fathom-ts`
+
+- **Generated reference:** see module pages alongside this index.
+- **Source:** [`packages/fathom-ts/src`](https://github.com/KrakenNet/fathom/tree/master/packages/fathom-ts/src)
+
+
+## reference/rest/index.md
+
+# REST API
+
+Fathom exposes the engine over HTTP via FastAPI. The canonical schema is
+exported at [`openapi.json`](openapi.json) and is regenerated on every
+build.
+
+## Quick links
+
+- **Interactive try-it:** [Swagger UI](try.md)
+- **Raw schema:** [`openapi.json`](openapi.json)
+- **Postman collection:** [`fathom.postman_collection.json`](fathom.postman_collection.json)
+- **Insomnia:** use *Import from URL* pointed at `openapi.json`.
+
+## Reference
+
+<swagger-ui src="./openapi.json"/>
+
+
+## reference/rest/try.md
+
+# Try It — REST API
+
+<swagger-ui src="./openapi.json"/>
+
+
+## reference/grpc/index.md
+
+# gRPC API
+
+Fathom's gRPC service is defined in
+[`protos/fathom.proto`](https://github.com/KrakenNet/fathom/blob/master/protos/fathom.proto).
+
+- **Generated reference:** [`fathom.md`](fathom.md)
+- **Raw `.proto`:** [`fathom.proto`](fathom.proto)
+
+The Go SDK's typed client wraps this service — see
+[Go SDK reference](../go-sdk/index.md).
+
+
+## reference/mcp/index.md
+
+# MCP Tool Manifest
+
+Raw manifest: [`manifest.json`](manifest.json)
+
+| Tool | Description |
+|---|---|
+| [`fathom.assert_fact`](assert_fact.md) | Assert a fact into working memory |
+| [`fathom.evaluate`](evaluate.md) | Run forward-chain evaluation |
+| [`fathom.query`](query.md) | Query working memory |
+| [`fathom.retract`](retract.md) | Retract facts from working memory |
+
+
+## reference/yaml/index.md
+
+# YAML Reference
+
+Fathom's YAML authoring surface has one JSON Schema per construct.
+Schemas are regenerated from `fathom.models` on every docs build.
+
+## Per-construct reference
+
+| Construct | Page |
+|---|---|
+| Template | [Template](template.md) |
+| Rule | [Rule](rule.md) |
+| Module | [Module](module.md) |
+| Function | [Function](function.md) |
+| Fact | [Fact](fact.md) |
+
+## Downloads
+
+| Construct | Schema |
+|---|---|
+| Template | [`template.schema.json`](schemas/template.schema.json) |
+| Rule | [`rule.schema.json`](schemas/rule.schema.json) |
+| Module | [`module.schema.json`](schemas/module.schema.json) |
+| Function | [`function.schema.json`](schemas/function.schema.json) |
+| Hierarchy | [`schemas/hierarchy.schema.json`](schemas/hierarchy.schema.json) |
+
+See [VSCode tooling](../tooling/vscode/index.md) for editor setup.
+
+
+## reference/yaml/template.md
+
+# Template
+
+A **template** declares the shape of a fact: its name and the typed slots
+that facts of that kind carry. Templates compile to CLIPS `deftemplate`
+constructs and live in the `MAIN` module regardless of which rule module
+references them. For the conceptual role of templates among Fathom's five
+primitives, see [Five Primitives](../../concepts/five-primitives.md).
+
+## Top-level fields — `TemplateDefinition`
+
+| Field         | Type                              | Default     | Required | Description                                                                                          |
+|---------------|-----------------------------------|-------------|----------|------------------------------------------------------------------------------------------------------|
+| `name`        | `str`                             | —           | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`. Emitted as `(deftemplate MAIN::<name> …)`. |
+| `description` | `str`                             | `""`        | no       | Author-facing prose. Not emitted to CLIPS.                                                           |
+| `slots`       | `list[SlotDefinition]`            | —           | yes      | One or more slot definitions. Empty list is accepted by Pydantic but rejected at compile time.       |
+| `ttl`         | `int \| None`                     | `None`      | no       | Fact-expiry metadata (seconds). Not emitted to CLIPS; reserved for runtime fact-expiry.              |
+| `scope`       | `Literal["session", "fleet"]`     | `"session"` | no       | Authoring hint consumed by the fleet layer. Not emitted to CLIPS.                                    |
+
+The `name` field is validated by `_name_must_be_clips_ident` at model
+construction and re-checked (for emptiness) by `compile_template`.
+
+## Slot fields — `SlotDefinition`
+
+| Field            | Type                              | Default | Required | Description                                                                                                                       |
+|------------------|-----------------------------------|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------|
+| `name`           | `str`                             | —       | yes      | Slot identifier. No regex validator is applied in the current model; the compiler emits it verbatim into `(slot <name> …)`.       |
+| `type`           | `SlotType`                        | —       | yes      | One of `string`, `symbol`, `float`, `integer`. See [SlotType](#slottype-enum).                                                    |
+| `required`       | `bool`                            | `False` | no       | If True, FactManager rejects asserts that omit this slot with a ValidationError (src/fathom/facts.py:274-283). Not emitted to CLIPS; the rule-RHS assert path bypasses this check because it doesn't run through FactManager._validate. |
+| `allowed_values` | `list[str] \| None`               | `None`  | no       | Emitted only for `string` and `symbol` slots (see [`_CLIPS_ALLOWED_MAP`](#slottype-enum)). Silently ignored for numeric slots.    |
+| `default`        | `str \| float \| int \| None`     | `None`  | no       | Emitted as `(default <value>)`. String defaults are CLIPS-quoted and escaped; numeric defaults are emitted raw.                   |
+
+## SlotType enum
+
+`SlotType` is a `StrEnum` with four members. The compiler maps each to a
+CLIPS type keyword via `_CLIPS_TYPE_MAP` and — for the two symbolic
+types — to an allowed-values directive via `_CLIPS_ALLOWED_MAP`.
+
+| YAML value | CLIPS type keyword | Allowed-values directive |
+|------------|--------------------|--------------------------|
+| `string`   | `STRING`           | `allowed-strings`        |
+| `symbol`   | `SYMBOL`           | `allowed-symbols`        |
+| `float`    | `FLOAT`            | *(none — silently dropped)* |
+| `integer`  | `INTEGER`          | *(none — silently dropped)* |
+
+Source: `src/fathom/compiler.py` lines 29–40.
+
+## CLIPS emission
+
+`compile_template` (in `src/fathom/compiler.py`) emits a multi-line
+`deftemplate` form. Every template is scoped to the `MAIN` module;
+per-module scoping happens on `defrule`, not on `deftemplate`.
+
+### YAML input
+
+```yaml
+templates:
+  - name: access-request
+    description: An agent's request to perform an action on a resource.
+    slots:
+      - name: subject
+        type: symbol
+      - name: action
+        type: string
+        allowed_values: [read, write, delete]
+      - name: amount
+        type: integer
+        default: 0
+```
+
+### CLIPS output
+
+```
+(deftemplate MAIN::access-request
+    (slot subject (type SYMBOL))
+    (slot action (type STRING) (allowed-strings "read" "write" "delete"))
+    (slot amount (type INTEGER) (default 0)))
+```
+
+### Emission rules
+
+1. First line: `(deftemplate MAIN::<name>`.
+2. Each slot is indented four spaces and wrapped as
+   `(slot <name> <parts>)`.
+3. Slot parts are emitted in this fixed order: `(type <CLIPS_TYPE>)`,
+   `(<allowed-directive> <values>)` (string/symbol only), `(default <value>)`.
+4. For `string` slots, each `allowed_values` entry and any string default
+   is run through `_escape_clips_string` (backslash first, then
+   double-quote) and wrapped in `"…"`. `symbol` allowed values are emitted
+   unquoted.
+5. Numeric defaults (`int`, `float`) are emitted via `str(slot.default)`
+   with no quoting.
+6. The template closes with `)` on its own line.
+
+## Validators
+
+Pydantic-level rejections (raised at `TemplateDefinition(...)` or during
+YAML load):
+
+- `name` that does not match `^[A-Za-z_][A-Za-z0-9_\-]*$` →
+  `ValueError` from `_name_must_be_clips_ident`.
+
+Compile-time rejections (raised by `Compiler.compile_template`):
+
+- `name` that is an empty string → `CompilationError` with
+  `construct="template:<empty>"`.
+- `slots` is an empty list → `CompilationError` with
+  `construct="template:<name>"`. Note: the `slots` field has no Pydantic
+  `min_length=1` constraint, so an empty list passes model validation
+  and only fails at compile time.
+
+No validator is applied to `SlotDefinition.name`, `slot.allowed_values`,
+or `slot.default` — the compiler trusts these fields and emits them
+verbatim or via `_escape_clips_string`.
+
+## What is not emitted
+
+These YAML fields are accepted by the model but do not appear in the
+compiled CLIPS `deftemplate`:
+
+- `TemplateDefinition.description` — metadata only.
+- `TemplateDefinition.ttl` — reserved for runtime fact-expiry; has no
+  CLIPS counterpart. A template with `ttl: 300` emits the same
+  `deftemplate` as one without.
+- `TemplateDefinition.scope` — consumed by the fleet layer, not the
+  compiler.
+- `SlotDefinition.required` — the flag itself is not emitted to CLIPS.
+  Runtime enforcement happens in `FactManager._check_required`
+  (`src/fathom/facts.py:274-283`) on the SDK and REST paths, but it is
+  not checked on the rule-RHS assert path.
+- `SlotDefinition.allowed_values` on `float` or `integer` slots —
+  silently dropped because these types have no entry in
+  `_CLIPS_ALLOWED_MAP`.
+
+If you need one of these to influence runtime behavior today, enforce it
+in a rule (for example, an explicit `allowed-values`-style test CE for a
+numeric slot) rather than relying on the template to do so.
+
+## See also
+
+- [Five Primitives](../../concepts/five-primitives.md) — conceptual
+  overview of templates, facts, rules, modules, and functions.
+- [YAML Compilation](../../concepts/yaml-compilation.md) — how YAML
+  documents are loaded and compiled to CLIPS source.
+- [Audit & Attestation](../../concepts/audit-attestation.md) — how
+  asserted-fact slots surface in audit records.
+
+
+## reference/yaml/rule.md
+
+# Rule
+
+A **rule** pairs fact-pattern conditions (the `when` clause) with a
+decision and optional fact assertions (the `then` clause). Rules compile
+to CLIPS `defrule` constructs scoped to their enclosing module. For
+conceptual context see [Five Primitives](../../concepts/five-primitives.md);
+for how salience and last-write-wins interact at evaluation time see
+[Runtime & Working Memory](../../concepts/runtime-and-working-memory.md).
+
+## Top-level fields — `RuleDefinition`
+
+| Field         | Type                 | Default | Required | Description                                                                                                              |
+|---------------|----------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------|
+| `name`        | `str`                | —       | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`. Emitted as `(defrule <module>::<name> …)`.                     |
+| `description` | `str`                | `""`    | no       | Author-facing prose. Not emitted to CLIPS.                                                                               |
+| `salience`    | `int`                | `0`     | no       | Priority hint. Emitted as `(declare (salience N))` only when `!= 0`.                                                     |
+| `when`        | `list[FactPattern]`  | —       | yes      | LHS fact patterns. Pydantic accepts an empty list; `compile_rule` raises `CompilationError` when empty.                  |
+| `then`        | `ThenBlock`          | —       | yes      | RHS decision and/or asserts. See [`ThenBlock`](#thenblock-fields) below.                                                 |
+
+`name` is validated by `_name_must_be_clips_ident`. `compile_rule` in
+`src/fathom/compiler.py` re-checks emptiness and the `when`-list.
+
+## Fact-pattern fields — `FactPattern`
+
+| Field        | Type                     | Default | Required | Description                                                                                                                  |
+|--------------|--------------------------|---------|----------|------------------------------------------------------------------------------------------------------------------------------|
+| `template`   | `str`                    | —       | yes      | The template name this pattern matches. Emitted as the head of the pattern CE: `(<template> …)`.                              |
+| `alias`      | `str \| None`            | `None`  | no       | Optional name used as the cross-fact prefix in other patterns' expressions (`$alias.slot`). Resolved via `_resolve_cross_refs`. |
+| `conditions` | `list[ConditionEntry]`   | —       | yes      | Slot constraints and/or test CEs. An empty list emits a bare `(<template>)` pattern.                                         |
+
+## Condition entry — `ConditionEntry`
+
+A `ConditionEntry` supports four shapes. The enforcing validator is
+`_require_bind_or_expression` in `src/fathom/models.py`.
+
+### Shape 1 — slot + expression
+
+```yaml
+- slot: role
+  expression: equals(admin)
+```
+
+Emits a CLIPS slot constraint via `_compile_condition`. See
+[Supported operators](#supported-operators-in-expression).
+
+### Shape 2 — slot + bind (no expression)
+
+```yaml
+- slot: subject_id
+  bind: ?sid
+```
+
+`bind` must start with `?` (enforced by `_bind_must_start_with_question_mark`).
+Emits `(<slot> ?sid)` — captures the slot's value so peer conditions and
+the RHS can refer to it.
+
+### Shape 3 — standalone test
+
+```yaml
+- test: (my-fn ?sid)
+```
+
+Only `test` is set. `test` must be a parenthesized CLIPS expression
+(enforced by `_test_must_be_wrapped`). Emits `(test <expr>)` on the rule
+LHS **after** all pattern CEs — the escape hatch for custom functions
+registered via `Engine.register_function`.
+
+### Shape 4 — combinations
+
+`bind` + `expression` constrains and captures in the same slot;
+`test` combined with a slot/expression appends a `(test …)` CE after
+the enclosing pattern.
+
+```yaml
+- slot: amount
+  bind: ?amt
+  expression: greater_than(100)
+  test: (policy-allows ?amt)
+```
+
+### What the validator rejects
+
+- Empty entry (no `expression`, `bind`, or `test`).
+- `slot` set but neither `expression` nor `bind` provided.
+- `slot` set alongside a standalone `test` with no `expression`/`bind` —
+  the slot would have no effect; drop it or add an `expression`/`bind`.
+- `bind` that does not start with `?`.
+- `test` that is empty or not parenthesized.
+
+## Supported operators in `expression`
+
+Syntax: `operator(arg)`. `arg` may be a literal or a cross-fact reference
+`$alias.field` (resolved via `_resolve_cross_refs` to `?alias-field`).
+Source: `_compile_condition` docstring in `src/fathom/compiler.py`.
+
+| Group          | Operator                                                                                                    |
+|----------------|-------------------------------------------------------------------------------------------------------------|
+| Comparison     | `equals`, `not_equals`, `greater_than`, `less_than`                                                         |
+| Set            | `in`, `not_in`                                                                                              |
+| String         | `contains`, `matches`                                                                                       |
+| Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
+| Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`          |
+
+Classification operators require a classification function declared with
+a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
+call to the generated `below` / `meets-or-exceeds` / `within-scope`
+CLIPS deffunction. Temporal operators emit `(test …)` CEs that call
+external functions registered at runtime.
+
+Any other operator raises `CompilationError` from `_compile_condition`.
+For worked examples of each operator see
+[Writing rules](../../how-to/writing-rules.md).
+
+## `ThenBlock` fields
+
+| Field         | Type                      | Default             | Description                                                                                                                |
+|---------------|---------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `action`      | `ActionType \| None`      | `None`              | One of `allow`, `deny`, `escalate`, `scope`, `route`. Emitted as an unquoted symbol on the `__fathom_decision` fact.        |
+| `reason`      | `str`                     | `""`                | Free text. `{placeholder}` refs compile via `_compile_reason` to `(str-cat "…" ?placeholder "…")`; otherwise a quoted literal. |
+| `log`         | `LogLevel`                | `LogLevel.SUMMARY`  | One of `none`, `summary`, `full`. Emitted as the `log-level` slot on the decision fact.                                    |
+| `notify`      | `list[str]`               | `[]`                | Notification targets. Joined with `", "` and emitted as a single quoted string in the `notify` slot.                        |
+| `attestation` | `bool`                    | `False`             | Emitted as `TRUE`/`FALSE` on the decision fact's `attestation` slot. **Not** a signing switch — see [Audit & Attestation](../../concepts/audit-attestation.md). |
+| `metadata`    | `dict[str, str]`          | `{}`                | JSON-serialized (sorted keys) and emitted as a quoted string when non-empty; otherwise an empty quoted string.              |
+| `scope`       | `str \| None`             | `None`              | Accepted for authoring but not emitted by `_compile_action` (reserved).                                                    |
+| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. |
+
+### `ThenBlock` validator
+
+`_require_action_or_asserts` enforces that at least one of `action` or a
+non-empty `assert` list is provided. Rules may assert-only (no
+`__fathom_decision` fact is emitted), decide-only, or do both.
+
+## `AssertSpec` fields
+
+| Field      | Type              | Default | Description                                                                                                                               |
+|------------|-------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `template` | `str`             | —       | Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`.                                                                                                  |
+| `slots`    | `dict[str, str]`  | `{}`    | Keys must be valid CLIPS identifiers. Values pass through `_validate_slot_value`: `?var` refs must be well-formed, s-expressions must have balanced parens, and embedded NULs are rejected. |
+
+## Enums
+
+### `ActionType`
+
+| YAML value  | Meaning                              |
+|-------------|--------------------------------------|
+| `allow`     | Permit the operation.                |
+| `deny`      | Refuse the operation.                |
+| `escalate`  | Forward for human/higher review.     |
+| `scope`     | Narrow the action's scope.           |
+| `route`     | Direct to a different handler/path.  |
+
+### `LogLevel`
+
+| YAML value | Emitted audit verbosity |
+|------------|-------------------------|
+| `none`     | No audit entry.         |
+| `summary`  | Decision + rule id.     |
+| `full`     | Decision + all facts.   |
+
+## Salience convention
+
+Fathom's fail-closed default is **deny** rules at **lower** salience than
+**allow** rules, so `deny` fires last and wins under last-write-wins on
+the decision fact. Mechanics in
+[Runtime & Working Memory](../../concepts/runtime-and-working-memory.md).
+
+## CLIPS emission
+
+`compile_rule` composes the rule in this fixed order: header,
+`(declare (salience N))` (only when non-zero), pattern CEs in `when`
+order, test CEs collected from every pattern, the `=>` arrow, the
+`__fathom_decision` assert (only when `action` is set), then user
+asserts in declared order. Indentation is four spaces.
+
+### YAML input
+
+```yaml
+- name: deny_large_transfer
+  salience: -10
+  when:
+    - template: transfer
+      alias: $t
+      conditions:
+        - slot: amount
+          bind: ?amt
+          expression: greater_than(100)
+        - slot: currency
+          bind: ?ccy
+        - test: (blocked-country ?amt)
+  then:
+    action: deny
+    reason: "Transfer of {amt} {ccy} exceeds limit"
+    notify: [compliance, ops]
+    attestation: true
+    assert:
+      - template: audit-log
+        slots:
+          subject: "?amt"
+```
+
+### CLIPS output
+
+```
+(defrule finance::deny_large_transfer
+    (declare (salience -10))
+    (transfer (amount ?amt&?s_amount&:(> ?s_amount 100)) (currency ?ccy))
+    (test (blocked-country ?amt))
+    =>
+    (assert (__fathom_decision
+        (action deny)
+        (reason (str-cat "Transfer of " ?amt " " ?ccy " exceeds limit"))
+        (rule "finance::deny_large_transfer")
+        (log-level summary)
+        (notify "compliance, ops")
+        (attestation TRUE)
+        (metadata "")))
+    (assert (audit-log (subject ?amt))))
+```
+
+Notes on the shape:
+
+- `(declare (salience N))` is omitted when `salience == 0`.
+- Test CEs appear after all pattern CEs, in source order across
+  patterns.
+- `reason` with `{placeholder}` placeholders becomes `(str-cat …)`;
+  literal reasons are emitted as plain quoted strings.
+- `notify` is always quoted — empty list emits `""`.
+- `metadata` is empty-string when `{}`, otherwise
+  `json.dumps(metadata, sort_keys=True)`.
+- The `__fathom_decision` assert precedes user asserts in document
+  order (AC-1.3).
+- When `action` is `None`, the decision assert is skipped entirely and
+  only user asserts are emitted.
+
+## Validators — what is rejected
+
+Model- or compile-time errors you will hit:
+
+- Empty `name` or invalid CLIPS identifier — `ValueError` /
+  `CompilationError`.
+- Empty `when` — `CompilationError` from `compile_rule`.
+- Unsupported operator in an `expression` — `CompilationError` from
+  `_compile_condition`.
+- `AssertSpec.template` or slot key that is not a valid CLIPS
+  identifier — `ValueError`.
+- Slot value with unbalanced parens, malformed `?var`, or embedded
+  `\x00` — `ValueError` from `_validate_slot_value`.
+- `ThenBlock` with neither `action` nor a non-empty `assert` list —
+  `ValueError` from `_require_action_or_asserts`.
+- `ConditionEntry` rejections listed under
+  [What the validator rejects](#what-the-validator-rejects).
+
+## See also
+
+- [Five Primitives](../../concepts/five-primitives.md)
+- [YAML Compilation](../../concepts/yaml-compilation.md)
+- [Runtime & Working Memory](../../concepts/runtime-and-working-memory.md)
+- [Writing rules](../../how-to/writing-rules.md)
+- [Template reference](./template.md)
+
+
+## reference/yaml/module.md
+
+# Module
+
+A **module** is a CLIPS namespace for rules. Every rule lives in exactly
+one module, and Fathom's deterministic ordering is driven by the order
+those modules are pushed onto the CLIPS focus stack. For the role of
+modules among Fathom's five primitives, see
+[Five Primitives](../../concepts/five-primitives.md); for the focus-stack
+mechanics at evaluation time, see
+[Runtime & Working Memory](../../concepts/runtime-and-working-memory.md).
+
+## Top-level fields — `ModuleDefinition`
+
+| Field         | Type    | Default | Required | Description                                                                                                                  |
+|---------------|---------|---------|----------|------------------------------------------------------------------------------------------------------------------------------|
+| `name`        | `str`   | —       | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`. Emitted as `(defmodule <name> …)`.                                |
+| `description` | `str`   | `""`    | no       | Author-facing prose. Not emitted to CLIPS.                                                                                    |
+| `priority`    | `int`   | `0`     | no       | Author-facing metadata. **Not emitted to CLIPS** and **not used to drive the focus stack** in the current runtime (see below). |
+
+The `name` field is validated by `_name_must_be_clips_ident` at model
+construction and re-checked (for emptiness) by `compile_module`.
+
+## CLIPS emission
+
+`compile_module` (in `src/fathom/compiler.py`) emits a single-line
+`defmodule` form. Every non-`MAIN` module imports `?ALL` from `MAIN` so
+that templates declared in `MAIN` — including the built-in
+`__fathom_decision` decision template — are visible to rules in the
+module.
+
+### YAML input
+
+```yaml
+modules:
+  - name: access-control
+    description: Core access decisions.
+    priority: 100
+```
+
+### CLIPS output
+
+```
+(defmodule access-control (import MAIN ?ALL))
+```
+
+### Emission rules
+
+1. The emitted form is exactly
+   `(defmodule <name> (import MAIN ?ALL))` — one line, no variations
+   for `description` or `priority`.
+2. `description` is never emitted. It exists for authoring only.
+3. `priority` is never emitted as a CLIPS construct attribute. CLIPS has
+   no module-level priority concept; module ordering is done by the
+   focus stack, not by attributes on `defmodule`.
+4. An empty `name` at compile time raises `CompilationError` with
+   `construct="module:<empty>"`.
+
+## Priority and the focus stack
+
+`ModuleDefinition.priority` is a stored integer (default `0`) that the
+runtime **does not read** when setting focus. Focus order is driven
+exclusively by the explicit `focus_order:` list at the top of the module
+YAML file (or by a later `Engine.set_focus(...)` call).
+
+At evaluation time, `_setup_focus_stack` in `src/fathom/evaluator.py`
+emits a single `(focus ...)` eval with the registered focus list
+reversed — so the first name in `focus_order` ends up on top of the
+CLIPS focus stack and runs first. `priority` is never consulted during
+this step.
+
+What `priority` is actually used for today:
+
+- It is surfaced by `fathom inspect` as metadata for each loaded
+  module (see `src/fathom/cli.py`).
+- It is preserved on the `ModuleDefinition` in the engine's
+  `module_registry` for external tooling.
+
+See [Runtime & Working Memory](../../concepts/runtime-and-working-memory.md)
+for the full focus-stack mechanics.
+
+### Declaring focus order
+
+```yaml
+modules:
+  - name: classification
+    description: Label-derivation rules.
+  - name: access-control
+    description: Core access decisions.
+    priority: 100   # metadata only — does not affect ordering
+
+focus_order:
+  - classification
+  - access-control
+```
+
+Here `classification` runs first because it appears first in
+`focus_order`. The `priority: 100` on `access-control` is informational
+and does not reorder the stack.
+
+## The MAIN module
+
+`MAIN` is created implicitly by Fathom the first time `load_modules` is
+called, via `(defmodule MAIN (export ?ALL))` (see `src/fathom/engine.py`).
+Authors do not declare `MAIN` in YAML. All `deftemplate` constructs —
+including the built-in `__fathom_decision` template that Fathom
+installs at engine startup — live in `MAIN`, and every non-`MAIN`
+module imports from it. Rules are scoped to a module by the `module:`
+key on the enclosing `RulesetDefinition`; see [Rule](./rule.md) for the
+rule emission.
+
+## Validators
+
+Pydantic-level rejections (raised at `ModuleDefinition(...)` or during
+YAML load):
+
+- `name` that does not match `^[A-Za-z_][A-Za-z0-9_\-]*$` →
+  `ValueError` from `_name_must_be_clips_ident`.
+
+Compile-time rejections (raised by `Compiler.compile_module`):
+
+- `name` that is an empty string → `CompilationError` with
+  `construct="module:<empty>"`.
+
+Duplicate module names are rejected by `parse_module_file` (at YAML
+load) and again by `Engine.load_modules` (across files), both as
+`CompilationError`.
+
+## What is not emitted
+
+These YAML fields are accepted by the model but never appear in the
+compiled CLIPS `defmodule`:
+
+- `ModuleDefinition.description` — metadata only.
+- `ModuleDefinition.priority` — metadata only; does not influence
+  focus-stack ordering in the current runtime. If you need
+  deterministic module ordering, set `focus_order:` explicitly.
+
+## See also
+
+- [Five Primitives](../../concepts/five-primitives.md) — conceptual
+  overview of templates, facts, rules, modules, and functions.
+- [Runtime & Working Memory](../../concepts/runtime-and-working-memory.md)
+  — focus-stack mechanics and the evaluation loop.
+- [Rule](./rule.md) — how rules are scoped to a module via
+  `RulesetDefinition.module`.
+- [Template](./template.md) — why templates live in `MAIN`.
+
+
+## reference/yaml/function.md
+
+# Function
+
+A **function** exposes a CLIPS `deffunction` that rules may call from
+either the LHS (inside a `test:` escape hatch) or the RHS. Fathom
+recognizes three function subtypes: `classification` (emitted as a
+family of rank/below/meets-or-exceeds/within-scope deffunctions driven
+by a `HierarchyDefinition`), `raw` (the author-supplied CLIPS source
+is emitted verbatim), and `temporal` (reserved — currently a stub).
+For conceptual context see
+[Five Primitives](../../concepts/five-primitives.md); for exposing
+Python callables instead of authoring CLIPS, see
+[Register a Python function](../../how-to/register-function.md).
+
+## Top-level fields — `FunctionDefinition`
+
+| Field           | Type                                             | Default            | Required | Description                                                                                                                                                            |
+|-----------------|--------------------------------------------------|--------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`          | `str`                                            | —                  | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$` (validated by `_name_must_be_clips_ident`). For `raw` functions this is authoring metadata only — the emitted CLIPS name comes from `body`. For `classification` the hierarchy name drives the emitted function names (see below). |
+| `description`   | `str`                                            | `""`               | no       | Author-facing prose. Not emitted to CLIPS.                                                                                                                             |
+| `params`        | `list[str]`                                      | —                  | yes      | Parameter names. Used when authoring `raw` bodies; the classification path ignores `params` and generates its own `(?level)` / `(?a ?b)` signatures from the hierarchy. |
+| `hierarchy_ref` | `str \| None`                                    | `None`             | no       | **Required** when `type == "classification"`. Names the hierarchy whose `levels` drive emission. A trailing `.yaml` is stripped: `hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]`. Ignored for `temporal` and `raw`. |
+| `type`          | `Literal["classification", "temporal", "raw"]`   | `"classification"` | no       | Selects the emission strategy. Default is `classification`.                                                                                                            |
+| `body`          | `str \| None`                                    | `None`             | no       | Raw CLIPS source. **Required** when `type == "raw"`. Ignored for `classification` and `temporal`.                                                                      |
+
+Emission is dispatched in `compile_function` in
+`src/fathom/compiler.py`. Empty `name`, missing `body` for a `raw`
+function, missing `hierarchy_ref` for a `classification` function, and
+a `hierarchy_ref` that does not resolve to a registered hierarchy all
+raise `CompilationError`.
+
+## Type subtypes
+
+### `classification`
+
+A classification function expands to a **family** of deffunctions
+named by the hierarchy — not by `FunctionDefinition.name`. The
+authoring `name` is a handle for the YAML bundle; the emitted CLIPS
+identifiers all begin with the hierarchy name (e.g. `clearance-rank`,
+`clearance-below`). The expansion, from
+`_compile_classification_functions`, is:
+
+- `(deffunction MAIN::<hier>-rank (?level) (switch ?level (case LEVEL then INDEX) … (default -1)))` — one `case` per level, in declaration order; out-of-hierarchy inputs return `-1`.
+- `(deffunction MAIN::<hier>-below (?a ?b) (< (<hier>-rank ?a) (<hier>-rank ?b)))`.
+- `(deffunction MAIN::<hier>-meets-or-exceeds (?a ?b) (>= (<hier>-rank ?a) (<hier>-rank ?b)))`.
+- `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — both inputs must be in-hierarchy.
+
+The compiler also emits **unscoped backward-compat shims** —
+`below`, `meets-or-exceeds`, `within-scope` — that delegate to the
+scoped versions. These shims are emitted **only for the first loaded
+hierarchy** (tracked via `self._first_hierarchy_name`); subsequent
+hierarchies add their scoped deffunctions but do not overwrite the
+unscoped shims.
+
+Compilation failures:
+
+- Missing `hierarchy_ref` → `CompilationError`.
+- `hierarchy_ref` not registered in the bundle → `CompilationError`.
+
+### `raw`
+
+`compile_function` returns `defn.body` as-is. There is no `(deffunction
+…)` wrapping, no parameter binding from `params`, and no escaping — the
+YAML author supplies a complete, parenthesis-balanced CLIPS source
+string, which is inserted into the compiled program verbatim.
+
+Compilation failures:
+
+- Missing `body` → `CompilationError`.
+
+### `temporal`
+
+Currently a stub. `compile_function` returns `""` (empty string) for
+`type: temporal` — the YAML surface accepts the subtype, but emission
+is a no-op at this phase of development. Temporal operators in rules
+(`changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`,
+`distinct_count`, `sequence_detected`) are served by Python-side
+external functions the engine registers under the reserved `fathom-`
+prefix, not by compiled CLIPS deffunctions. Authors typically do not
+need to declare a `type: temporal` function for these operators to
+work. See
+[Register a Python function](../../how-to/register-function.md) for
+the external-function path and
+[Not in v1](../../concepts/not-in-v1.md) for the broader roadmap.
+
+## `HierarchyDefinition` fields
+
+Classification functions consume a `HierarchyDefinition` from the same
+YAML bundle.
+
+| Field          | Type               | Default | Required | Description                                                                                                                                       |
+|----------------|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`         | `str`              | —       | yes      | Hierarchy name. Drives the emitted deffunction prefix (`<name>-rank`, `<name>-below`, …).                                                          |
+| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; out-of-hierarchy inputs rank `-1`. |
+| `compartments` | `list[str] \| None`| `None`  | no       | Accepted by the model but **not** consumed by `_compile_classification_functions` today. Reserved for future compartment-aware emission.           |
+
+## Worked example — `classification`
+
+### YAML input
+
+```yaml
+hierarchies:
+  - name: clearance
+    levels: [unclassified, confidential, secret, top-secret]
+
+functions:
+  - name: clearance-check
+    type: classification
+    params: [a, b]
+    hierarchy_ref: clearance
+```
+
+### CLIPS output
+
+```
+(deffunction MAIN::clearance-rank (?level)
+    (switch ?level
+        (case unclassified then 0)
+        (case confidential then 1)
+        (case secret then 2)
+        (case top-secret then 3)
+        (default -1)))
+
+(deffunction MAIN::clearance-below (?a ?b)
+    (< (clearance-rank ?a) (clearance-rank ?b)))
+
+(deffunction MAIN::clearance-meets-or-exceeds (?a ?b)
+    (>= (clearance-rank ?a) (clearance-rank ?b)))
+
+(deffunction MAIN::clearance-within-scope (?a ?b)
+    (and (>= (clearance-rank ?a) 0) (>= (clearance-rank ?b) 0)))
+
+(deffunction MAIN::below (?a ?b)
+    (clearance-below ?a ?b))
+
+(deffunction MAIN::meets-or-exceeds (?a ?b)
+    (clearance-meets-or-exceeds ?a ?b))
+
+(deffunction MAIN::within-scope (?a ?b)
+    (clearance-within-scope ?a ?b))
+```
+
+Notes:
+
+- The unscoped `below` / `meets-or-exceeds` / `within-scope` shims
+  appear because `clearance` is the **first** hierarchy loaded. A
+  second hierarchy would emit only its scoped deffunctions; it would
+  not shadow the shims.
+- `FunctionDefinition.name` (`clearance-check`) and `params` (`[a, b]`)
+  are not reflected in the output — the classification path drives
+  emission purely from the hierarchy.
+- Indentation is four spaces; function definitions are joined by blank
+  lines.
+
+## Worked example — `raw`
+
+### YAML input
+
+```yaml
+functions:
+  - name: double
+    type: raw
+    params: [x]
+    body: "(deffunction MAIN::double (?x) (* ?x 2))"
+```
+
+### CLIPS output
+
+```
+(deffunction MAIN::double (?x) (* ?x 2))
+```
+
+The `body` string is emitted exactly — `params` is authoring metadata
+only, and the deffunction's parameter list comes from whatever the
+`body` declares.
+
+Naming convention: the `fathom-` prefix is **reserved** for
+Engine-registered builtins (`fathom-matches`, `fathom-count-exceeds`,
+`fathom-rate-exceeds`, `fathom-changed-within`, `fathom-last-n`,
+`fathom-distinct-count`, `fathom-sequence-detected`,
+`fathom-parse-compartments`, `fathom-has-compartment`,
+`fathom-compartments-superset`, `fathom-dominates`). Python callers of
+`Engine.register_function` are rejected with `ValueError` if the
+requested name starts with `fathom-`. YAML `raw` bodies are not
+re-checked by the compiler, but avoid the prefix in authored CLIPS to
+prevent collisions with the runtime's own bindings.
+
+## Validators — what is rejected
+
+| Condition                                            | Where raised                   | Error              |
+|------------------------------------------------------|--------------------------------|--------------------|
+| `name` that is not a valid CLIPS identifier          | Pydantic validator             | `ValueError`       |
+| Empty `name` at compile time                         | `compile_function`             | `CompilationError` |
+| `type: raw` with `body is None`                      | `compile_function`             | `CompilationError` |
+| `type: classification` without `hierarchy_ref`       | `compile_function`             | `CompilationError` |
+| `type: classification` with unknown `hierarchy_ref`  | `compile_function`             | `CompilationError` |
+
+## What is not emitted
+
+- `description` — author-facing only.
+- `type: temporal` — emits the empty string.
+- `HierarchyDefinition.compartments` — accepted by the model, unused by
+  today's classification emission.
+- `FunctionDefinition.name` and `params` — ignored by the
+  `classification` path (the hierarchy drives names; parameter
+  signatures are fixed).
+- `FunctionDefinition.params` — informational for `raw` (the emitted
+  signature comes from `body`).
+
+## See also
+
+- [Five Primitives](../../concepts/five-primitives.md)
+- [YAML Compilation](../../concepts/yaml-compilation.md)
+- [Register a Python function](../../how-to/register-function.md)
+- [Rule reference](./rule.md) — `test:` escape hatch for calling these functions from the LHS.
+- [Template reference](./template.md)
+
+
+## reference/yaml/fact.md
+
+# Fact
+
+A **fact** is a concrete instance of a template — the pair
+`(template_name, data_dict)` — living in CLIPS working memory. Unlike
+templates, rules, modules, and functions, facts are **not declared in
+YAML**: they are asserted at runtime through the SDK, the REST API, or
+as a side effect of a rule firing. All facts live under the `MAIN`
+module (templates are compiled there; see
+[Template reference](./template.md)). For conceptual context see
+[Five Primitives](../../concepts/five-primitives.md); for working-memory
+mechanics see
+[Runtime & Working Memory](../../concepts/runtime-and-working-memory.md).
+
+## Three entry paths
+
+Facts enter working memory through exactly three surfaces. The first
+two share the `FactManager` validation chain; the third (rule RHS)
+bypasses it — see each subsection.
+
+### REST — `POST /v1/facts`
+
+`AssertFactRequest` body (`src/fathom/models.py`):
+
+```json
+{
+  "session_id": "abc-123",
+  "template": "access-request",
+  "data": {
+    "subject": "alice",
+    "action": "read",
+    "amount": 0
+  }
+}
+```
+
+The endpoint (`src/fathom/integrations/rest.py` lines 326–343) requires
+an existing session created via `POST /v1/evaluate`; an unknown
+`session_id` returns **404 session not found**. Companion endpoints
+`POST /v1/query` and `DELETE /v1/facts` accept `session_id`,
+`template`, and an optional `filter` dict with the same semantics as
+the SDK.
+
+### SDK — `Engine.assert_fact` / `Engine.assert_facts`
+
+Single (`src/fathom/engine.py` line 757):
+
+```python
+engine.assert_fact("access-request", {"subject": "alice", "action": "read"})
+```
+
+Atomic batch (`src/fathom/engine.py` line 775) — every fact is
+validated first; if any fails, **none** are asserted:
+
+```python
+engine.assert_facts([
+    ("access-request", {"subject": "alice", "action": "read"}),
+    ("access-request", {"subject": "bob",   "action": "write"}),
+])
+```
+
+`Engine.assert_fact` raises `ScopeError` when the referenced template's
+`scope` is `"fleet"` — fleet-scoped facts must go through
+`FleetEngine.assert_fact`.
+
+### Rule RHS — `then.assert`
+
+Rules may assert facts as a side effect of firing. The YAML surface is
+the `assert:` key on a `ThenBlock`, with one `AssertSpec` entry per
+fact; slot values are CLIPS source text (literals, `?var` bindings,
+balanced s-expressions) — **not** Python data. See the
+[Rule reference](./rule.md) for `AssertSpec` and `ThenBlock` shape.
+
+Rule-RHS asserts **do not pass through `FactManager._validate`** — the
+compiler emits `(assert (<template> (<slot> <value>) …))` directly into
+the CLIPS RHS, and CLIPS itself enforces the deftemplate's type and
+allowed-value constraints. The FactManager's Python-level checks do
+not run for this path.
+
+## `FactInput` — embedded in `EvaluateRequest`
+
+`FactInput` (`src/fathom/models.py`) is the `(template, data)` shape
+used inside `EvaluateRequest.facts[]` — the enclosing request carries
+the `session_id`:
+
+```json
+{
+  "ruleset": "access",
+  "session_id": "abc-123",
+  "facts": [
+    {"template": "access-request", "data": {"subject": "alice", "action": "read"}}
+  ]
+}
+```
+
+Each `FactInput` is asserted into the session before rules fire.
+
+## Validation chain
+
+`FactManager._validate` (`src/fathom/facts.py` lines 200–228) runs seven
+steps, in order. The first to fail raises `ValidationError` and aborts
+the assertion.
+
+1. **Template registered.** If the template name is not in the
+   engine's registry, raise `ValidationError("Unknown template 'X'")`.
+2. **Unknown-slot check** (`_check_unknown_slots`, lines 230–243). Any
+   key in `data` that is not a declared slot is rejected. The error
+   sorts the unknown set and suggests the closest known slot via
+   `difflib.get_close_matches(..., n=1)`.
+3. **Apply defaults** (`_apply_defaults`, lines 245–253). Every slot
+   with a non-`None` `SlotDefinition.default` missing from `data` gets
+   the default copied in.
+4. **Required check** (`_check_required`, lines 274–283). Slots marked
+   `required: true` still missing after defaults raise
+   `ValidationError("Missing required slot(s) […] in template 'X'")`.
+   **Note:** [Template reference](./template.md) documents
+   `SlotDefinition.required` as "not currently enforced" — that is
+   accurate for the compiler and CLIPS emission, but `FactManager`
+   enforces it at assertion time on the SDK and REST paths.
+5. **Type coercion** (`_coerce_types`, lines 255–272):
+   - `INTEGER` slot with a `float` value where `value == int(value)` →
+     coerced to `int` (excluding `bool`).
+   - `STRING` slot with a non-`str` value → coerced via `str(value)`.
+   `FLOAT` slots accept `int` without coercion (type check allows
+   both). `SYMBOL` slots are wrapped later — see
+   [CLIPS coercion](#clips-coercion).
+6. **Type check** (`_check_types`, lines 285–320). Validates against
+   `_PYTHON_TYPE_MAP` (facts.py lines 18–23):
+
+   | `SlotType` | Accepted Python types |
+   |------------|------------------------|
+   | `STRING`   | `str`                 |
+   | `SYMBOL`   | `str`                 |
+   | `FLOAT`    | `float`, `int`        |
+   | `INTEGER`  | `int`                 |
+
+   `bool` is **explicitly rejected** for `INTEGER` and `FLOAT` slots
+   (facts.py lines 296–312) even though Python's `bool` is a subclass
+   of `int` — the check runs before the `isinstance` comparison.
+7. **Allowed-values check** (`_check_allowed_values`, lines 322–337).
+   When `SlotDefinition.allowed_values` is set, the value is coerced
+   with `str(value)` and compared against the list. Comparison is by
+   string equality, so `allowed_values: ["1", "2"]` accepts
+   `data = {"n": 1}` after stringification.
+
+### Example — unknown-slot rejection
+
+```python
+engine.assert_fact("access-request", {"subjects": "alice"})
+# ValidationError: Unknown slot(s) ['subjects'] in template
+# 'access-request'. Did you mean 'subject'?
+```
+
+The suggestion is computed from the first unknown slot in sorted order.
+
+## CLIPS coercion
+
+After `_validate` returns, `_coerce_for_clips` (`src/fathom/facts.py`
+lines 185–196) walks the validated data once more: for every slot
+whose `type` is `SYMBOL` and whose value is still a plain `str`, the
+value is wrapped in `clips.Symbol(value)` before being passed to
+`template.assert_fact(**coerced)`. All other values pass through
+unchanged.
+
+## Query semantics
+
+`Engine.query(template, fact_filter=None) -> list[dict]` forwards to
+`FactManager.query` (`src/fathom/facts.py` lines 76–105). Returns one
+dict per matching fact keyed by slot name. `clips.Symbol` values are
+stringified on readout (facts.py lines 96–98), so callers receive plain
+`str` for `SYMBOL` slots. When `fact_filter` is a non-empty dict, a
+fact matches only when **every** filter key satisfies
+`row.get(k) == v` (facts.py lines 100–104) — equality is Python `==`,
+values are not coerced. A `None` or empty filter returns all facts.
+Unknown template raises `ValidationError("Unknown template 'X'")`.
+`Engine.count` is `len(query(...))` (facts.py lines 107–113).
+
+```python
+engine.query("access-request", {"subject": "alice"})
+# [{"subject": "alice", "action": "read", "amount": 0}, ...]
+```
+
+## Retract semantics
+
+`Engine.retract(template, fact_filter=None) -> int` forwards to
+`FactManager.retract` (`src/fathom/facts.py` lines 115–147). Filter
+semantics match `query`: a `None`/empty filter retracts **all** facts
+of the template. Matches are collected first, then retracted, to avoid
+mutating the CLIPS fact list during iteration. Returns the retracted
+count. Accessible via `DELETE /v1/facts`
+(`src/fathom/integrations/rest.py` lines 366–384), which takes a
+`RetractFactsRequest` and returns
+`RetractFactsResponse(retracted_count)`.
+
+```python
+removed = engine.retract("access-request", {"subject": "alice"})
+```
+
+`Engine.clear_facts()` retracts every user fact in the registry;
+`__fathom_decision` and `initial-fact` are untouched.
+
+## TTL and expiration
+
+Fact expiration is configured **at runtime** via the Python API only —
+there is no YAML surface for per-fact TTL. `Engine.load_templates`
+forwards `TemplateDefinition.ttl` to `FactManager.set_ttl` (engine.py
+lines 511–512; facts.py lines 41–42), which stores a per-template TTL.
+Assertion timestamps are captured in `_fact_timestamps` keyed by CLIPS
+fact index. `FactManager.cleanup_expired()` (facts.py lines 166–181)
+retracts facts whose stored timestamp plus TTL is in the past and
+returns the count retracted. Cleanup is not automatic — callers invoke
+it explicitly.
+
+## What is not surfaced
+
+- **Internal decision facts.** Rules assert a `__fathom_decision` fact
+  to carry the outcome; the template is built by `Engine.__init__`
+  (engine.py lines 51–60, 198) and deliberately kept out of
+  `_template_registry`, so it never appears in `query`, `retract`, or
+  the audit fact-snapshot.
+- **`initial-fact`.** Asserted by `env.reset()`; excluded by the same
+  registry-gated mechanism.
+- **Compile-time YAML documents.** Templates, modules, functions, and
+  rules are CLIPS constructs, not facts.
+
+## See also
+
+- [Template reference](./template.md) — slot types, defaults,
+  allowed-values.
+- [Rule reference](./rule.md) — `then.assert` and `AssertSpec` shape
+  for rule-RHS assertions.
+- [Runtime & Working Memory](../../concepts/runtime-and-working-memory.md)
+  — the evaluation loop and fact lifetime.
+- [Five Primitives](../../concepts/five-primitives.md)
+
+
+## reference/cli/index.md
+
+# CLI Reference
+
+| Command | |
+|---|---|
+| [`fathom bench`](bench.md) | |
+| [`fathom compile`](compile.md) | |
+| [`fathom info`](info.md) | |
+| [`fathom repl`](repl.md) | |
+| [`fathom test`](test.md) | |
+| [`fathom validate`](validate.md) | |
+
+
+## reference/tooling/vscode/index.md
+
+# VSCode Tooling
+
+## Snippets
+
+Download [`fathom.code-snippets`](fathom.code-snippets) and drop it
+into `.vscode/` at your repo root. Available prefixes:
+
+- `fathom-template` — template skeleton
+- `fathom-rule` — rule skeleton
+- `fathom-module` — module skeleton
+- `fathom-function` — function skeleton
+- `fathom-schema` — `yaml-language-server` schema association header
+
+## JSON Schema association
+
+Add to your workspace `.vscode/settings.json`:
+
+```json
+{
+  "yaml.schemas": {
+    "https://fathom-rules.dev/reference/yaml/schemas/rule.schema.json": "rules/*.yaml",
+    "https://fathom-rules.dev/reference/yaml/schemas/template.schema.json": "templates/*.yaml",
+    "https://fathom-rules.dev/reference/yaml/schemas/module.schema.json": "modules/*.yaml",
+    "https://fathom-rules.dev/reference/yaml/schemas/function.schema.json": "functions/*.yaml"
+  }
+}
+```
+
+Or add the `yaml-language-server` header to the top of any YAML file:
+
+```yaml
+# yaml-language-server: $schema=https://fathom-rules.dev/reference/yaml/schemas/rule.schema.json
+```
+
+
+## reference/rule-packs/owasp-agentic.md
+
+# Rule Pack: `owasp-agentic`
+
+OWASP LLM Top 10 agentic safety rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 4  
+**Modules:** `owasp`  
+**Templates:** `agent_input`, `agent_output`, `tool_call`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `detect-prompt-injection` | 100 | `escalate` | Possible prompt injection detected in agent input | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+| `deny-excessive-agency-exec` | 100 | `deny` | Tool call is in the dangerous tools list (LLM04: Excessive Agency) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+| `flag-insecure-output-ssn` | 90 | `escalate` | Agent output may contain SSN pattern (LLM06: Insecure Output) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+| `flag-insecure-output-email` | 80 | `escalate` | Agent output may contain email address (LLM06: Insecure Output) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+
+
+## reference/rule-packs/nist-800-53.md
+
+# Rule Pack: `nist-800-53`
+
+NIST SP 800-53 security and privacy controls rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 10  
+**Modules:** `nist`  
+**Templates:** `access_request`, `audit_event`, `data_transfer`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `access-enforcement` | 100 | `deny` | Access denied: subject clearance insufficient for resource (AC-3) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `info-flow-enforcement` | 100 | `deny` | Data transfer blocked: classified data cannot flow to external destination (AC-4) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `least-privilege` | 100 | `deny` | Privileged action requires explicit context justification (AC-6) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `remote-access` | 100 | `escalate` | Remote privileged access requires additional authorization (AC-17) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `audit-events` | 90 | `escalate` | Auditable event has unknown outcome — requires resolution (AU-2) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `audit-content` | 90 | `deny` | Audit record missing required subject field (AU-3) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `audit-review-analysis` | 80 | `escalate` | Failed privileged action requires review and analysis (AU-6) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `audit-generation` | 90 | `deny` | Audit generation requires resource identification for data events (AU-12) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `boundary-protection` | 100 | `deny` | Data transfer to external boundary requires secure protocol (SC-7) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
+| `transmission-confidentiality` | 100 | `deny` | Classified data requires secure transmission protocol for attribute protection (SC-16) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
+
+
+## reference/rule-packs/hipaa.md
+
+# Rule Pack: `hipaa`
+
+HIPAA Privacy and Security Rule rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 3  
+**Modules:** `hipaa`  
+**Templates:** `data_transfer`, `phi_policy`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `minimum-necessary` | 100 | `deny` | PHI access denied: minimum necessary justification required (164.502(b)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `transmission-security` | 100 | `deny` | PHI transfer blocked: transmission must be encrypted (164.312(e)(1)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `breach-trigger` | 200 | `escalate` | Bulk PHI access detected: breach notification evaluation required (164.402) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+
+
+## reference/rule-packs/cmmc.md
+
+# Rule Pack: `cmmc`
+
+CMMC Level 2 Cybersecurity Maturity Model Certification rule pack.
+
+**Pack version:** `1.0`  
+**Rule count:** 6  
+**Modules:** `cmmc`  
+**Templates:** `cui_policy`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `ac-l2-authorized-access` | 100 | `deny` | CUI access denied: authorized access justification required (AC.L2-3.1.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ac-l2-cui-flow` | 100 | `deny` | CUI transfer blocked: controlled information cannot flow to external destination (AC.L2-3.1.3) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ac-l2-least-privilege` | 100 | `deny` | Privileged CUI action requires explicit justification (AC.L2-3.1.5) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `au-l2-audit-records` | 100 | `escalate` | Audit record incomplete: outcome must be recorded for CUI events (AU.L2-3.3.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `au-l2-traceability` | 100 | `deny` | Audit traceability failed: subject identity required for all CUI actions (AU.L2-3.3.2) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ir-l2-incident-handling` | 200 | `escalate` | Bulk CUI access detected: incident handling evaluation required (IR.L2-3.6.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+
+
+## reference/planned-integrations.md
+
+# Planned Integrations
+
+This page catalogs integrations that are **not** production-ready: scaffolded
+SDKs, stub applications, and adapter surfaces named in `design.md` that are
+not implemented. For shipped integrations, see the dedicated reference
+pages ([Python SDK](./python-sdk/index.md), [REST API](./rest/index.md),
+[gRPC API](./grpc/index.md), [MCP Tools](./mcp/index.md),
+[CLI](./cli/index.md), [VSCode Tooling](./tooling/vscode/index.md),
+[Rule Packs](./rule-packs/owasp-agentic.md)).
+
+Each entry declares a **Status** of one of:
+
+- **Shipped** — in-tree, tested, documented, and reachable from a release artifact.
+- **Partial** — in-tree with working code but missing tests, packaging, or CI coverage.
+- **Planned** — named in `design.md` with no implementation in the source tree.
+
+## Go SDK — `packages/fathom-go/`
+
+**Status:** Partial.
+
+**Location:** `packages/fathom-go/` — a hand-written REST client. The
+package contents are `client.go` (180 lines), `go.mod`, and a `Makefile`;
+no other Go files exist. `go.mod` declares `module
+github.com/KrakenNet/fathom-go` at `go 1.21`.
+
+**What works today:**
+
+- `NewClient(baseURL, opts...)` constructor at `client.go:39-48`, with
+  functional options `WithBearerToken` (`client.go:25-27`) and
+  `WithHTTPClient` (`client.go:31-33`).
+- Four request/response pairs covering the REST surface: `Evaluate`,
+  `AssertFact`, `Query`, `Retract` (`client.go:74-144`).
+- Shared transport at `client.go:148-180`: JSON marshal/unmarshal,
+  `Content-Type: application/json`, optional `Authorization: Bearer
+  <token>` header, and error surfacing on any non-2xx status with the
+  server body embedded in the returned error.
+
+**What is missing:**
+
+- **No tests.** A directory listing of `packages/fathom-go/` contains no
+  `*_test.go` files; nothing is exercised by CI.
+- **No gRPC client.** Only REST is wired up. `protos/fathom.proto:12`
+  declares `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`,
+  but no generated bindings are checked in and no `protoc` step runs in
+  the repo.
+- **No released module.** Consumers must vendor the package from a local
+  clone; nothing is published to a Go proxy.
+
+**How to use today:** Clone the monorepo, `go get` against the local path
+(or add a `replace` directive), and point the client at a running REST
+server. For the current public API surface, see the generated reference
+at [Go SDK](./go-sdk/fathom-go.md).
+
+## TypeScript SDK — `packages/fathom-ts/`
+
+**Status:** Partial.
+
+**Location:** `packages/fathom-ts/` — published identity
+`@fathom-rules/sdk` at `0.1.0` per `package.json`. Source lives in
+`src/client.ts` (215 lines), `src/errors.ts` (77 lines), and
+`src/index.ts` (26 lines). Vitest suites in `test/client.test.ts` and
+`test/errors.test.ts`.
+
+**What works today:** A hand-written `FathomClient` plus a typed error
+hierarchy. Per `design.md:571`, the package ships at v0.1.0 with 19
+vitest tests passing, and the typedoc reference is generated into
+`docs/reference/typescript-sdk/` by the `docs` npm script in
+`package.json:14`.
+
+**What is missing:**
+
+- **No OpenAPI-generated client.** `package.json:12` declares a
+  `generate` script that shells out to `scripts/generate.sh`, which
+  invokes `npx @hey-api/openapi-ts` against `../../openapi.json` and
+  writes into `src/generated/`. Neither `openapi.json` nor `src/generated/`
+  is in the tree — the generator has never been run and committed.
+- **No published npm release.** `repository.url` in `package.json` points
+  at the monorepo; no `dist/` is published.
+
+**How to use today:** Clone the monorepo, `pnpm install` in
+`packages/fathom-ts/`, and import from the local workspace path. The
+generated API reference lives at
+[TypeScript SDK](./typescript-sdk/index.md).
+
+## Visual Rule Editor — `packages/fathom-editor/`
+
+**Status:** Partial (stub).
+
+**Location:** `packages/fathom-editor/` — package identity `@fathom/editor`
+at `0.1.0` with `"private": true` set in `package.json:4`. Dependencies:
+React `^19.1.0`, Vite `^7.1.0`; dev toolchain TypeScript `^5.9.0`.
+
+**What exists:** Component stubs under `src/components/`: `RuleTree.tsx`,
+`ConditionBuilder.tsx`, `TemplateBrowser.tsx`, `ClipsPreview.tsx`,
+`TestRunner.tsx`, `YamlEditor.tsx`. Entry at `src/App.tsx`, Vite bootstrap
+at `src/main.tsx`, and an `src/api/` directory for backend glue.
+
+**What is missing:**
+
+- **No tests.** `package.json` declares no `test` script and no test
+  runner is installed.
+- **No backend wiring.** Per `design.md:572`, "components exist but not
+  production-ready." The stubs do not round-trip against a live Fathom
+  REST server.
+- **Not publishable.** The package is marked `private: true` and has no
+  build artifact consumers.
+
+**How to use today:** `pnpm install && pnpm dev` inside
+`packages/fathom-editor/` runs the Vite dev server. This is a development
+scaffold, not a supported end-user artifact.
+
+## Framework adapters
+
+`design.md:490-495` lists four framework adapters. All four are now shipped.
+
+| Adapter                    | Status | Location |
+|----------------------------|--------------------|-----------------|
+| LangChain callback handler | **Shipped** | `src/fathom/integrations/langchain.py` |
+| CrewAI before-tool-call hook | **Shipped** | `src/fathom/integrations/crewai.py` |
+| OpenAI Agents SDK tool guardrail | **Shipped** | `src/fathom/integrations/openai_agents.py` |
+| Google ADK before-tool callback | **Shipped** | `src/fathom/integrations/google_adk.py` |
+
+Each adapter follows the same pattern: intercept tool calls, assert a
+`tool_request` fact into Fathom, evaluate policy rules, and raise
+`PolicyViolation` (or return an error dict for ADK) on deny/escalate.
+Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
+`fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
+
+## Known blockers
+
+- **Proto ↔ `go.mod` path alignment** — previously flagged as
+  `REVIEW.md` M2 (proto declared `github.com/KrakenNet/fathom/gen/go/fathom/v1`
+  while `go.mod` declared `github.com/KrakenNet/fathom-go`, which would
+  have broken `protoc` output). Resolved at HEAD:
+  `protos/fathom.proto:12` now declares
+  `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
+  `packages/fathom-go/go.mod:1`. Generated bindings still need to be
+  produced via `protoc` and checked into `packages/fathom-go/proto/`
+  before a gRPC client can be built.
+- **No CI for the Go, TypeScript, or editor packages.** The Python test
+  suite (1361 tests per `design.md:544`) is the only suite wired into CI;
+  every "works today" claim above reduces to "works when run locally
+  against a developer's machine."
+
+## See also
+
+- [Python SDK](./python-sdk/index.md) — the reference implementation; all
+  shipped adapters (including LangChain) live here.
+- [REST API](./rest/index.md) — the wire protocol the Go and TypeScript
+  SDKs target.
+- [gRPC API](./grpc/index.md) — the proto surface the Go SDK does **not**
+  yet implement.
+- [Go SDK](./go-sdk/fathom-go.md) — gomarkdoc output for the REST client
+  described above.
+- [TypeScript SDK](./typescript-sdk/index.md) — typedoc output for
+  `@fathom-rules/sdk`.
+
