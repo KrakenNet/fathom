@@ -1,0 +1,97 @@
+{
+  "tools": [
+    {
+      "description": "Assert a fact into working memory",
+      "input_schema": {
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "data"
+        ],
+        "title": "tool_assert_factArguments",
+        "type": "object"
+      },
+      "name": "fathom.assert_fact"
+    },
+    {
+      "description": "Run forward-chain evaluation",
+      "input_schema": {
+        "properties": {},
+        "title": "tool_evaluateArguments",
+        "type": "object"
+      },
+      "name": "fathom.evaluate"
+    },
+    {
+      "description": "Query working memory",
+      "input_schema": {
+        "properties": {
+          "fact_filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fact Filter"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template"
+        ],
+        "title": "tool_queryArguments",
+        "type": "object"
+      },
+      "name": "fathom.query"
+    },
+    {
+      "description": "Retract facts from working memory",
+      "input_schema": {
+        "properties": {
+          "fact_filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fact Filter"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template"
+        ],
+        "title": "tool_retractArguments",
+        "type": "object"
+      },
+      "name": "fathom.retract"
+    }
+  ],
+  "version": "1.0"
+}
