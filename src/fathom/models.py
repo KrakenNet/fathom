@@ -1,5 +1,7 @@
 """Pydantic data models for Fathom runtime."""
 
+from __future__ import annotations
+
 import re
 from enum import StrEnum
 from typing import Any, Literal
