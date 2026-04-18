@@ -3,6 +3,7 @@
 > A modern Python-first expert system runtime built on CLIPS. Define rules in YAML. Evaluate in microseconds. Zero hallucinations.
 
 [![PyPI](https://img.shields.io/pypi/v/fathom-rules.svg)](https://pypi.org/project/fathom-rules/)
+[![Docs](https://img.shields.io/badge/docs-krakennet.github.io%2Ffathom-blue)](https://krakennet.github.io/fathom/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml/badge.svg)](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml)
