@@ -28,8 +28,6 @@ except ImportError:  # pragma: no cover
 
 from pydantic import ValidationError as PydanticValidationError
 
-logger = logging.getLogger(__name__)
-
 from fathom import __version__ as _fathom_version
 from fathom.compiler import Compiler
 from fathom.engine import Engine
@@ -52,6 +50,8 @@ from fathom.models import (
     RulesetDefinition,
     TemplateDefinition,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _make_list_response(items: Sequence[Any]) -> dict[str, Any]:

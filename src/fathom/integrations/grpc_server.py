@@ -268,6 +268,8 @@ class FathomServicer:
                 grpc.StatusCode.FAILED_PRECONDITION,
                 "not_ready: engine or attestation not configured",
             )
+        assert engine is not None  # noqa: S101 - narrowed by abort above
+        assert attestation is not None  # noqa: S101 - narrowed by abort above
 
         # --- exactly-one-of ruleset_path / ruleset_yaml ---
         # Proto oneof auto-enforces one-or-none; WhichOneof returns None
@@ -316,6 +318,7 @@ class FathomServicer:
                     "server_misconfigured: require_signature=true but "
                     "ruleset pubkey is not loaded",
                 )
+            assert self._ruleset_pubkey is not None  # noqa: S101 - narrowed
             if sig_bytes is None:
                 self._write_audit(
                     {
@@ -330,6 +333,7 @@ class FathomServicer:
                     grpc.StatusCode.INVALID_ARGUMENT,
                     "unsigned_ruleset: signature is required but was not provided",
                 )
+            assert sig_bytes is not None  # noqa: S101 - narrowed by abort above
             try:
                 from fathom.integrations.ruleset_sig import (
                     RulesetSignatureError,
