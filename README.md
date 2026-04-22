@@ -102,7 +102,7 @@ Phase 1–3 of the roadmap are complete; Phase 4 is in progress. See [design.md]
 - `fathom-cmmc` — CMMC Level 2+ controls
 
 **SDKs (in progress)**
-- `fathom-go` — hand-written REST client (`packages/fathom-go/`); gRPC regeneration blocked on a `go_package` path fix
+- `fathom-go` — REST + gRPC client (`packages/fathom-go/`)
 - `fathom-ts` — `@fathom-rules/sdk` v0.1.0 (`packages/fathom-ts/`); OpenAPI-generated client pending
 - `fathom-editor` — React visual rule editor (`packages/fathom-editor/`); stub
 
