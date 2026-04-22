@@ -73,6 +73,24 @@ class AttestationService:
         except Exception as exc:
             raise AttestationError(f"Signing failed: {exc}") from exc
 
+    def sign_event(self, payload: dict[str, Any]) -> str:
+        """Sign an arbitrary JSON payload and return a JWT token.
+
+        Wraps payload as ``{"iss": "fathom", "iat": <unix ts>, **payload}`` and
+        signs with the runtime Ed25519 key. Intended for audit events (e.g.
+        hot-reload) that are not shaped like an EvaluationResult.
+        """
+        claims: dict[str, Any] = {
+            "iss": "fathom",
+            "iat": int(time.time()),
+            **payload,
+        }
+
+        try:
+            return jwt.encode(claims, self._private_key, algorithm="EdDSA")
+        except Exception as exc:
+            raise AttestationError(f"Signing failed: {exc}") from exc
+
     @property
     def public_key(self) -> Ed25519PublicKey:
         return self._public_key
