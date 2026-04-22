@@ -525,7 +525,7 @@ def verify_artifact(
     sig: Path | None = typer.Option(  # noqa: B008
         None,
         "--sig",
-        help="Sig path (default: <path>.sig).",
+        help="Sig path (default: <path>.minisig).",
     ),
     pubkey: Path | None = typer.Option(  # noqa: B008
         None,
@@ -534,7 +534,7 @@ def verify_artifact(
     ),
 ) -> None:
     """Verify an artifact's detached minisign signature against a pubkey."""
-    sig_path = sig if sig is not None else Path(str(artifact) + ".sig")
+    sig_path = sig if sig is not None else Path(str(artifact) + ".minisig")
     if pubkey is not None:
         pubkey_path = pubkey
     else:
