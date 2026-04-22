@@ -143,6 +143,7 @@ packages = ["src/fathom"]
 
 [project.entry-points."fathom.packs"]
 owasp-agentic = "fathom.rule_packs.owasp_agentic"
+ssvc = "fathom.rule_packs.ssvc"
 nist-800-53 = "fathom.rule_packs.nist_800_53"
 hipaa = "fathom.rule_packs.hipaa"
 cmmc = "fathom.rule_packs.cmmc"
