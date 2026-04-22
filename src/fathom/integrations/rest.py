@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,8 @@ except ImportError:  # pragma: no cover
     _HAS_PROMETHEUS = False
 
 from pydantic import ValidationError as PydanticValidationError
+
+logger = logging.getLogger(__name__)
 
 from fathom import __version__ as _fathom_version
 from fathom.compiler import Compiler
@@ -382,3 +385,41 @@ async def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
     count = engine.retract(request.template, request.filter)
     session_store._sessions[request.session_id] = (engine, time.time())
     return RetractFactsResponse(retracted_count=count)
+
+
+_RULESET_PUBKEY_ERROR = (
+    "ruleset pubkey unreadable or missing; "
+    "set FATHOM_RULESET_PUBKEY_PATH or enable dev escape"
+)
+
+
+def build_app(*, require_signature: bool = True) -> FastAPI:
+    """Return the REST app with ruleset pubkey bootstrapped onto ``app.state``.
+
+    Fail-closed by default: when ``require_signature=True``, the pubkey at
+    ``FATHOM_RULESET_PUBKEY_PATH`` must exist and be readable. The dev escape
+    (skip pubkey load, allow unsigned reload) requires BOTH
+    ``require_signature=False`` AND ``FATHOM_ALLOW_UNSIGNED_RULESETS=1``.
+    """
+    pubkey_path = os.environ.get("FATHOM_RULESET_PUBKEY_PATH")
+    allow_unsigned = os.environ.get("FATHOM_ALLOW_UNSIGNED_RULESETS") == "1"
+
+    if not require_signature and allow_unsigned:
+        logger.warning(
+            "ruleset signature verification disabled "
+            "(require_signature=false + FATHOM_ALLOW_UNSIGNED_RULESETS=1); "
+            "hot-reload will accept unsigned rulesets"
+        )
+        app.state.ruleset_pubkey = None
+        return app
+
+    if not pubkey_path:
+        raise RuntimeError(_RULESET_PUBKEY_ERROR)
+
+    try:
+        with open(pubkey_path, "rb") as f:
+            app.state.ruleset_pubkey = f.read()
+    except OSError as exc:
+        raise RuntimeError(_RULESET_PUBKEY_ERROR) from exc
+
+    return app
