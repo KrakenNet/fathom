@@ -8,6 +8,11 @@
 # provided minisign secret key, then immediately verifies the signature
 # against the provided public key. Exits non-zero on the first failure.
 #
+# Signatures are written as <artifact>.minisig (minisign's default extension,
+# matching the broader Ed25519 ecosystem — libsodium, zig, minisign itself).
+# Do NOT pass `-x` to force a `.sig` extension: `.sig` conventionally denotes
+# GPG/OpenPGP signatures, and `fathom verify-artifact` defaults to `.minisig`.
+#
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
