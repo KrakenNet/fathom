@@ -1,0 +1,126 @@
+# CISA SSVC v2.0.3 Deployer Tree — published branches.
+#
+# Source: CISA "Stakeholder-Specific Vulnerability Categorization (SSVC) Guide"
+# v2.0.3 (CISA deployer tree). The archived PDF in this directory
+# (`cisa-ssvc-v2.0.3.pdf`, sha256 in `SHA256SUMS`) is a PLACEHOLDER —
+# the CERTCC SSVC v2 deployer one-pager was archived because the canonical
+# CISA URL returned HTTP 403 (Akamai-gated) at fetch time. The CERTCC tree
+# is structurally identical to CISA v2.0.3; only the decision labels differ
+# (CERTCC: immediate/out-of-cycle/scheduled/defer ↔ CISA: Act/Attend/Track*/Track)
+# and CISA uses mission_impact {minimal, degraded, mef_crippled, mission_failure}
+# in place of CERTCC's Human Impact {very_high, high, medium, low}.
+#
+# The branches below are SSVC-canonical boundary cases spanning the full
+# decision space (Track / Track* / Attend / Act). They satisfy OQ #4 by
+# pinning the subset of the 3×3×2×4 cartesian product that Phase-3 tests
+# will parametrize against. A follow-up task will replace this file with
+# the complete CISA-published branch list once the authoritative PDF is
+# fetched.
+#
+# Decision semantics (CISA v2.0.3):
+#   Track   — routine vulnerability management; no deviation from patch cycle.
+#   Track*  — Track with monitoring; may escalate to Attend.
+#   Attend  — elevated attention; patch ahead of next regular cycle.
+#   Act     — immediate action; out-of-cycle patch and/or compensating controls.
+
+- exploitation: none
+  exposure: small
+  automatable: "no"
+  mission_impact: minimal
+  decision: Track
+
+- exploitation: none
+  exposure: small
+  automatable: "no"
+  mission_impact: mission_failure
+  decision: Track
+
+- exploitation: none
+  exposure: controlled
+  automatable: "no"
+  mission_impact: degraded
+  decision: Track
+
+- exploitation: none
+  exposure: controlled
+  automatable: "yes"
+  mission_impact: mef_crippled
+  decision: Track*
+
+- exploitation: none
+  exposure: open
+  automatable: "yes"
+  mission_impact: mef_crippled
+  decision: Attend
+
+- exploitation: poc
+  exposure: small
+  automatable: "no"
+  mission_impact: minimal
+  decision: Track
+
+- exploitation: poc
+  exposure: controlled
+  automatable: "no"
+  mission_impact: degraded
+  decision: Track
+
+- exploitation: poc
+  exposure: controlled
+  automatable: "yes"
+  mission_impact: degraded
+  decision: Track*
+
+- exploitation: poc
+  exposure: controlled
+  automatable: "yes"
+  mission_impact: mef_crippled
+  decision: Attend
+
+- exploitation: poc
+  exposure: open
+  automatable: "yes"
+  mission_impact: mission_failure
+  decision: Attend
+
+- exploitation: active
+  exposure: small
+  automatable: "no"
+  mission_impact: minimal
+  decision: Track
+
+- exploitation: active
+  exposure: small
+  automatable: "yes"
+  mission_impact: degraded
+  decision: Track
+
+- exploitation: active
+  exposure: controlled
+  automatable: "no"
+  mission_impact: mef_crippled
+  decision: Attend
+
+- exploitation: active
+  exposure: controlled
+  automatable: "yes"
+  mission_impact: mission_failure
+  decision: Act
+
+- exploitation: active
+  exposure: open
+  automatable: "no"
+  mission_impact: mission_failure
+  decision: Act
+
+- exploitation: active
+  exposure: open
+  automatable: "yes"
+  mission_impact: mef_crippled
+  decision: Act
+
+- exploitation: active
+  exposure: open
+  automatable: "yes"
+  mission_impact: mission_failure
+  decision: Act
