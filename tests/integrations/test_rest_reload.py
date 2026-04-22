@@ -14,6 +14,7 @@ emission, AC-5.4).
 from __future__ import annotations
 
 import base64
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -257,3 +258,102 @@ def test_unsigned_reload_rejected_by_default(
         r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"
     ]
     assert len(rejected) == 1, sink.records
+
+
+def _write_pubkey(tmp_path: Path) -> tuple[Path, Ed25519PrivateKey, bytes]:
+    """Mint an Ed25519 keypair and write the PEM pubkey under ``tmp_path``."""
+    priv = Ed25519PrivateKey.generate()
+    pub_pem = priv.public_key().public_bytes(
+        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
+    )
+    pubkey_path = tmp_path / "ruleset-pub.pem"
+    pubkey_path.write_bytes(pub_pem)
+    return pubkey_path, priv, pub_pem
+
+
+def test_dev_escape_needs_both_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Dev-escape requires BOTH ``require_signature=False`` AND the env var.
+
+    AC-5.6 / FR-19: a single-flag configuration is still fail-closed. Only
+    the explicit belt-and-suspenders combination
+    (``require_signature=False`` + ``FATHOM_ALLOW_UNSIGNED_RULESETS=1``)
+    allows unsigned reloads, and the boot emits a WARN log when active.
+
+    Three sub-cases:
+      (a) env set, require_signature=True (default) → signature still
+          required; unsigned POST → 400 ``unsigned_ruleset``.
+      (b) require_signature=False with env unset → ``build_app`` raises
+          ``RuntimeError`` at startup (dev-escape not active, pubkey
+          absent).
+      (c) both flags set → build succeeds with a WARN log; unsigned
+          POST → 200.
+    """
+    monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
+    rules_root = tmp_path / "rules"
+    rules_root.mkdir()
+    monkeypatch.setenv("FATHOM_RULESET_ROOT", str(rules_root))
+
+    # -----------------------------------------------------------------
+    # (a) Only env set — require_signature=True (default) + pubkey path.
+    #     The env flag alone does NOT enable dev-escape: app boots with
+    #     signature enforcement and the pubkey loaded from disk.
+    # -----------------------------------------------------------------
+    pubkey_path, _priv_a, pub_pem_a = _write_pubkey(tmp_path)
+    monkeypatch.setenv("FATHOM_RULESET_PUBKEY_PATH", str(pubkey_path))
+    monkeypatch.setenv("FATHOM_ALLOW_UNSIGNED_RULESETS", "1")
+
+    app_a = build_app(require_signature=True)
+    assert app_a.state.require_signature is True
+    assert app_a.state.ruleset_pubkey == pub_pem_a, (
+        "pubkey must still be loaded — env flag alone does not skip bootstrap"
+    )
+    app_a.state.engine = _seed_engine(tmp_path)
+    app_a.state.attestation = AttestationService.generate_keypair()
+    app_a.state.audit_sink = None
+
+    with TestClient(app_a) as tc_a:
+        body = {"ruleset_yaml": _ruleset_yaml("rule-env-only", "alice")}
+        resp = tc_a.post("/v1/rules/reload", json=body, headers=AUTH)
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"] == "unsigned_ruleset"
+
+    # -----------------------------------------------------------------
+    # (b) Only config false — env unset. Dev-escape is not triggered;
+    #     build_app fails-closed because the pubkey is absent.
+    # -----------------------------------------------------------------
+    monkeypatch.delenv("FATHOM_ALLOW_UNSIGNED_RULESETS", raising=False)
+    monkeypatch.delenv("FATHOM_RULESET_PUBKEY_PATH", raising=False)
+    with pytest.raises(RuntimeError, match="ruleset pubkey unreadable or missing"):
+        build_app(require_signature=False)
+
+    # -----------------------------------------------------------------
+    # (c) Both flags set — dev-escape active. WARN logged, pubkey is
+    #     None, and unsigned POST returns 200.
+    # -----------------------------------------------------------------
+    monkeypatch.setenv("FATHOM_ALLOW_UNSIGNED_RULESETS", "1")
+    with caplog.at_level(logging.WARNING, logger="fathom.integrations.rest"):
+        app_c = build_app(require_signature=False)
+    assert app_c.state.require_signature is False
+    assert app_c.state.ruleset_pubkey is None
+    warn_msgs = [
+        r.message
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and "ruleset signature verification disabled" in r.message
+    ]
+    assert len(warn_msgs) == 1, caplog.records
+
+    app_c.state.engine = _seed_engine(tmp_path)
+    app_c.state.attestation = AttestationService.generate_keypair()
+    app_c.state.audit_sink = None
+
+    with TestClient(app_c) as tc_c:
+        body = {"ruleset_yaml": _ruleset_yaml("rule-both-flags", "carol")}
+        resp = tc_c.post("/v1/rules/reload", json=body, headers=AUTH)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert set(data.keys()) == {"hash_before", "hash_after", "attestation_token"}
