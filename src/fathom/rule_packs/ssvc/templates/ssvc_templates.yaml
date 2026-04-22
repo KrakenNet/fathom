@@ -1,0 +1,20 @@
+templates:
+  - name: exploitation
+    slots:
+      - { name: value, type: symbol, allowed_symbols: [none, poc, active], required: true }
+  - name: exposure
+    slots:
+      - { name: value, type: symbol, allowed_symbols: [small, controlled, open], required: true }
+  - name: automatable
+    slots:
+      - { name: value, type: symbol, allowed_symbols: ["yes", "no"], required: true }
+  - name: mission_impact
+    slots:
+      - { name: value, type: symbol,
+          allowed_symbols: [minimal, degraded, mef_crippled, mission_failure],
+          required: true }
+  - name: ssvc_meta
+    slots:
+      - { name: version, type: string, required: true }
+      - { name: source, type: string, required: true }
+      - { name: source_sha256, type: string, required: true }
