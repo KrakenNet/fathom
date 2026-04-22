@@ -6,6 +6,7 @@ on:
   workflow_dispatch: {}
 permissions:
   id-token: write
+  contents: write
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -24,5 +25,29 @@ jobs:
       - name: Build
         run: uv build
 
+      - name: Install minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
+
+      - name: Write signing key
+        env:
+          MINISIGN_KEY_PRIMARY: ${{ secrets.MINISIGN_KEY_PRIMARY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${MINISIGN_KEY_PRIMARY}" ]]; then
+            echo "error: MINISIGN_KEY_PRIMARY secret is not set" >&2
+            exit 1
+          fi
+          printf '%s\n' "${MINISIGN_KEY_PRIMARY}" > /tmp/mini.key
+          chmod 600 /tmp/mini.key
+
+      - name: Sign and verify artifacts
+        run: bash scripts/sign_release.sh /tmp/mini.key docs/reference/release-signing-pubkey.minisig
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Upload signatures to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/*.minisig
