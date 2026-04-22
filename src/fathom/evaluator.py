@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from fathom.errors import EvaluationError
 from fathom.models import EvaluationResult
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import clips
 
     from fathom.facts import FactManager

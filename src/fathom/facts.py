@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import difflib
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import clips
 
@@ -12,6 +12,8 @@ from fathom.errors import ValidationError
 from fathom.models import SlotType
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fathom.models import TemplateDefinition
 
 # Python type → SlotType mapping for validation

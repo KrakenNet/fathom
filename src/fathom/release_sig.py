@@ -13,11 +13,15 @@ Minisign file layout (both `.pub` and `.minisig`):
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _ALGO_LEGACY = b"Ed"  # Ed25519 over raw file bytes
 _ALGO_PREHASH = b"ED"  # Ed25519 over BLAKE2b-512(file) — minisign CLI default
@@ -37,7 +41,7 @@ def _decode_line2(path: Path, expected_len: int) -> tuple[bytes, bytes, bytes]:
         raise ReleaseSigError(f"malformed minisign file: {path}")
     try:
         raw = base64.b64decode(lines[1], validate=True)
-    except (ValueError, base64.binascii.Error) as e:
+    except (ValueError, binascii.Error) as e:
         raise ReleaseSigError(f"base64 decode failed for {path}: {e}") from e
     if len(raw) != 2 + 8 + expected_len:
         raise ReleaseSigError(
