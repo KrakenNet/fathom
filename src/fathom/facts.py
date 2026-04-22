@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import difflib
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import clips
 
@@ -28,10 +28,10 @@ class FactManager:
 
     def __init__(
         self,
-        env: clips.Environment,
+        env_provider: Callable[[], clips.Environment],
         template_registry: dict[str, TemplateDefinition],
     ) -> None:
-        self._env = env
+        self._env_provider = env_provider
         self._template_registry = template_registry
         self._ttl_config: dict[str, int] = {}
         self._fact_timestamps: dict[int, float] = {}
@@ -43,11 +43,14 @@ class FactManager:
         self._ttl_config[template] = seconds
 
     def _assert_validated(
-        self, template_name: str, validated: dict[str, Any]
+        self,
+        env: clips.Environment,
+        template_name: str,
+        validated: dict[str, Any],
     ) -> None:
         """Coerce + assert a pre-validated slot dict, recording the timestamp."""
         coerced = self._coerce_for_clips(template_name, validated)
-        tpl = self._env.find_template(template_name)
+        tpl = env.find_template(template_name)
         try:
             fact = tpl.assert_fact(**coerced)
         except ValidationError:
@@ -61,17 +64,19 @@ class FactManager:
 
     def assert_fact(self, template_name: str, data: dict[str, Any]) -> None:
         """Validate and assert a single fact into working memory."""
+        env = self._env_provider()
         validated = self._validate(template_name, data)
-        self._assert_validated(template_name, validated)
+        self._assert_validated(env, template_name, validated)
 
     def assert_facts(self, facts: list[tuple[str, dict[str, Any]]]) -> None:
         """Assert multiple facts atomically (pre-validate all, then assert)."""
+        env = self._env_provider()
         validated_batch = [
             (template_name, self._validate(template_name, data))
             for template_name, data in facts
         ]
         for template_name, validated in validated_batch:
-            self._assert_validated(template_name, validated)
+            self._assert_validated(env, template_name, validated)
 
     def query(
         self,
@@ -79,13 +84,14 @@ class FactManager:
         fact_filter: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Query working memory for facts matching template and optional filter."""
+        env = self._env_provider()
         template_def = self._template_registry.get(template_name)
         if template_def is None:
             raise ValidationError(
                 f"Unknown template '{template_name}'",
                 template=template_name,
             )
-        tpl = self._env.find_template(template_name)
+        tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         results: list[dict[str, Any]] = []
         for fact in tpl.facts():
@@ -118,13 +124,14 @@ class FactManager:
         fact_filter: dict[str, Any] | None = None,
     ) -> int:
         """Retract matching facts from working memory. Returns count retracted."""
+        env = self._env_provider()
         template_def = self._template_registry.get(template_name)
         if template_def is None:
             raise ValidationError(
                 f"Unknown template '{template_name}'",
                 template=template_name,
             )
-        tpl = self._env.find_template(template_name)
+        tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         count = 0
         # Collect facts first to avoid mutating during iteration
@@ -165,10 +172,11 @@ class FactManager:
 
     def cleanup_expired(self) -> int:
         """Retract facts whose TTL has expired. Returns count retracted."""
+        env = self._env_provider()
         now = time.time()
         retracted = 0
         for template_name, ttl in self._ttl_config.items():
-            tpl = self._env.find_template(template_name)
+            tpl = env.find_template(template_name)
             to_retract = []
             for fact in tpl.facts():
                 ts = self._fact_timestamps.get(fact.index)
