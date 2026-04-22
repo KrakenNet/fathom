@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import base64
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -357,3 +359,65 @@ def test_dev_escape_needs_both_flags(
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert set(data.keys()) == {"hash_before", "hash_after", "attestation_token"}
+
+
+def test_concurrent_reloads(
+    signed_client: tuple[TestClient, Ed25519PrivateKey, _ListAuditSink, AttestationService],
+) -> None:
+    """Concurrent signed reloads serialize under ``Engine._reload_lock`` (C5).
+
+    Two threads POST distinct signed rulesets simultaneously — released in
+    lockstep via ``threading.Barrier(2)`` to maximize contention. Both must
+    succeed (200) with distinct ``attestation_token``s and distinct
+    ``hash_after`` values (different YAML bodies hash differently). The final
+    ``engine.ruleset_hash`` must equal exactly one of the two ``hash_after``
+    values — last-write-wins under the lock.
+    """
+    client, priv, _sink, _attestation = signed_client
+
+    yaml_a = _ruleset_yaml("rule-concurrent-a", "alice").encode("utf-8")
+    yaml_b = _ruleset_yaml("rule-concurrent-b", "bob").encode("utf-8")
+    sig_a = priv.sign(yaml_a)
+    sig_b = priv.sign(yaml_b)
+    body_a = {
+        "ruleset_yaml": yaml_a.decode("utf-8"),
+        "signature": base64.b64encode(sig_a).decode("ascii"),
+    }
+    body_b = {
+        "ruleset_yaml": yaml_b.decode("utf-8"),
+        "signature": base64.b64encode(sig_b).decode("ascii"),
+    }
+
+    barrier = threading.Barrier(2)
+
+    def _post(body: dict[str, str]) -> Any:
+        # Synchronize both threads right before the HTTP call to maximize
+        # the odds of real contention on ``Engine._reload_lock``.
+        barrier.wait(timeout=5.0)
+        return client.post("/v1/rules/reload", json=body, headers=AUTH)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut_a = pool.submit(_post, body_a)
+        fut_b = pool.submit(_post, body_b)
+        resp_a = fut_a.result(timeout=10.0)
+        resp_b = fut_b.result(timeout=10.0)
+
+    assert resp_a.status_code == 200, resp_a.text
+    assert resp_b.status_code == 200, resp_b.text
+    data_a = resp_a.json()
+    data_b = resp_b.json()
+
+    # Distinct rulesets → distinct hash_after values.
+    assert data_a["hash_after"] != data_b["hash_after"], (data_a, data_b)
+    # Distinct attestation tokens (every reload mints a fresh JWT).
+    assert data_a["attestation_token"] != data_b["attestation_token"]
+
+    # Last-write-wins under the lock: engine.ruleset_hash is exactly one of
+    # the two reported hash_after values.
+    engine = client.app.state.engine
+    final_hash = engine.ruleset_hash
+    assert final_hash in {data_a["hash_after"], data_b["hash_after"]}, (
+        final_hash,
+        data_a["hash_after"],
+        data_b["hash_after"],
+    )
