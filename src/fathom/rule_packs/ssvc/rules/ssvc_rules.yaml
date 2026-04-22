@@ -1,0 +1,426 @@
+# CISA SSVC v2.0.3 Deployer Tree — one rule per published branch.
+#
+# Generated from references/branches.yaml (17 branches spanning
+# Track / Track* / Attend / Act decisions). Each rule matches the
+# 4 input templates (exploitation, exposure, automatable, mission_impact)
+# on exact slot values, then asserts __fathom_decision with
+# action=route and metadata.decision=<CISA label>.
+#
+# Track* is carried as a JSON string value inside the metadata slot
+# (which is typed STRING in __fathom_decision); the '*' never reaches
+# the CLIPS symbol table.
+#
+# See design.md C4 / FR-12 / AC-4.4.
+
+module: ssvc
+ruleset: ssvc-deployer-tree
+version: 2.0.3
+rules:
+- name: ssvc_branch_01
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(none)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(small)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(minimal)
+  then:
+    action: route
+    reason: 'SSVC decision: Track'
+    metadata:
+      decision: Track
+- name: ssvc_branch_02
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(none)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(small)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mission_failure)
+  then:
+    action: route
+    reason: 'SSVC decision: Track'
+    metadata:
+      decision: Track
+- name: ssvc_branch_03
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(none)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(controlled)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(degraded)
+  then:
+    action: route
+    reason: 'SSVC decision: Track'
+    metadata:
+      decision: Track
+- name: ssvc_branch_04
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(none)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(controlled)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mef_crippled)
+  then:
+    action: route
+    reason: 'SSVC decision: Track*'
+    metadata:
+      decision: Track*
+- name: ssvc_branch_05
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(none)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(open)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mef_crippled)
+  then:
+    action: route
+    reason: 'SSVC decision: Attend'
+    metadata:
+      decision: Attend
+- name: ssvc_branch_06
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(poc)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(small)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(minimal)
+  then:
+    action: route
+    reason: 'SSVC decision: Track'
+    metadata:
+      decision: Track
+- name: ssvc_branch_07
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(poc)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(controlled)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(degraded)
+  then:
+    action: route
+    reason: 'SSVC decision: Track'
+    metadata:
+      decision: Track
+- name: ssvc_branch_08
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(poc)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(controlled)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(degraded)
+  then:
+    action: route
+    reason: 'SSVC decision: Track*'
+    metadata:
+      decision: Track*
+- name: ssvc_branch_09
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(poc)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(controlled)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mef_crippled)
+  then:
+    action: route
+    reason: 'SSVC decision: Attend'
+    metadata:
+      decision: Attend
+- name: ssvc_branch_10
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(poc)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(open)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mission_failure)
+  then:
+    action: route
+    reason: 'SSVC decision: Attend'
+    metadata:
+      decision: Attend
+- name: ssvc_branch_11
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(active)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(small)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(minimal)
+  then:
+    action: route
+    reason: 'SSVC decision: Track'
+    metadata:
+      decision: Track
+- name: ssvc_branch_12
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(active)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(small)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(degraded)
+  then:
+    action: route
+    reason: 'SSVC decision: Track'
+    metadata:
+      decision: Track
+- name: ssvc_branch_13
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(active)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(controlled)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mef_crippled)
+  then:
+    action: route
+    reason: 'SSVC decision: Attend'
+    metadata:
+      decision: Attend
+- name: ssvc_branch_14
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(active)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(controlled)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mission_failure)
+  then:
+    action: route
+    reason: 'SSVC decision: Act'
+    metadata:
+      decision: Act
+- name: ssvc_branch_15
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(active)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(open)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(no)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mission_failure)
+  then:
+    action: route
+    reason: 'SSVC decision: Act'
+    metadata:
+      decision: Act
+- name: ssvc_branch_16
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(active)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(open)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mef_crippled)
+  then:
+    action: route
+    reason: 'SSVC decision: Act'
+    metadata:
+      decision: Act
+- name: ssvc_branch_17
+  salience: 10
+  when:
+  - template: exploitation
+    conditions:
+    - slot: value
+      expression: equals(active)
+  - template: exposure
+    conditions:
+    - slot: value
+      expression: equals(open)
+  - template: automatable
+    conditions:
+    - slot: value
+      expression: equals(yes)
+  - template: mission_impact
+    conditions:
+    - slot: value
+      expression: equals(mission_failure)
+  then:
+    action: route
+    reason: 'SSVC decision: Act'
+    metadata:
+      decision: Act
