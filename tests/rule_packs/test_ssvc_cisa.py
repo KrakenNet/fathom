@@ -15,6 +15,7 @@ import pytest
 import yaml
 
 from fathom.engine import Engine
+from fathom.rule_packs.ssvc import SSVC_META
 
 REFERENCES_DIR = (
     Path(__file__).resolve().parents[2]
@@ -105,4 +106,64 @@ def test_all_published_branches(branch: dict[str, str]) -> None:
     assert result.metadata.get("decision") == branch["decision"], (
         f"branch {branch!r}: expected metadata.decision={branch['decision']!r}, "
         f"got metadata={result.metadata!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Provenance meta-facts persist through evaluation (C4 / AC-4.3 / NFR-7)
+# ---------------------------------------------------------------------------
+
+
+def test_meta_facts_present() -> None:
+    """`ssvc_meta` provenance facts must survive a full evaluate() round-trip.
+
+    The ssvc_meta template (see :mod:`fathom.rule_packs.ssvc`) carries three
+    slots -- ``version``, ``source``, ``source_sha256`` -- which together
+    anchor any decision this pack emits to a specific authoritative SSVC
+    document. Per C4 / AC-4.3 / NFR-7 the facts are required to be present
+    on every evaluation, so this test asserts them, runs a valid 4-fact
+    branch to quiescence, and then re-queries working memory to confirm the
+    meta fact is still there with the canonical ``SSVC_META`` values.
+
+    Note on naming: the task description refers to the keys as
+    ``ssvc_version`` / ``ssvc_source`` / ``ssvc_source_sha256``. The actual
+    template slots are ``version`` / ``source`` / ``source_sha256`` scoped
+    under the ``ssvc_meta`` template name -- the ``ssvc_`` prefix is the
+    template, not a slot prefix. We assert against the real slot names.
+    """
+    engine = Engine.from_rules(PACK_DIR)
+
+    engine.assert_fact(
+        "ssvc_meta",
+        {
+            "version": SSVC_META["version"],
+            "source": SSVC_META["source"],
+            "source_sha256": SSVC_META["source_sha256"],
+        },
+    )
+
+    # Seed a valid 4-fact set so evaluate() runs a real branch, not a no-op.
+    branch = _BRANCHES[0]
+    engine.assert_fact("exploitation", {"value": branch["exploitation"]})
+    engine.assert_fact("exposure", {"value": branch["exposure"]})
+    engine.assert_fact("automatable", {"value": branch["automatable"]})
+    engine.assert_fact("mission_impact", {"value": branch["mission_impact"]})
+
+    engine.evaluate()
+
+    meta_facts = engine.query("ssvc_meta")
+    assert len(meta_facts) == 1, (
+        f"expected exactly one ssvc_meta fact post-eval, got {meta_facts!r}"
+    )
+    meta = meta_facts[0]
+    assert meta["version"] == "2.0.3", (
+        f"ssvc_meta.version drift: got {meta['version']!r}"
+    )
+    assert meta["source"] == "CISA PDF", (
+        f"ssvc_meta.source drift: got {meta['source']!r}"
+    )
+    pinned_sha = _load_pinned_hash(SHA256SUMS_PATH, "cisa-ssvc-v2.0.3.pdf")
+    assert meta["source_sha256"] == pinned_sha, (
+        f"ssvc_meta.source_sha256 drift: got {meta['source_sha256']!r} "
+        f"pinned={pinned_sha!r}"
     )
