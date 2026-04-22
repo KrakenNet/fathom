@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from fathom.errors import EvaluationError
 from fathom.models import EvaluationResult
@@ -25,12 +25,12 @@ class Evaluator:
 
     def __init__(
         self,
-        env: clips.Environment,
+        env_provider: Callable[[], clips.Environment],
         default_decision: str | None,
         focus_order: list[str],
         fact_manager: FactManager | None = None,
     ) -> None:
-        self._env = env
+        self._env_provider = env_provider
         self._default_decision = default_decision
         self._focus_order = focus_order
         self._fact_manager = fact_manager
@@ -43,15 +43,18 @@ class Evaluator:
         """Run the full evaluation sequence and return the result."""
         start_ns = time.perf_counter_ns()
 
+        # Snapshot env once at evaluation entry for atomic-swap safety (design D1).
+        env = self._env_provider()
+
         try:
-            self._setup_focus_stack()
+            self._setup_focus_stack(env)
             if self._fact_manager is not None:
                 self._fact_manager.cleanup_expired()
-            self._env.run()
+            env.run()
 
-            decision, reason, metadata = self._read_decision()
-            rule_trace, module_trace = self._capture_trace()
-            self._cleanup_decision_facts()
+            decision, reason, metadata = self._read_decision(env)
+            rule_trace, module_trace = self._capture_trace(env)
+            self._cleanup_decision_facts(env)
         except EvaluationError:
             raise
         except Exception as exc:
@@ -71,7 +74,7 @@ class Evaluator:
             metadata=metadata,
         )
 
-    def _setup_focus_stack(self) -> None:
+    def _setup_focus_stack(self, env: clips.Environment) -> None:
         """Push modules onto the CLIPS focus stack in reverse order.
 
         focus_order=[A, B, C] → ``(focus C B A)`` so A gets focus first.
@@ -79,9 +82,9 @@ class Evaluator:
         if not self._focus_order:
             return
         reversed_modules = " ".join(reversed(self._focus_order))
-        self._env.eval(f"(focus {reversed_modules})")
+        env.eval(f"(focus {reversed_modules})")
 
-    def _capture_trace(self) -> tuple[list[str], list[str]]:
+    def _capture_trace(self, env: clips.Environment) -> tuple[list[str], list[str]]:
         """Capture rule trace and module trace from decision facts.
 
         Each ``__fathom_decision`` fact has a ``rule`` slot with
@@ -94,7 +97,7 @@ class Evaluator:
         module_trace: list[str] = []
         seen_modules: set[str] = set()
 
-        for fact in self._iter_decision_facts():
+        for fact in self._iter_decision_facts(env):
             rule_ref = str(fact["rule"])
             if rule_ref:
                 rule_trace.append(rule_ref)
@@ -107,7 +110,9 @@ class Evaluator:
 
         return rule_trace, module_trace
 
-    def _read_decision(self) -> tuple[str | None, str | None, dict[str, Any]]:
+    def _read_decision(
+        self, env: clips.Environment
+    ) -> tuple[str | None, str | None, dict[str, Any]]:
         """Read the winning decision from ``__fathom_decision`` facts.
 
         Last-write-wins: the last fact in the list is the winning decision.
@@ -116,7 +121,7 @@ class Evaluator:
         Returns:
             Tuple of (decision, reason, metadata).
         """
-        facts = list(self._iter_decision_facts())
+        facts = list(self._iter_decision_facts(env))
 
         if not facts:
             if self._default_decision is not None:
@@ -141,12 +146,12 @@ class Evaluator:
 
         return action, reason, metadata
 
-    def _cleanup_decision_facts(self) -> None:
+    def _cleanup_decision_facts(self, env: clips.Environment) -> None:
         """Retract all ``__fathom_decision`` facts from working memory."""
-        for fact in list(self._iter_decision_facts()):
+        for fact in list(self._iter_decision_facts(env)):
             fact.retract()
 
-    def _iter_decision_facts(self) -> Any:
+    def _iter_decision_facts(self, env: clips.Environment) -> Any:
         """Iterate over all ``__fathom_decision`` facts in working memory."""
-        template = self._env.find_template("__fathom_decision")
+        template = env.find_template("__fathom_decision")
         return template.facts()
