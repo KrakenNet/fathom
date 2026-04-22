@@ -1,4 +1,4 @@
-"""SSVC v2.0.3 rule pack — vulnerability triage per CISA Stakeholder-Specific Vulnerability Categorization.
+"""SSVC v2.0.3 rule pack for coordinator-level vulnerability triage.
 
 Reference implementation of CISA's Stakeholder-Specific Vulnerability
 Categorization (SSVC) v2.0.3 decision tree for coordinator-level
