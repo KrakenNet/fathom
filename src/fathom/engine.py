@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -171,6 +172,7 @@ class Engine:
         self._hierarchy_registry: dict[str, HierarchyDefinition] = {}
         self._focus_order: list[str] = []
         self._reload_lock = threading.Lock()
+        self._ruleset_yaml_bytes: bytes | None = None
 
         # Placeholders for subsystems (wired up in later tasks)
         self._compiler = Compiler()
@@ -226,6 +228,21 @@ class Engine:
     def focus_order(self) -> list[str]:
         """Ordered list of module names that control evaluation focus."""
         return list(self._focus_order)
+
+    @property
+    def ruleset_hash(self) -> str:
+        """Addressable hash of the currently-loaded ruleset YAML.
+
+        Returns ``f"sha256:{hexdigest}"`` over the concatenated raw YAML
+        bytes of every rule file ingested via :meth:`load_rules`. For an
+        empty engine (no rules loaded yet), returns the sentinel
+        ``"sha256:" + "0" * 64``. This is the identifier consumed by the
+        hot-reload endpoint (C5) to return ``ruleset_hash_before`` /
+        ``ruleset_hash_after`` and by ``GET /v1/status``.
+        """
+        if self._ruleset_yaml_bytes is None:
+            return "sha256:" + "0" * 64
+        return f"sha256:{hashlib.sha256(self._ruleset_yaml_bytes).hexdigest()}"
 
     def set_focus(self, modules: list[str]) -> None:
         """Replace the focus order for evaluation.
@@ -620,8 +637,15 @@ class Engine:
         count = 0
         try:
             p = Path(path)
-            files: list[Path] = list(p.glob("*.yaml")) if p.is_dir() else [p]
+            files: list[Path] = (
+                sorted(p.glob("*.yaml")) if p.is_dir() else [p]
+            )
+            # Accumulate raw YAML bytes across all rule files loaded in this
+            # call for ruleset_hash; this is the canonical form verified by
+            # integrations/ruleset_sig.py (raw bytes, sorted by path).
+            loaded_bytes: list[bytes] = []
             for file in files:
+                file_bytes = file.read_bytes()
                 ruleset = self._compiler.parse_rule_file(file)
 
                 # Validate that the referenced module is registered
@@ -640,6 +664,15 @@ class Engine:
                     self._safe_build(clips_str, context=f"rule:{rule_defn.name}")
                     self._rule_registry[rule_defn.name] = rule_defn
                     count += 1
+
+                loaded_bytes.append(file_bytes)
+
+            # Extend any prior ruleset bytes so successive load_rules() calls
+            # accumulate into a single addressable hash. reload_rules() will
+            # reset this on a full swap.
+            if loaded_bytes:
+                prior = self._ruleset_yaml_bytes or b""
+                self._ruleset_yaml_bytes = prior + b"".join(loaded_bytes)
         finally:
             if count:
                 self._metrics.record_rules_loaded(count)
