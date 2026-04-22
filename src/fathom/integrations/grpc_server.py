@@ -29,6 +29,7 @@ except ImportError as _exc:
 from fathom.errors import CompilationError
 from fathom.integrations.auth import verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
+from fathom.proto import fathom_pb2, fathom_pb2_grpc
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -65,15 +66,16 @@ class SessionStore:
         return engine
 
 
-class FathomServicer:
+class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     """gRPC servicer delegating RPCs to :class:`~fathom.engine.Engine`.
 
     Each method receives a protobuf request, extracts parameters, calls
     the appropriate Engine method, and returns a protobuf response.
 
-    This is a structural stub — it implements the delegation pattern
-    without depending on generated protobuf classes.  In production the
-    servicer would inherit from a generated base class.
+    ``Reload`` returns a real :class:`fathom_pb2.ReloadResponse` so it can
+    be registered on a ``grpc.server`` and called via a generated stub.
+    The other RPCs still return plain ``dict`` payloads as structural
+    stubs — they are not exercised via the real gRPC channel yet.
 
     Args:
         default_engine: Engine instance used for session-less requests.
@@ -246,7 +248,7 @@ class FathomServicer:
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.ReloadResponse:
         """Atomically swap the loaded ruleset with a new (optionally signed) one.
 
         gRPC parity with ``POST /v1/rules/reload`` (design C5 / D3). Error
@@ -391,11 +393,11 @@ class FathomServicer:
             },
         )
 
-        return {
-            "ruleset_hash_before": hash_before,
-            "ruleset_hash_after": hash_after,
-            "attestation_token": attestation_token,
-        }
+        return fathom_pb2.ReloadResponse(
+            ruleset_hash_before=hash_before,
+            ruleset_hash_after=hash_after,
+            attestation_token=attestation_token,
+        )
 
 
 def serve(
@@ -423,10 +425,8 @@ def serve(
     server: grpc.Server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=max_workers),
     )
-    _servicer = FathomServicer(default_engine=engine)
-
-    # In production, register with generated add_FathomServiceServicer_to_server().
-    # For now, the servicer is available for manual wiring or testing.
+    servicer = FathomServicer(default_engine=engine)
+    fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)
 
     cert_path = os.environ.get("FATHOM_GRPC_TLS_CERT", "")
     key_path = os.environ.get("FATHOM_GRPC_TLS_KEY", "")
