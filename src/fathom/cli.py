@@ -16,6 +16,7 @@ import time
 from pathlib import Path  # noqa: TC003 - used at runtime by Typer
 from typing import Any
 
+import httpx
 import yaml
 
 from fathom.compiler import Compiler
@@ -576,6 +577,49 @@ def verify_artifact(
         raise typer.Exit(code=_EXIT_ERROR) from exc
 
     typer.echo("ok: signature valid")
+
+
+@app.command()
+def status(
+    server: str = typer.Option(  # noqa: B008
+        ...,
+        "--server",
+        help="Fathom server base URL (e.g., http://127.0.0.1:8080).",
+    ),
+    token: str | None = typer.Option(  # noqa: B008
+        None,
+        "--token",
+        envvar="FATHOM_TOKEN",
+        help="Optional bearer token (defaults to FATHOM_TOKEN env var).",
+    ),
+) -> None:
+    """Query a Fathom server's GET /v1/status endpoint."""
+    url = f"{server.rstrip('/')}/v1/status"
+    headers: dict[str, str] = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        response = httpx.get(url, headers=headers, timeout=5.0)
+    except httpx.HTTPError as exc:
+        _print_error(f"[fathom.cli] status failed: connection error: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+
+    if response.status_code != 200:
+        _print_error(
+            f"[fathom.cli] status failed: HTTP {response.status_code}: {response.text.strip()}"
+        )
+        raise typer.Exit(code=_EXIT_ERROR)
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        _print_error(f"[fathom.cli] status failed: invalid JSON response: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+
+    typer.echo(f"ruleset_hash: {data.get('ruleset_hash')}")
+    typer.echo(f"version:      {data.get('version')}")
+    typer.echo(f"loaded_at:    {data.get('loaded_at')}")
 
 
 def _repl_help() -> None:
