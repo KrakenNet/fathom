@@ -585,6 +585,26 @@ async def reload_rules(
     )
 
 
+@app.get("/v1/status")
+async def status(request: Request) -> dict[str, str | None]:
+    """Report engine liveness info: loaded ruleset hash, version, last-load time.
+
+    Unauthenticated (matches ``/health``): status is a liveness/info endpoint
+    used by orchestrators and operators to confirm which ruleset is live.
+    """
+    state = request.app.state
+    engine = getattr(state, "engine", None)
+    ruleset_hash = engine.ruleset_hash if engine is not None else None
+    loaded_at = getattr(state, "last_reload_iso", None) or getattr(
+        state, "boot_time_iso", None
+    )
+    return {
+        "ruleset_hash": ruleset_hash,
+        "version": _fathom_version,
+        "loaded_at": loaded_at,
+    }
+
+
 _RULESET_PUBKEY_ERROR = (
     "ruleset pubkey unreadable or missing; "
     "set FATHOM_RULESET_PUBKEY_PATH or enable dev escape"
@@ -613,6 +633,7 @@ def build_app(*, require_signature: bool = True) -> FastAPI:
     app.state.audit_sink = None
     app.state.require_signature = require_signature
     app.state.last_reload_iso = None
+    app.state.boot_time_iso = _now_iso()
 
     if not require_signature and allow_unsigned:
         logger.warning(
