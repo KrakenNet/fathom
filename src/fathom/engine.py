@@ -262,10 +262,24 @@ class Engine:
 
     # --- Internal helpers ---
 
-    def _safe_build(self, clips_str: str, context: str = "") -> None:
-        """Build a CLIPS construct, wrapping CLIPSError as CompilationError."""
+    def _safe_build(
+        self,
+        clips_str: str,
+        context: str = "",
+        env: clips.Environment | None = None,
+    ) -> None:
+        """Build a CLIPS construct, wrapping CLIPSError as CompilationError.
+
+        Args:
+            clips_str: CLIPS construct source.
+            context: Diagnostic label attached to ``CompilationError``.
+            env: Target environment. Defaults to ``self._env``. Used by
+                :meth:`reload_rules` to compile onto a fresh env before the
+                atomic swap.
+        """
+        target = env if env is not None else self._env
         try:
-            self._env.build(clips_str)
+            target.build(clips_str)
         except Exception as exc:
             raise CompilationError(
                 f"[fathom.engine] CLIPS build failed: {exc}",
@@ -275,9 +289,16 @@ class Engine:
 
     # --- External functions ---
 
-    def _register_external_functions(self) -> None:
-        """Register Python external functions callable from CLIPS rules."""
-        env = self._env
+    def _register_external_functions(self, env: clips.Environment | None = None) -> None:
+        """Register Python external functions callable from CLIPS rules.
+
+        Args:
+            env: Target CLIPS environment. Defaults to ``self._env``. Passed
+                explicitly by :meth:`reload_rules` so callbacks are bound to
+                the fresh env *before* the atomic-swap pointer flip.
+        """
+        if env is None:
+            env = self._env
 
         # fathom-matches(str, pattern) — regex search via re.search()
         def fathom_matches(string_value: str, pattern: str) -> bool:
@@ -789,6 +810,194 @@ class Engine:
         from fathom.packs import RulePackLoader
 
         RulePackLoader.load(self, pack_name)
+
+    # --- Atomic-swap ruleset reload (design C5, AC-5.3, NFR-8) ---
+
+    def reload_rules(
+        self,
+        ruleset_yaml: bytes,
+        signature: bytes | None = None,
+        pubkey_pem: bytes | None = None,
+    ) -> tuple[str, str]:
+        """Atomically swap the rule environment with a new ruleset.
+
+        Builds a fresh :class:`clips.Environment` *outside* the reload lock,
+        compiles the supplied rule YAML (plus the currently-registered
+        templates and modules) into it, re-registers external callbacks
+        against the new env, then acquires ``self._reload_lock`` and swaps
+        the env pointer, rule registry, and ``_ruleset_yaml_bytes`` in a
+        single critical section.
+
+        In-flight evaluations are unaffected: :class:`Evaluator` and
+        :class:`FactManager` snapshot the env via a provider closure at the
+        start of each evaluation, so swapping ``self._env`` does not
+        reach into running evals. CLIPS callbacks registered on the old
+        env keep firing against the old env via their captured closure.
+
+        The audit sink is intentionally **not** touched here; the REST /
+        gRPC layer signs and emits the ``ruleset_reloaded`` event on
+        successful return (design C5 / C6).
+
+        Args:
+            ruleset_yaml: Raw YAML bytes containing a ruleset document
+                (top-level ``module``, ``ruleset``, ``rules`` keys; same
+                schema :meth:`load_rules` accepts). Bytes are preserved
+                verbatim and hashed by :attr:`ruleset_hash` on success.
+            signature: Optional detached 64-byte Ed25519 signature over
+                ``ruleset_yaml``. When supplied, ``pubkey_pem`` is
+                required. Verification runs *before* compilation so a
+                bad signature never mutates CLIPS state.
+            pubkey_pem: PEM-encoded Ed25519 public key. Required when
+                ``signature`` is supplied.
+
+        Returns:
+            Tuple ``(hash_before, hash_after)`` of
+            :attr:`ruleset_hash` values bracketing the swap. Callers
+            compare the two to detect no-op reloads.
+
+        Raises:
+            ValueError: ``signature`` supplied without ``pubkey_pem``.
+            RulesetSignatureError: Signature verification failed.
+            CompilationError: New ruleset failed to parse or compile.
+                The existing env is left untouched (NFR-8).
+        """
+        # Local imports keep Engine.__init__ cheap and avoid a circular
+        # import from integrations when cryptography is absent in minimal
+        # installs.
+        from fathom.integrations.ruleset_sig import verify_ruleset_signature
+        from fathom.models import RulesetDefinition
+
+        if signature is not None and pubkey_pem is None:
+            raise ValueError("pubkey_pem required when signature provided")
+
+        hash_before = self.ruleset_hash
+
+        # Step 1: verify signature over the raw bytes BEFORE any compile
+        # work. RulesetSignatureError propagates — leaves env untouched.
+        if signature is not None:
+            assert pubkey_pem is not None  # narrowed by check above
+            verify_ruleset_signature(ruleset_yaml, signature, pubkey_pem)
+
+        # Step 2: parse the new ruleset YAML. Parse errors surface as
+        # CompilationError so the caller sees a single exception type for
+        # any pre-swap compile failure.
+        try:
+            data = yaml.safe_load(ruleset_yaml)
+        except yaml.YAMLError as exc:
+            raise CompilationError(
+                f"[fathom.engine] reload_rules: invalid YAML: {exc}",
+                construct="reload_rules:parse",
+                detail=str(exc),
+            ) from exc
+        if not isinstance(data, dict) or "rules" not in data or "module" not in data:
+            raise CompilationError(
+                "[fathom.engine] reload_rules: YAML must contain top-level "
+                "'module' and 'rules' keys",
+                construct="reload_rules:parse",
+            )
+        try:
+            new_ruleset = RulesetDefinition(
+                ruleset=data.get("ruleset", "reloaded"),
+                version=str(data.get("version", "1.0")),
+                module=data["module"],
+                rules=data["rules"],
+            )
+        except Exception as exc:
+            raise CompilationError(
+                f"[fathom.engine] reload_rules: ruleset validation failed: {exc}",
+                construct="reload_rules:validate",
+                detail=str(exc),
+            ) from exc
+
+        # Step 3: build the fresh env OUTSIDE the lock. All compilation
+        # targets ``new_env``; on any failure we raise and never touch
+        # ``self._env`` (AC-5.3 atomicity, NFR-8 idempotent failure).
+        new_env = clips.Environment()
+
+        # Decision template — matches what __init__ does on startup.
+        self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision", env=new_env)
+
+        # Export MAIN so non-MAIN modules can import its constructs —
+        # mirrors load_modules() first-module-seen behaviour.
+        if self._module_registry:
+            self._safe_build(
+                "(defmodule MAIN (export ?ALL))",
+                context="module:MAIN",
+                env=new_env,
+            )
+
+        # Register external callbacks on the new env FIRST. CLIPS `build`
+        # resolves external-function references at compile time, so
+        # fathom-matches/fathom-count-exceeds/etc. must exist on new_env
+        # before any rule that references them is compiled. Callbacks
+        # close over the env they were registered against, so in-flight
+        # evals on the OLD env keep seeing OLD-env-bound callbacks — the
+        # property the design audit relies on (C5 / D1).
+        self._register_external_functions(env=new_env)
+
+        # Recompile templates from the current registry. Templates/modules
+        # are not part of the hot-reload payload (rule-only swap); we
+        # rebuild them onto new_env from their stored definitions so
+        # freshly-compiled rules can reference them.
+        new_template_registry: dict[str, TemplateDefinition] = {}
+        for name, tdefn in self._template_registry.items():
+            clips_str = self._compiler.compile_template(tdefn)
+            self._safe_build(clips_str, context=f"template:{name}", env=new_env)
+            new_template_registry[name] = tdefn
+
+        # Recompile modules from the current registry, preserving order.
+        new_module_registry: dict[str, ModuleDefinition] = {}
+        for name, mdefn in self._module_registry.items():
+            clips_str = self._compiler.compile_module(mdefn)
+            self._safe_build(clips_str, context=f"module:{name}", env=new_env)
+            new_module_registry[name] = mdefn
+
+        # Validate the new ruleset's module is registered — same guard as
+        # load_rules(). Raised as CompilationError; new_env is discarded.
+        if new_ruleset.module not in new_module_registry:
+            raise CompilationError(
+                "[fathom.engine] reload_rules: "
+                f"module '{new_ruleset.module}' is not registered. "
+                "Load modules via load_modules() before reloading rules.",
+                construct=f"ruleset:{new_ruleset.ruleset}",
+            )
+
+        # Compile the new rules onto new_env. Build into a fresh registry;
+        # we swap the entire mapping under the lock so old rules vanish
+        # atomically.
+        new_rule_registry: dict[str, RuleDefinition] = {}
+        for rule_defn in new_ruleset.rules:
+            clips_str = self._compiler.compile_rule(rule_defn, new_ruleset.module)
+            self._safe_build(clips_str, context=f"rule:{rule_defn.name}", env=new_env)
+            new_rule_registry[rule_defn.name] = rule_defn
+
+        new_has_asserting_rules = any(
+            bool(r.then.asserts) for r in new_rule_registry.values()
+        )
+
+        # Step 4: atomic swap. Critical section is pointer assignments
+        # only — no I/O, no compilation — so any reader holding the old
+        # env snapshot sees a consistent view and the lock is held for
+        # microseconds, not the compile duration.
+        with self._reload_lock:
+            self._env = new_env
+            # Replace rule registry by identity; Engine is the sole reader.
+            self._rule_registry = new_rule_registry
+            # Template/module registries are held by reference in
+            # FactManager (template_registry=...). To honour the swap
+            # without a reader-side refactor, rebuild contents in place
+            # so the shared reference stays valid. Contents are identical
+            # today (rule-only reload) but we keep the pattern so future
+            # template-reload work has a stable seam.
+            self._template_registry.clear()
+            self._template_registry.update(new_template_registry)
+            self._module_registry.clear()
+            self._module_registry.update(new_module_registry)
+            self._has_asserting_rules = new_has_asserting_rules
+            self._ruleset_yaml_bytes = ruleset_yaml
+
+        hash_after = self.ruleset_hash
+        return hash_before, hash_after
 
     # --- Fact management ---
 
