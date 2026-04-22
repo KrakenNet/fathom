@@ -1,0 +1,5 @@
+modules:
+  - name: ssvc
+    description: "CISA SSVC v2.0.3 vulnerability triage rules"
+focus_order:
+  - ssvc
