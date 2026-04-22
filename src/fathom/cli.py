@@ -9,6 +9,7 @@ Install via::
 from __future__ import annotations
 
 import enum
+import importlib.resources
 import json
 import statistics
 import time
@@ -20,6 +21,8 @@ import yaml
 from fathom.compiler import Compiler
 from fathom.engine import Engine
 from fathom.errors import CompilationError
+from fathom.release_sig import ReleaseSigError
+from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import validate_document
 
 try:
@@ -45,6 +48,7 @@ from fathom import __version__
 _EXIT_SUCCESS = 0
 _EXIT_ERROR = 1
 _EXIT_NOT_FOUND = 2
+_EXIT_MALFORMED = 3
 
 app = typer.Typer(name="fathom", help="Fathom reasoning runtime CLI.")
 
@@ -510,6 +514,68 @@ def bench(
     except Exception as exc:
         _print_error(f"[fathom.cli] bench failed: {exc}")
         raise typer.Exit(code=_EXIT_ERROR) from exc
+
+
+@app.command("verify-artifact")
+def verify_artifact(
+    artifact: Path = typer.Argument(  # noqa: B008
+        ...,
+        help="Artifact to verify.",
+    ),
+    sig: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--sig",
+        help="Sig path (default: <path>.sig).",
+    ),
+    pubkey: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--pubkey",
+        help="Pubkey (default: embedded).",
+    ),
+) -> None:
+    """Verify an artifact's detached minisign signature against a pubkey."""
+    sig_path = sig if sig is not None else Path(str(artifact) + ".sig")
+    if pubkey is not None:
+        pubkey_path = pubkey
+    else:
+        pubkey_path = Path(
+            str(importlib.resources.files("fathom._data") / "release_pubkey.minisign")
+        )
+
+    if not artifact.exists():
+        _print_error(f"[fathom.cli] verify-artifact failed: artifact not found: {artifact}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+    if not sig_path.exists():
+        _print_error(f"[fathom.cli] verify-artifact failed: signature not found: {sig_path}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+    if not pubkey_path.exists():
+        _print_error(f"[fathom.cli] verify-artifact failed: pubkey not found: {pubkey_path}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+
+    try:
+        _verify_artifact(artifact, sig_path, pubkey_path)
+    except FileNotFoundError as exc:
+        _print_error(f"[fathom.cli] verify-artifact failed: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+    except ReleaseSigError as exc:
+        msg = str(exc)
+        malformed_markers = (
+            "malformed",
+            "base64 decode",
+            "unexpected payload length",
+            "unsupported sig algorithm",
+            "key id mismatch",
+        )
+        if any(marker in msg for marker in malformed_markers):
+            _print_error(f"[fathom.cli] verify-artifact failed: {msg}")
+            raise typer.Exit(code=_EXIT_MALFORMED) from exc
+        _print_error(f"[fathom.cli] verify-artifact failed: {msg}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+    except Exception as exc:
+        _print_error(f"[fathom.cli] verify-artifact failed: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+
+    typer.echo("ok: signature valid")
 
 
 def _repl_help() -> None:
