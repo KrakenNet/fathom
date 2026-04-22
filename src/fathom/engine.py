@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -169,14 +170,18 @@ class Engine:
         self._has_asserting_rules: bool = False
         self._hierarchy_registry: dict[str, HierarchyDefinition] = {}
         self._focus_order: list[str] = []
+        self._reload_lock = threading.Lock()
 
         # Placeholders for subsystems (wired up in later tasks)
         self._compiler = Compiler()
-        self._fact_manager = FactManager(self._env, self._template_registry)
+        self._fact_manager = FactManager(
+            env_provider=lambda: self._env,
+            template_registry=self._template_registry,
+        )
         self._evaluator = Evaluator(
-            self._env,
-            self._default_decision,
-            self._focus_order,
+            env_provider=lambda: self._env,
+            default_decision=self._default_decision,
+            focus_order=self._focus_order,
             fact_manager=self._fact_manager,
         )
         self._audit_log = AuditLog(audit_sink or NullSink())
