@@ -233,3 +233,27 @@ def test_signed_reload_audit_emission(
     assert rec["ruleset_hash_after"] == data["hash_after"]
     assert rec["actor"] == "bearer-token"
     assert rec["timestamp"] == claims["timestamp"]
+
+
+def test_unsigned_reload_rejected_by_default(
+    signed_client: tuple[TestClient, Ed25519PrivateKey, _ListAuditSink, AttestationService],
+) -> None:
+    """Unsigned reload on fail-closed app → 400 ``unsigned_ruleset`` + audit.
+
+    AC-5.5 / FR-18: with ``require_signature=True`` and no dev-escape env,
+    POSTing a ruleset without ``signature`` must be rejected with HTTP 400
+    and ``error="unsigned_ruleset"``, and an audit record with
+    ``event_type="ruleset_reload_rejected"`` must be emitted.
+    """
+    client, _priv, sink, _attestation = signed_client
+
+    body = {"ruleset_yaml": _ruleset_yaml("rule-unsigned", "carol")}
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"] == "unsigned_ruleset"
+
+    rejected = [
+        r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"
+    ]
+    assert len(rejected) == 1, sink.records
