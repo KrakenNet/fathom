@@ -8,13 +8,14 @@
 #   make generate          — regenerate REST client from OpenAPI spec
 #   make generate-grpc     — regenerate gRPC stubs from proto definitions
 #   make generate-all      — regenerate both REST and gRPC
+#   make verify-grpc       — check committed stubs match proto (CI drift check)
 
 # OPENAPI_SPEC must be generated first (e.g., from FastAPI's /openapi.json endpoint)
 OPENAPI_SPEC ?= ../../openapi.json
 PROTO_DIR    ?= ../../protos
 OUT_DIR      ?= ./generated
 
-.PHONY: generate generate-grpc generate-all clean
+.PHONY: generate generate-grpc generate-all verify-grpc clean
 
 generate:
 	@echo "Generating Go REST client from OpenAPI spec..."
@@ -38,6 +39,20 @@ generate-grpc:
 	@echo "Done. Generated gRPC stubs in ./proto"
 
 generate-all: generate generate-grpc
+
+verify-grpc:
+	@echo "Verifying committed gRPC stubs match proto definitions..."
+	@TMPDIR=$$(mktemp -d) && \
+		trap "rm -rf $$TMPDIR" EXIT && \
+		protoc \
+			--proto_path=$(PROTO_DIR) \
+			--go_out=$$TMPDIR \
+			--go_opt=paths=source_relative \
+			--go-grpc_out=$$TMPDIR \
+			--go-grpc_opt=paths=source_relative \
+			$(PROTO_DIR)/*.proto && \
+		diff -r $$TMPDIR ./proto && \
+		echo "OK: committed stubs match regenerated output"
 
 clean:
 	rm -rf $(OUT_DIR)
