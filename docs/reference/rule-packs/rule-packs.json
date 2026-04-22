@@ -170,5 +170,107 @@
       "tool_call"
     ],
     "version": "1.0"
+  },
+  {
+    "id": "ssvc",
+    "modules": [
+      "ssvc"
+    ],
+    "rules": [
+      {
+        "action": "route",
+        "name": "ssvc_branch_01",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_02",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_03",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_04",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_05",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_06",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_07",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_08",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_09",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_10",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_11",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_12",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_13",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_14",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_15",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_16",
+        "salience": 10
+      },
+      {
+        "action": "route",
+        "name": "ssvc_branch_17",
+        "salience": 10
+      }
+    ],
+    "source": "src/fathom/rule_packs/ssvc",
+    "templates": [
+      "automatable",
+      "exploitation",
+      "exposure",
+      "mission_impact",
+      "ssvc_meta"
+    ],
+    "version": "2.0.3"
   }
 ]
