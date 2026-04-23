@@ -15,9 +15,7 @@ class RulesetSignatureError(Exception):
     """Raised on any Ed25519 verification or pubkey parse failure."""
 
 
-def verify_ruleset_signature(
-    yaml_bytes: bytes, sig_bytes: bytes, pubkey_bytes: bytes
-) -> None:
+def verify_ruleset_signature(yaml_bytes: bytes, sig_bytes: bytes, pubkey_bytes: bytes) -> None:
     """Verify `yaml_bytes` against `sig_bytes` using PEM `pubkey_bytes`.
 
     Raises `RulesetSignatureError` on malformed pubkey, non-Ed25519 key, or
@@ -28,9 +26,7 @@ def verify_ruleset_signature(
     except (ValueError, TypeError) as e:
         raise RulesetSignatureError(f"invalid PEM public key: {e}") from e
     if not isinstance(pubkey, Ed25519PublicKey):
-        raise RulesetSignatureError(
-            f"expected Ed25519 public key, got {type(pubkey).__name__}"
-        )
+        raise RulesetSignatureError(f"expected Ed25519 public key, got {type(pubkey).__name__}")
     try:
         pubkey.verify(sig_bytes, yaml_bytes)
     except InvalidSignature as e:

@@ -74,8 +74,7 @@ class FactManager:
         """Assert multiple facts atomically (pre-validate all, then assert)."""
         env = self._env_provider()
         validated_batch = [
-            (template_name, self._validate(template_name, data))
-            for template_name, data in facts
+            (template_name, self._validate(template_name, data)) for template_name, data in facts
         ]
         for template_name, validated in validated_batch:
             self._assert_validated(env, template_name, validated)

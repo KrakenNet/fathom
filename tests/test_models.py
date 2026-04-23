@@ -123,9 +123,7 @@ class TestConditionEntry:
 
     def test_test_with_expression_coexist(self) -> None:
         """``test`` may be combined with ``expression`` to add a raw test CE."""
-        entry = ConditionEntry(
-            slot="id", expression="equals(x)", test="(my-fn ?sid)"
-        )
+        entry = ConditionEntry(slot="id", expression="equals(x)", test="(my-fn ?sid)")
 
         assert entry.expression == "equals(x)"
         assert entry.test == "(my-fn ?sid)"

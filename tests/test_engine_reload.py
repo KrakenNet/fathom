@@ -10,13 +10,16 @@ their responses and in the signed audit attestation.
 from __future__ import annotations
 
 import threading
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
 
 from fathom.engine import Engine
 from fathom.errors import CompilationError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_pack(tmp_path: Path) -> None:
@@ -27,11 +30,7 @@ def _write_pack(tmp_path: Path) -> None:
     the shared infrastructure both rulesets A and B compile against.
     """
     (tmp_path / "templates.yaml").write_text(
-        "templates:\n"
-        "  - name: agent\n"
-        "    slots:\n"
-        "      - name: id\n"
-        "        type: symbol\n"
+        "templates:\n  - name: agent\n    slots:\n      - name: id\n        type: symbol\n"
     )
     (tmp_path / "modules.yaml").write_text(
         "modules:\n  - name: gov\n    priority: 100\nfocus_order: [gov]\n"
@@ -204,7 +203,7 @@ def test_inflight_eval_atomicity(tmp_path: Path) -> None:
         "  (agent (id alice))\n"
         "  =>\n"
         "  (bind ?result (inflight_block))\n"
-        '  (assert (__fathom_decision\n'
+        "  (assert (__fathom_decision\n"
         "    (action allow)\n"
         '    (reason "from-A")\n'
         '    (rule "gov::rule-a")\n'

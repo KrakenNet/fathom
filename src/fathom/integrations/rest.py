@@ -595,9 +595,7 @@ async def status(request: Request) -> dict[str, str | None]:
     state = request.app.state
     engine = getattr(state, "engine", None)
     ruleset_hash = engine.ruleset_hash if engine is not None else None
-    loaded_at = getattr(state, "last_reload_iso", None) or getattr(
-        state, "boot_time_iso", None
-    )
+    loaded_at = getattr(state, "last_reload_iso", None) or getattr(state, "boot_time_iso", None)
     return {
         "ruleset_hash": ruleset_hash,
         "version": _fathom_version,
@@ -606,8 +604,7 @@ async def status(request: Request) -> dict[str, str | None]:
 
 
 _RULESET_PUBKEY_ERROR = (
-    "ruleset pubkey unreadable or missing; "
-    "set FATHOM_RULESET_PUBKEY_PATH or enable dev escape"
+    "ruleset pubkey unreadable or missing; set FATHOM_RULESET_PUBKEY_PATH or enable dev escape"
 )
 
 

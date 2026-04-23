@@ -2,8 +2,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 SCRIPT = Path("scripts/check_version_sync.py").resolve()
 
 
@@ -23,9 +21,7 @@ def test_passes_when_versions_match(tmp_path: Path) -> None:
     )
     pkg = tmp_path / "src" / "fathom"
     pkg.mkdir(parents=True)
-    (pkg / "__init__.py").write_text(
-        '__version__ = "1.2.3"\n', encoding="utf-8"
-    )
+    (pkg / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
     result = run_script(tmp_path)
     assert result.returncode == 0, result.stderr
 
@@ -36,9 +32,7 @@ def test_fails_when_versions_differ(tmp_path: Path) -> None:
     )
     pkg = tmp_path / "src" / "fathom"
     pkg.mkdir(parents=True)
-    (pkg / "__init__.py").write_text(
-        '__version__ = "1.2.4"\n', encoding="utf-8"
-    )
+    (pkg / "__init__.py").write_text('__version__ = "1.2.4"\n', encoding="utf-8")
     result = run_script(tmp_path)
     assert result.returncode != 0
     assert "version" in result.stderr.lower()

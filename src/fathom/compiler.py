@@ -287,9 +287,7 @@ class Compiler:
             action_str = then.action.value
             reason_expr = self._compile_reason(then.reason)
             log_level_str = then.log.value
-            notify_str = self._escape_clips_string(
-                ", ".join(then.notify) if then.notify else ""
-            )
+            notify_str = self._escape_clips_string(", ".join(then.notify) if then.notify else "")
             attestation_str = "TRUE" if then.attestation else "FALSE"
             metadata_str = (
                 self._escape_clips_string(json.dumps(then.metadata, sort_keys=True))
@@ -318,13 +316,10 @@ class Compiler:
         # AC-1.3: __fathom_decision MUST precede user asserts in YAML doc order.
         for spec in then.asserts:
             slot_parts = [
-                f"({slot} {self._emit_slot_value(value)})"
-                for slot, value in spec.slots.items()
+                f"({slot} {self._emit_slot_value(value)})" for slot, value in spec.slots.items()
             ]
             if slot_parts:
-                lines.append(
-                    f"{indent}(assert ({spec.template} " + " ".join(slot_parts) + "))"
-                )
+                lines.append(f"{indent}(assert ({spec.template} " + " ".join(slot_parts) + "))")
             else:
                 lines.append(f"{indent}(assert ({spec.template}))")
 

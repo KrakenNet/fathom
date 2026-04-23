@@ -457,6 +457,7 @@ def test_cardinality_stable_across_many_sessions(
 ) -> None:
     monkeypatch.setenv("FATHOM_METRICS", "1")
     from fathom.metrics import MetricsCollector
+
     m = MetricsCollector(enabled=True)
     for i in range(1000):
         m.set_working_memory_facts(template="agent", count=i)

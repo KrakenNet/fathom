@@ -18,9 +18,7 @@ def get_configured_token() -> str:
     """Return the token from ``FATHOM_API_TOKEN`` or raise ``AuthError``."""
     token = os.environ.get("FATHOM_API_TOKEN", "")
     if not token:
-        raise AuthError(
-            "FATHOM_API_TOKEN is not set. Server mode requires a bearer token."
-        )
+        raise AuthError("FATHOM_API_TOKEN is not set. Server mode requires a bearer token.")
     return token
 
 
@@ -35,7 +33,7 @@ def verify_token(authorization_header: str | None) -> bool:
     prefix = "Bearer "
     if not authorization_header.startswith(prefix):
         return False
-    presented = authorization_header[len(prefix):]
+    presented = authorization_header[len(prefix) :]
     try:
         configured = get_configured_token()
     except AuthError:

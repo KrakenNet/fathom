@@ -43,7 +43,6 @@ def test_postman_collection_is_deterministic(tmp_path: Path) -> None:
     )
 
     data = json.loads(out_a.read_text(encoding="utf-8"))
-    assert (
-        data["info"]["_postman_id"]
-        == "fathom-00000000-0000-0000-0000-000000000000"
-    ), "stable _postman_id was not applied"
+    assert data["info"]["_postman_id"] == "fathom-00000000-0000-0000-0000-000000000000", (
+        "stable _postman_id was not applied"
+    )

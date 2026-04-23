@@ -12,7 +12,6 @@ coupling without Ed25519 signing plumbing — signed-path coverage lives in
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -26,6 +25,7 @@ from fathom.integrations.rest import build_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 
 def _ruleset_yaml(rule_name: str, subject: str) -> str:
@@ -55,11 +55,7 @@ def _ruleset_yaml(rule_name: str, subject: str) -> str:
 def _seed_engine(tmp_path: Path) -> Engine:
     """Engine with the templates + modules the reload ruleset references."""
     (tmp_path / "templates.yaml").write_text(
-        "templates:\n"
-        "  - name: agent\n"
-        "    slots:\n"
-        "      - name: id\n"
-        "        type: symbol\n"
+        "templates:\n  - name: agent\n    slots:\n      - name: id\n        type: symbol\n"
     )
     (tmp_path / "modules.yaml").write_text(
         "modules:\n  - name: gov\n    priority: 100\nfocus_order: [gov]\n"
@@ -74,9 +70,7 @@ def _seed_engine(tmp_path: Path) -> Engine:
 
 
 @pytest.fixture
-def client(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> "Iterator[TestClient]":
+def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClient]:
     monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
     monkeypatch.setenv("FATHOM_ALLOW_UNSIGNED_RULESETS", "1")
     rules_root = tmp_path / "rules"

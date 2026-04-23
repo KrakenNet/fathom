@@ -315,8 +315,7 @@ class Engine:
             s = str(string_value)
             if len(p) > _FATHOM_MATCHES_MAX_LEN or len(s) > _FATHOM_MATCHES_MAX_LEN:
                 raise ValueError(
-                    "fathom-matches input exceeds "
-                    f"{_FATHOM_MATCHES_MAX_LEN}-char safety cap"
+                    f"fathom-matches input exceeds {_FATHOM_MATCHES_MAX_LEN}-char safety cap"
                 )
             return bool(re.search(p, s))
 
@@ -658,9 +657,7 @@ class Engine:
         count = 0
         try:
             p = Path(path)
-            files: list[Path] = (
-                sorted(p.glob("*.yaml")) if p.is_dir() else [p]
-            )
+            files: list[Path] = sorted(p.glob("*.yaml")) if p.is_dir() else [p]
             # Accumulate raw YAML bytes across all rule files loaded in this
             # call for ruleset_hash; this is the canonical form verified by
             # integrations/ruleset_sig.py (raw bytes, sorted by path).
@@ -745,8 +742,7 @@ class Engine:
             raise ValueError("register_function: name must be non-empty")
         if not _USER_FN_NAME_RE.match(name):
             raise ValueError(
-                f"register_function: name must match "
-                f"[A-Za-z][A-Za-z0-9_-]* (got {name!r})"
+                f"register_function: name must match [A-Za-z][A-Za-z0-9_-]* (got {name!r})"
             )
         if name.startswith(RESERVED_FUNCTION_PREFIX):
             raise ValueError(
@@ -971,9 +967,7 @@ class Engine:
             self._safe_build(clips_str, context=f"rule:{rule_defn.name}", env=new_env)
             new_rule_registry[rule_defn.name] = rule_defn
 
-        new_has_asserting_rules = any(
-            bool(r.then.asserts) for r in new_rule_registry.values()
-        )
+        new_has_asserting_rules = any(bool(r.then.asserts) for r in new_rule_registry.values())
 
         # Step 4: atomic swap. Critical section is pointer assignments
         # only — no I/O, no compilation — so any reader holding the old
@@ -1148,4 +1142,3 @@ class Engine:
         leaving internal CLIPS facts (initial-fact, __fathom_decision) intact.
         """
         self._fact_manager.clear_all()
-

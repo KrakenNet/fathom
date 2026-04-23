@@ -19,8 +19,7 @@ def engine_with_events() -> Engine:
         context="login",
     )
     e._safe_build(
-        "(deftemplate admin_action "
-        "(slot user (type STRING)) (slot ts (type FLOAT)))",
+        "(deftemplate admin_action (slot user (type STRING)) (slot ts (type FLOAT)))",
         context="admin_action",
     )
     return e
@@ -37,7 +36,7 @@ def test_sequence_uses_custom_timestamp_slot(engine_with_events: Engine) -> None
         {"template": "admin_action", "slot": "user", "value": "alice", "slot_ts": "ts"},
     ]
     result = e._env.eval(
-        f'(fathom-sequence-detected "{json.dumps(events).replace(chr(34), chr(92)+chr(34))}" 60)'
+        f'(fathom-sequence-detected "{json.dumps(events).replace(chr(34), chr(92) + chr(34))}" 60)'
     )
     assert str(result) == "TRUE"
 

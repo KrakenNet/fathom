@@ -18,12 +18,7 @@ from fathom.engine import Engine
 from fathom.rule_packs.ssvc import SSVC_META
 
 REFERENCES_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "fathom"
-    / "rule_packs"
-    / "ssvc"
-    / "references"
+    Path(__file__).resolve().parents[2] / "src" / "fathom" / "rule_packs" / "ssvc" / "references"
 )
 PDF_PATH = REFERENCES_DIR / "cisa-ssvc-v2.0.3.pdf"
 SHA256SUMS_PATH = REFERENCES_DIR / "SHA256SUMS"
@@ -46,18 +41,14 @@ def _load_pinned_hash(sums_path: Path, filename: str) -> str:
         digest, name = parts[0], parts[1].strip()
         if name == filename:
             return digest
-    raise AssertionError(
-        f"no sha256 pin for {filename!r} in {sums_path}"
-    )
+    raise AssertionError(f"no sha256 pin for {filename!r} in {sums_path}")
 
 
 def test_pdf_sha256() -> None:
     """Archived CISA PDF must match the hash pinned in SHA256SUMS."""
     pinned = _load_pinned_hash(SHA256SUMS_PATH, "cisa-ssvc-v2.0.3.pdf")
     computed = hashlib.sha256(PDF_PATH.read_bytes()).hexdigest()
-    assert computed == pinned, (
-        f"SSVC PDF sha256 drift: computed={computed} pinned={pinned}"
-    )
+    assert computed == pinned, f"SSVC PDF sha256 drift: computed={computed} pinned={pinned}"
 
 
 # ---------------------------------------------------------------------------
@@ -156,14 +147,9 @@ def test_meta_facts_present() -> None:
         f"expected exactly one ssvc_meta fact post-eval, got {meta_facts!r}"
     )
     meta = meta_facts[0]
-    assert meta["version"] == "2.0.3", (
-        f"ssvc_meta.version drift: got {meta['version']!r}"
-    )
-    assert meta["source"] == "CISA PDF", (
-        f"ssvc_meta.source drift: got {meta['source']!r}"
-    )
+    assert meta["version"] == "2.0.3", f"ssvc_meta.version drift: got {meta['version']!r}"
+    assert meta["source"] == "CISA PDF", f"ssvc_meta.source drift: got {meta['source']!r}"
     pinned_sha = _load_pinned_hash(SHA256SUMS_PATH, "cisa-ssvc-v2.0.3.pdf")
     assert meta["source_sha256"] == pinned_sha, (
-        f"ssvc_meta.source_sha256 drift: got {meta['source_sha256']!r} "
-        f"pinned={pinned_sha!r}"
+        f"ssvc_meta.source_sha256 drift: got {meta['source_sha256']!r} pinned={pinned_sha!r}"
     )

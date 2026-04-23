@@ -154,7 +154,6 @@ class TestPublicMethods:
         assert isinstance(Engine.__dict__["from_rules"], classmethod)
 
 
-
 # ---------------------------------------------------------------------------
 # 5. Engine.from_rules() convenience constructor
 # ---------------------------------------------------------------------------
@@ -414,8 +413,7 @@ class TestRegisterFunction:
         # purpose is to prove the registered Python callable is invokable from
         # a fired rule, which is compiler-independent.
         e._env.build(
-            "(deftemplate MAIN::number "
-            "(slot n (type INTEGER)) (slot result (type INTEGER)))"
+            "(deftemplate MAIN::number (slot n (type INTEGER)) (slot result (type INTEGER)))"
         )
         e._env.build(
             "(defrule MAIN::apply-double "
@@ -426,9 +424,7 @@ class TestRegisterFunction:
         e._env.assert_string("(number (n 5) (result 0))")
         e.evaluate()
 
-        results = sorted(
-            int(f["result"]) for f in e._env.find_template("MAIN::number").facts()
-        )
+        results = sorted(int(f["result"]) for f in e._env.find_template("MAIN::number").facts())
         # Input fact has result=0; rule fires once and asserts result=10.
         assert 10 in results
 

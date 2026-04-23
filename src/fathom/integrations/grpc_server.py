@@ -276,11 +276,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         # --- exactly-one-of ruleset_path / ruleset_yaml ---
         # Proto oneof auto-enforces one-or-none; WhichOneof returns None
         # when neither field was set by the caller.
-        which = (
-            request.WhichOneof("source")
-            if hasattr(request, "WhichOneof")
-            else None
-        )
+        which = request.WhichOneof("source") if hasattr(request, "WhichOneof") else None
         if which is None:
             # Fall back to structural inspection for non-proto test doubles.
             has_path = bool(getattr(request, "ruleset_path", ""))
@@ -343,7 +339,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                 )
 
                 verify_ruleset_signature(
-                    raw_yaml_bytes, sig_bytes, self._ruleset_pubkey,
+                    raw_yaml_bytes,
+                    sig_bytes,
+                    self._ruleset_pubkey,
                 )
             except RulesetSignatureError as exc:
                 self._write_audit(
@@ -426,7 +424,7 @@ def serve(
         futures.ThreadPoolExecutor(max_workers=max_workers),
     )
     servicer = FathomServicer(default_engine=engine)
-    fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)
+    fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)  # type: ignore[no-untyped-call]
 
     cert_path = os.environ.get("FATHOM_GRPC_TLS_CERT", "")
     key_path = os.environ.get("FATHOM_GRPC_TLS_KEY", "")

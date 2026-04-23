@@ -42,9 +42,7 @@ def _validate_slot_value(value: str) -> str:
         return value
     if value.startswith("("):
         if not value.endswith(")"):
-            raise ValueError(
-                f"slot s-expression {value!r} must end with ')'"
-            )
+            raise ValueError(f"slot s-expression {value!r} must end with ')'")
         depth = 0
         for ch in value:
             if ch == "(":
@@ -52,13 +50,9 @@ def _validate_slot_value(value: str) -> str:
             elif ch == ")":
                 depth -= 1
                 if depth < 0:
-                    raise ValueError(
-                        f"slot s-expression {value!r} has unbalanced parentheses"
-                    )
+                    raise ValueError(f"slot s-expression {value!r} has unbalanced parentheses")
         if depth != 0:
-            raise ValueError(
-                f"slot s-expression {value!r} has unbalanced parentheses"
-            )
+            raise ValueError(f"slot s-expression {value!r} has unbalanced parentheses")
         return value
     # Plain string literal — reject embedded control chars that would
     # terminate the CLIPS string when escaped back out.
@@ -149,21 +143,16 @@ class ConditionEntry(BaseModel):
                 raise ValueError("ConditionEntry.test must not be empty")
             if not (stripped.startswith("(") and stripped.endswith(")")):
                 raise ValueError(
-                    f"ConditionEntry.test must be a parenthesized CLIPS "
-                    f"expression (got {v!r})"
+                    f"ConditionEntry.test must be a parenthesized CLIPS expression (got {v!r})"
                 )
         return v
 
     @model_validator(mode="after")
     def _require_bind_or_expression(self) -> ConditionEntry:
         if not self.expression and not self.bind and not self.test:
-            raise ValueError(
-                "ConditionEntry requires 'expression', 'bind', or 'test'"
-            )
+            raise ValueError("ConditionEntry requires 'expression', 'bind', or 'test'")
         if (self.expression or self.bind) and not self.slot:
-            raise ValueError(
-                "ConditionEntry requires 'slot' when 'expression' or 'bind' is set"
-            )
+            raise ValueError("ConditionEntry requires 'slot' when 'expression' or 'bind' is set")
         if self.test and not (self.expression or self.bind) and self.slot:
             raise ValueError(
                 "ConditionEntry: 'slot' has no effect with 'test' alone; "

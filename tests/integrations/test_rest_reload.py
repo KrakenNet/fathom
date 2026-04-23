@@ -17,7 +17,6 @@ import base64
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -32,6 +31,7 @@ from fathom.integrations.rest import build_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 
 def _ruleset_yaml(rule_name: str, subject: str) -> str:
@@ -61,11 +61,7 @@ def _ruleset_yaml(rule_name: str, subject: str) -> str:
 def _seed_engine(tmp_path: Path) -> Engine:
     """Engine with the templates + modules the reload ruleset references."""
     (tmp_path / "templates.yaml").write_text(
-        "templates:\n"
-        "  - name: agent\n"
-        "    slots:\n"
-        "      - name: id\n"
-        "        type: symbol\n"
+        "templates:\n  - name: agent\n    slots:\n      - name: id\n        type: symbol\n"
     )
     (tmp_path / "modules.yaml").write_text(
         "modules:\n  - name: gov\n    priority: 100\nfocus_order: [gov]\n"
@@ -83,9 +79,7 @@ def _seed_engine(tmp_path: Path) -> Engine:
 
 
 @pytest.fixture
-def client(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> "Iterator[TestClient]":
+def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClient]:
     monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
     monkeypatch.setenv("FATHOM_ALLOW_UNSIGNED_RULESETS", "1")
     # Path-jail root (unused by ruleset_yaml cases but harmless).
@@ -154,7 +148,7 @@ class _ListAuditSink:
 @pytest.fixture
 def signed_client(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> "Iterator[tuple[TestClient, Ed25519PrivateKey, _ListAuditSink, AttestationService]]":
+) -> Iterator[tuple[TestClient, Ed25519PrivateKey, _ListAuditSink, AttestationService]]:
     """Build app with ``require_signature=True`` + fixture-owned Ed25519 keypair.
 
     Yields ``(client, private_key, audit_sink, attestation_service)`` so tests
@@ -162,9 +156,7 @@ def signed_client(
     """
     # Generate ruleset-signing keypair and persist pubkey PEM for build_app.
     priv = Ed25519PrivateKey.generate()
-    pub_pem = priv.public_key().public_bytes(
-        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
-    )
+    pub_pem = priv.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
     pubkey_path = tmp_path / "ruleset-pub.pem"
     pubkey_path.write_bytes(pub_pem)
 
@@ -256,18 +248,14 @@ def test_unsigned_reload_rejected_by_default(
     assert resp.status_code == 400, resp.text
     assert resp.json()["error"] == "unsigned_ruleset"
 
-    rejected = [
-        r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"
-    ]
+    rejected = [r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"]
     assert len(rejected) == 1, sink.records
 
 
 def _write_pubkey(tmp_path: Path) -> tuple[Path, Ed25519PrivateKey, bytes]:
     """Mint an Ed25519 keypair and write the PEM pubkey under ``tmp_path``."""
     priv = Ed25519PrivateKey.generate()
-    pub_pem = priv.public_key().public_bytes(
-        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
-    )
+    pub_pem = priv.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
     pubkey_path = tmp_path / "ruleset-pub.pem"
     pubkey_path.write_bytes(pub_pem)
     return pubkey_path, priv, pub_pem
@@ -344,8 +332,7 @@ def test_dev_escape_needs_both_flags(
     warn_msgs = [
         r.message
         for r in caplog.records
-        if r.levelno == logging.WARNING
-        and "ruleset signature verification disabled" in r.message
+        if r.levelno == logging.WARNING and "ruleset signature verification disabled" in r.message
     ]
     assert len(warn_msgs) == 1, caplog.records
 

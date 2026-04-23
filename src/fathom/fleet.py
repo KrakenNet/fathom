@@ -181,6 +181,7 @@ class FleetEngine:
         tmpl_def = engine.template_registry.get(template)
         if tmpl_def is None:
             from fathom.errors import ValidationError
+
             raise ValidationError(
                 f"Unknown template '{template}'",
                 template=template,

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import socket
 from concurrent import futures
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import grpc
@@ -38,6 +37,7 @@ from fathom.proto import fathom_pb2, fathom_pb2_grpc
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 
 def _ruleset_yaml(rule_name: str, subject: str) -> bytes:
@@ -67,11 +67,7 @@ def _ruleset_yaml(rule_name: str, subject: str) -> bytes:
 def _seed_engine(tmp_path: Path) -> Engine:
     """Engine with templates + modules + initial ruleset so hash_before is real."""
     (tmp_path / "templates.yaml").write_text(
-        "templates:\n"
-        "  - name: agent\n"
-        "    slots:\n"
-        "      - name: id\n"
-        "        type: symbol\n"
+        "templates:\n  - name: agent\n    slots:\n      - name: id\n        type: symbol\n"
     )
     (tmp_path / "modules.yaml").write_text(
         "modules:\n  - name: gov\n    priority: 100\nfocus_order: [gov]\n"
@@ -109,7 +105,7 @@ class _ListAuditSink:
 @pytest.fixture
 def grpc_server(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> "Iterator[tuple[str, Ed25519PrivateKey, _ListAuditSink]]":
+) -> Iterator[tuple[str, Ed25519PrivateKey, _ListAuditSink]]:
     """Spin up a FathomServicer on a free loopback port.
 
     Yields ``(target, private_key, audit_sink)`` so tests can build signed
@@ -120,9 +116,7 @@ def grpc_server(
     monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
 
     priv = Ed25519PrivateKey.generate()
-    pub_pem = priv.public_key().public_bytes(
-        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
-    )
+    pub_pem = priv.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
 
     audit_sink = _ListAuditSink()
     servicer = FathomServicer(
@@ -201,8 +195,6 @@ def test_grpc_reload_fail_closed_invalid_signature(
     assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert "unsigned_ruleset" in excinfo.value.details()
 
-    rejected = [
-        r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"
-    ]
+    rejected = [r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"]
     assert len(rejected) == 1, sink.records
     assert rejected[0]["reason"] == "missing_signature"

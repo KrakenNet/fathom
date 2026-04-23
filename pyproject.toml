@@ -152,6 +152,7 @@ cmmc = "fathom.rule_packs.cmmc"
 target-version = "py312"
 line-length = 99
 src = ["src"]
+extend-exclude = ["src/fathom/proto/fathom_pb2.py", "src/fathom/proto/fathom_pb2.pyi", "src/fathom/proto/fathom_pb2_grpc.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]
@@ -174,6 +175,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "redis.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "fathom.proto.*"
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
