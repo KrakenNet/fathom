@@ -9,11 +9,18 @@ import os
 import sys
 from pathlib import Path
 
-# Pin terminal width BEFORE Typer/Rich imports. Rich reads COLUMNS at Console
-# construction time; without this the drift gate fails on any machine whose
-# terminal differs from CI's default width.
+# Pin terminal width and disable color BEFORE Typer/Rich imports. Rich reads
+# COLUMNS and color-control env vars at Console construction time; without
+# these pins, the drift gate fails on any machine whose terminal differs from
+# CI's default width, and CI environments that set FORCE_COLOR=1 (GitHub
+# Actions does, by default for many setups) cause ANSI escapes to leak into
+# the generated docs. Override FORCE_COLOR explicitly — setdefault is not
+# enough when the env var is already set upstream.
 os.environ.setdefault("COLUMNS", "100")
 os.environ.setdefault("TERMINAL_WIDTH", "100")
+os.environ["NO_COLOR"] = "1"
+os.environ["FORCE_COLOR"] = "0"
+os.environ["TERM"] = "dumb"
 
 DEFAULT_OUT = Path("docs/reference/cli")
 
