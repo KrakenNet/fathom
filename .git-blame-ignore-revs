@@ -1,0 +1,32 @@
+# Commits skipped by `git blame` and by scripts/check_doc_sources.py.
+#
+# Standard format: one SHA per line, `#` comments and blank lines OK,
+# only the first whitespace-separated token on each line is a SHA.
+#
+# Use `git config blame.ignoreRevsFile .git-blame-ignore-revs` to make
+# `git blame` honor this file by default.
+#
+# What belongs here:
+#   - Mass formatting / ruff-format / autoformatter sweeps
+#   - Mechanical lint fixes that don't change behavior (e.g. moving a
+#     typing-only import into TYPE_CHECKING)
+#   - Pure version-string bumps in pyproject.toml
+#   - Other commits that touch source files without changing user-
+#     observable behavior or public API surface
+# What does NOT belong here:
+#   - Refactors that change call sites or internal APIs
+#   - Bug fixes (even one-liners can affect behavior)
+#   - Anything that adds or removes functionality
+
+# chore(fathom): pass full local CI — ruff format across 31 src/+tests/ files.
+b05d303374472c0e1223b13f48240b3694d1ef29
+
+# 3.13 fixes — `from __future__ import annotations` added to models.py.
+5fe72f180569d5da1704f5394649f9c9c6bb0715
+
+# chore(poc): pass quality checkpoint — moved Callable to collections.abc
+# under TYPE_CHECKING in evaluator.py / facts.py / release_sig.py.
+3a979c8a15f9ac5bbb2095abd47fa9c6e81a35ff
+
+# Bump version from 0.3.0 to 0.3.1 — single-line pyproject.toml edit.
+1755745056ea0e81f9c69655794cafc12bbcb91a

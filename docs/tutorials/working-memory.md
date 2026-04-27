@@ -4,7 +4,7 @@ summary: Assert facts incrementally across multiple evaluate() calls and learn h
 audience: [app-developers, rule-authors]
 diataxis: tutorial
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-04-27
 sources:
   - src/fathom/engine.py
   - src/fathom/models.py

@@ -11,11 +11,12 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-COMMITTED = Path("docs/reference/typescript-sdk")
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _node_pkg_manager_available() -> bool:
@@ -61,18 +62,23 @@ def test_ts_sdk_docs_generated(tmp_path: Path) -> None:
 def test_ts_sdk_docs_are_deterministic(tmp_path: Path) -> None:
     if not _node_pkg_manager_available():
         pytest.skip("neither pnpm nor npm available")
-    out = tmp_path / "fresh"
-    result = subprocess.run(
-        [sys.executable, "scripts/generate_ts_sdk_docs.py", str(out)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
+    out_a = tmp_path / "a"
+    out_b = tmp_path / "b"
+    for out in (out_a, out_b):
+        result = subprocess.run(
+            [sys.executable, "scripts/generate_ts_sdk_docs.py", str(out)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
 
-    regenerated = _collect(out)
-    committed = _collect(COMMITTED)
-    assert regenerated == committed, (
-        "regenerated TS SDK docs differ from committed copy — "
-        "run `uv run python scripts/generate_ts_sdk_docs.py` and commit the result"
+    assert _collect(out_a) == _collect(out_b), (
+        "typedoc output differs between regens — flag version or input drift"
     )
+
+    # Drift vs the committed docs/reference/typescript-sdk tree is enforced by
+    # the docs workflow's drift gate. It is intentionally not asserted here:
+    # the committed tree was generated under pnpm (paths like
+    # node_modules/.pnpm/typescript@.../...), but the regular CI lane only
+    # has npm available, which produces flat node_modules paths.

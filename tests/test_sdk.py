@@ -56,7 +56,7 @@ class TestPackageMeta:
     def test_version_format(self) -> None:
         import fathom
 
-        assert fathom.__version__ == "0.3.0"
+        assert fathom.__version__ == "0.3.2"
 
     def test_all_contains_expected_names(self) -> None:
         import fathom
@@ -517,8 +517,8 @@ class TestPublicSurface:
         assert fact.template == "routing_decision"
         assert fact.slots == {"source_id": "alpha"}
 
-    def test_version_bumped_to_0_3_0(self) -> None:
-        """`fathom.__version__` is bumped to 0.3.0 for this release."""
+    def test_version_bumped_to_0_3_2(self) -> None:
+        """`fathom.__version__` is bumped to 0.3.2 for this release."""
         import fathom
 
-        assert fathom.__version__ == "0.3.0"
+        assert fathom.__version__ == "0.3.2"

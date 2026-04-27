@@ -5,7 +5,6 @@ audience: [integrators]
 diataxis: reference
 status: stable
 sources:
-  - design.md
   - packages/fathom-go/client.go
   - packages/fathom-go/go.mod
   - packages/fathom-ts/package.json
@@ -16,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-04-16
+last_verified: 2026-04-27
 ---
 
 # Planned Integrations
