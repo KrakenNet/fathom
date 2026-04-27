@@ -4,7 +4,7 @@ summary: How authored YAML becomes CLIPS source — parse, validate, compile —
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-04-27
 sources:
   - src/fathom/compiler.py
   - src/fathom/models.py

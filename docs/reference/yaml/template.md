@@ -8,7 +8,7 @@ sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
   - src/fathom/facts.py
-last_verified: 2026-04-15
+last_verified: 2026-04-27
 ---
 
 # Template
