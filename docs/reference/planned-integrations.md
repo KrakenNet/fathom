@@ -5,7 +5,6 @@ audience: [integrators]
 diataxis: reference
 status: stable
 sources:
-  - design.md
   - packages/fathom-go/client.go
   - packages/fathom-go/go.mod
   - packages/fathom-ts/package.json

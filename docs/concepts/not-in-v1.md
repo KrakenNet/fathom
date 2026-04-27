@@ -6,7 +6,6 @@ diataxis: explanation
 status: stable
 last_verified: 2026-04-15
 sources:
-  - design.md
   - src/fathom/compiler.py
   - src/fathom/models.py
 ---
