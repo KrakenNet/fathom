@@ -30,11 +30,19 @@ jobs:
       - name: Install Python deps
         run: uv sync --extra docs --extra server --extra mcp
 
+      # arduino/setup-protoc@v3 has an unfixed bug ("unable to get latest
+      # version", arduino/setup-protoc#108) that intermittently breaks CI
+      # even with an explicit version pin. Install protoc directly from
+      # the upstream release archive instead.
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.3"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PROTOC_VERSION=27.3
+          curl -fsSL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          sudo unzip -q -o /tmp/protoc.zip -d /usr/local
+          sudo chmod +x /usr/local/bin/protoc
+          protoc --version
 
       - name: Set up Go
         uses: actions/setup-go@v5
