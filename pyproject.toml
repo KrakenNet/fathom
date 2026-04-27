@@ -1,6 +1,6 @@
 [project]
 name = "fathom-rules"
-version = "0.3.1"
+version = "0.3.2"
 description = "Deterministic reasoning runtime for AI agents, built on CLIPS via clipspy"
 readme = "README.md"
 license = "MIT"
@@ -37,8 +37,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://fathom.krakn.ai"
-Documentation = "https://fathom.krakn.ai"
+Homepage = "https://krakennet.github.io/fathom"
+Documentation = "https://krakennet.github.io/fathom"
 Repository = "https://github.com/KrakenNet/fathom"
 Changelog = "https://github.com/KrakenNet/fathom/blob/main/CHANGELOG.md"
 Issues = "https://github.com/KrakenNet/fathom/issues"
