@@ -16,4 +16,4 @@ Response from POST /v1/facts.
 
 #### Defined in
 
-[src/client.ts:50](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L50)
+[src/client.ts:50](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L50)

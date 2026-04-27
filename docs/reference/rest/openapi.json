@@ -299,6 +299,46 @@
         "title": "RetractFactsResponse",
         "type": "object"
       },
+      "RulesetReloadRequest": {
+        "description": "Request body for ``POST /v1/rules/reload``.\n\nExactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.\n``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.",
+        "properties": {
+          "ruleset_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ruleset Path"
+          },
+          "ruleset_yaml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ruleset Yaml"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature"
+          }
+        },
+        "title": "RulesetReloadRequest",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -344,7 +384,7 @@
   "info": {
     "description": "Deterministic reasoning runtime for AI agents",
     "title": "Fathom Rules Engine",
-    "version": "0.3.0"
+    "version": "0.3.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -782,6 +822,91 @@
           }
         },
         "summary": "List Rules"
+      }
+    },
+    "/v1/rules/reload": {
+      "post": {
+        "description": "Atomically swap the loaded ruleset with a new (optionally signed) one.\n\nSee design C5 / AC-5.1 / AC-5.4\u20135.6 / AC-5.8.",
+        "operationId": "reload_rules_v1_rules_reload_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RulesetReloadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reload Rules"
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "description": "Report engine liveness info: loaded ruleset hash, version, last-load time.\n\nUnauthenticated (matches ``/health``): status is a liveness/info endpoint\nused by orchestrators and operators to confirm which ruleset is live.",
+        "operationId": "status_v1_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": "Response Status V1 Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status"
       }
     },
     "/v1/templates": {

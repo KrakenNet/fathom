@@ -38,7 +38,7 @@ console.log(result.decision); // "allow" | "deny" | "escalate" | null
 
 #### Defined in
 
-[src/client.ts:149](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L149)
+[src/client.ts:149](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L149)
 
 ## Methods
 
@@ -58,7 +58,7 @@ Assert a single fact into the session's working memory.
 
 #### Defined in
 
-[src/client.ts:171](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L171)
+[src/client.ts:171](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L171)
 
 ***
 
@@ -78,7 +78,7 @@ Send facts to the engine and return the policy decision.
 
 #### Defined in
 
-[src/client.ts:166](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L166)
+[src/client.ts:166](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L166)
 
 ***
 
@@ -98,7 +98,7 @@ Retrieve facts from the session's working memory.
 
 #### Defined in
 
-[src/client.ts:176](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L176)
+[src/client.ts:176](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L176)
 
 ***
 
@@ -119,4 +119,4 @@ the session's working memory. Returns the number of facts removed.
 
 #### Defined in
 
-[src/client.ts:184](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L184)
+[src/client.ts:184](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L184)

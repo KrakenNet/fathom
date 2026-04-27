@@ -35,7 +35,7 @@ The caller should inspect [FathomError.body](FathomError.md#body) for details.
 
 #### Defined in
 
-[src/errors.ts:60](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/errors.ts#L60)
+[src/errors.ts:60](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/errors.ts#L60)
 
 ## Properties
 
@@ -49,7 +49,7 @@ The caller should inspect [FathomError.body](FathomError.md#body) for details.
 
 #### Defined in
 
-[src/errors.ts:33](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/errors.ts#L33)
+[src/errors.ts:33](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/errors.ts#L33)
 
 ***
 
@@ -105,7 +105,7 @@ node\_modules/.pnpm/typescript@5.9.3/node\_modules/typescript/lib/lib.es5.d.ts:1
 
 #### Defined in
 
-[src/errors.ts:32](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/errors.ts#L32)
+[src/errors.ts:32](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/errors.ts#L32)
 
 ***
 

@@ -1,22 +1,24 @@
 ---
-title: fathom repl
-summary: CLI reference for `fathom repl`
+title: fathom status
+summary: CLI reference for `fathom status`
 audience: [app-developers, rule-authors]
 diataxis: reference
 status: stable
 last_verified: 2026-04-15
 ---
 
-# `fathom repl`
+# `fathom status`
 
 ```
                                                                                                     
- Usage: fathom repl [OPTIONS]                                                                       
+ Usage: fathom status [OPTIONS]                                                                     
                                                                                                     
- Start an interactive REPL session.                                                                 
+ Query a Fathom server's GET /v1/status endpoint.                                                   
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --rules  -r      PATH  Path to a rule pack directory to load.                                    │
-│ --help                 Show this message and exit.                                               │
+│ *  --server        TEXT  Fathom server base URL (e.g., http://127.0.0.1:8080). [required]        │
+│    --token         TEXT  Optional bearer token (defaults to FATHOM_TOKEN env var).               │
+│                          [env var: FATHOM_TOKEN]                                                 │
+│    --help                Show this message and exit.                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```

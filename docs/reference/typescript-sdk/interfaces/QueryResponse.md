@@ -16,4 +16,4 @@ Response from POST /v1/query.
 
 #### Defined in
 
-[src/client.ts:62](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L62)
+[src/client.ts:62](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L62)

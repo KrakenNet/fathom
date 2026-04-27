@@ -16,7 +16,7 @@ Payload for DELETE /v1/facts.
 
 #### Defined in
 
-[src/client.ts:69](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L69)
+[src/client.ts:69](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L69)
 
 ***
 
@@ -26,7 +26,7 @@ Payload for DELETE /v1/facts.
 
 #### Defined in
 
-[src/client.ts:67](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L67)
+[src/client.ts:67](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L67)
 
 ***
 
@@ -36,4 +36,4 @@ Payload for DELETE /v1/facts.
 
 #### Defined in
 
-[src/client.ts:68](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L68)
+[src/client.ts:68](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L68)

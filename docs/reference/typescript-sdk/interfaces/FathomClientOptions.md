@@ -18,7 +18,7 @@ Base URL of the Fathom API server (e.g. "http://localhost:8000").
 
 #### Defined in
 
-[src/client.ts:84](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L84)
+[src/client.ts:84](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L84)
 
 ***
 
@@ -32,7 +32,7 @@ over any `Authorization` header supplied via [headers](FathomClientOptions.md#he
 
 #### Defined in
 
-[src/client.ts:92](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L92)
+[src/client.ts:92](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L92)
 
 ***
 
@@ -44,4 +44,4 @@ Optional headers sent with every request.
 
 #### Defined in
 
-[src/client.ts:86](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L86)
+[src/client.ts:86](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L86)

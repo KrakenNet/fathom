@@ -37,7 +37,7 @@ When constructed from a caught fetch rejection, `status` is set to 0 and
 
 #### Defined in
 
-[src/errors.ts:73](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/errors.ts#L73)
+[src/errors.ts:73](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/errors.ts#L73)
 
 ## Properties
 
@@ -51,7 +51,7 @@ When constructed from a caught fetch rejection, `status` is set to 0 and
 
 #### Defined in
 
-[src/errors.ts:33](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/errors.ts#L33)
+[src/errors.ts:33](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/errors.ts#L33)
 
 ***
 
@@ -107,7 +107,7 @@ node\_modules/.pnpm/typescript@5.9.3/node\_modules/typescript/lib/lib.es5.d.ts:1
 
 #### Defined in
 
-[src/errors.ts:32](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/errors.ts#L32)
+[src/errors.ts:32](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/errors.ts#L32)
 
 ***
 

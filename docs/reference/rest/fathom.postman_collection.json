@@ -1111,9 +1111,240 @@
                   "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
                 }
               ]
+            },
+            {
+              "description": "",
+              "item": [
+                {
+                  "event": [],
+                  "name": "Reload Rules",
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  },
+                  "request": {
+                    "auth": null,
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"ruleset_path\": \"string\",\n  \"ruleset_yaml\": \"string\",\n  \"signature\": \"string\"\n}"
+                    },
+                    "description": {
+                      "content": "Atomically swap the loaded ruleset with a new (optionally signed) one.\n\nSee design C5 / AC-5.1 / AC-5.4\u20135.6 / AC-5.8.",
+                      "type": "text/plain"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "name": "Reload Rules",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "rules",
+                        "reload"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "response": [
+                    {
+                      "_postman_previewlanguage": "json",
+                      "body": "",
+                      "code": 200,
+                      "cookie": [],
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "application/json"
+                        }
+                      ],
+                      "name": "Successful Response",
+                      "originalRequest": {
+                        "body": {
+                          "mode": "raw",
+                          "options": {
+                            "raw": {
+                              "headerFamily": "json",
+                              "language": "json"
+                            }
+                          },
+                          "raw": "{\n  \"ruleset_path\": \"string\",\n  \"ruleset_yaml\": \"string\",\n  \"signature\": \"string\"\n}"
+                        },
+                        "header": [
+                          {
+                            "key": "Content-Type",
+                            "value": "application/json"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "application/json"
+                          }
+                        ],
+                        "method": "POST",
+                        "url": {
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "path": [
+                            "v1",
+                            "rules",
+                            "reload"
+                          ],
+                          "query": [],
+                          "variable": []
+                        }
+                      },
+                      "status": "OK"
+                    },
+                    {
+                      "_postman_previewlanguage": "json",
+                      "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                      "code": 422,
+                      "cookie": [],
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "application/json"
+                        }
+                      ],
+                      "name": "Validation Error",
+                      "originalRequest": {
+                        "body": {
+                          "mode": "raw",
+                          "options": {
+                            "raw": {
+                              "headerFamily": "json",
+                              "language": "json"
+                            }
+                          },
+                          "raw": "{\n  \"ruleset_path\": \"string\",\n  \"ruleset_yaml\": \"string\",\n  \"signature\": \"string\"\n}"
+                        },
+                        "header": [
+                          {
+                            "key": "Content-Type",
+                            "value": "application/json"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "application/json"
+                          }
+                        ],
+                        "method": "POST",
+                        "url": {
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "path": [
+                            "v1",
+                            "rules",
+                            "reload"
+                          ],
+                          "query": [],
+                          "variable": []
+                        }
+                      },
+                      "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                    }
+                  ]
+                }
+              ],
+              "name": "reload"
             }
           ],
           "name": "rules"
+        },
+        {
+          "description": "",
+          "item": [
+            {
+              "event": [],
+              "name": "Status",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": null,
+                "body": {},
+                "description": {
+                  "content": "Report engine liveness info: loaded ruleset hash, version, last-load time.\n\nUnauthenticated (matches ``/health``): status is a liveness/info endpoint\nused by orchestrators and operators to confirm which ruleset is live.",
+                  "type": "text/plain"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "name": "Status",
+                "url": {
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "status"
+                  ],
+                  "query": [],
+                  "variable": []
+                }
+              },
+              "response": [
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"<key>\": \"<value>\"\n}",
+                  "code": 200,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Successful Response",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "status"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "OK"
+                }
+              ]
+            }
+          ],
+          "name": "status"
         },
         {
           "description": "",

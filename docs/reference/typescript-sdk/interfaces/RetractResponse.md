@@ -16,4 +16,4 @@ Response from DELETE /v1/facts.
 
 #### Defined in
 
-[src/client.ts:74](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L74)
+[src/client.ts:74](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L74)

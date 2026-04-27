@@ -16,7 +16,7 @@ Payload for POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:26](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L26)
+[src/client.ts:26](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L26)
 
 ***
 
@@ -26,7 +26,7 @@ Payload for POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:27](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L27)
+[src/client.ts:27](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L27)
 
 ***
 
@@ -36,4 +36,4 @@ Payload for POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:28](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L28)
+[src/client.ts:28](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L28)

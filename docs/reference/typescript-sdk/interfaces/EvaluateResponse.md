@@ -16,7 +16,7 @@ Response from POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:38](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L38)
+[src/client.ts:38](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L38)
 
 ***
 
@@ -26,7 +26,7 @@ Response from POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:33](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L33)
+[src/client.ts:33](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L33)
 
 ***
 
@@ -36,7 +36,7 @@ Response from POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:37](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L37)
+[src/client.ts:37](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L37)
 
 ***
 
@@ -46,7 +46,7 @@ Response from POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:36](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L36)
+[src/client.ts:36](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L36)
 
 ***
 
@@ -56,7 +56,7 @@ Response from POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:34](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L34)
+[src/client.ts:34](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L34)
 
 ***
 
@@ -66,4 +66,4 @@ Response from POST /v1/evaluate.
 
 #### Defined in
 
-[src/client.ts:35](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L35)
+[src/client.ts:35](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L35)

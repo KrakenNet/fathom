@@ -16,7 +16,7 @@ Payload for POST /v1/query.
 
 #### Defined in
 
-[src/client.ts:57](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L57)
+[src/client.ts:57](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L57)
 
 ***
 
@@ -26,7 +26,7 @@ Payload for POST /v1/query.
 
 #### Defined in
 
-[src/client.ts:55](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L55)
+[src/client.ts:55](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L55)
 
 ***
 
@@ -36,4 +36,4 @@ Payload for POST /v1/query.
 
 #### Defined in
 
-[src/client.ts:56](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L56)
+[src/client.ts:56](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L56)

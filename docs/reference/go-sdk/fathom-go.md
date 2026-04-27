@@ -31,7 +31,7 @@ Package fathom provides a Go client for the Fathom policy engine REST API.
 
 
 <a name="AssertFactRequest"></a>
-## type [AssertFactRequest](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L83-L87>)
+## type [AssertFactRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L83-L87>)
 
 AssertFactRequest is the payload for POST /v1/facts.
 
@@ -44,7 +44,7 @@ type AssertFactRequest struct {
 ```
 
 <a name="AssertFactResponse"></a>
-## type [AssertFactResponse](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L90-L92>)
+## type [AssertFactResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L90-L92>)
 
 AssertFactResponse is the response from POST /v1/facts.
 
@@ -55,7 +55,7 @@ type AssertFactResponse struct {
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L14-L18>)
+## type [Client](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L14-L18>)
 
 Client communicates with the Fathom REST API.
 
@@ -66,7 +66,7 @@ type Client struct {
 ```
 
 <a name="NewClient"></a>
-### func [NewClient](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L39>)
+### func [NewClient](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L39>)
 
 ```go
 func NewClient(baseURL string, opts ...ClientOption) *Client
@@ -79,7 +79,7 @@ client := NewClient("http://localhost:8000", WithBearerToken("secret"))
 ```
 
 <a name="Client.AssertFact"></a>
-### func \(\*Client\) [AssertFact](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L95>)
+### func \(\*Client\) [AssertFact](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L95>)
 
 ```go
 func (c *Client) AssertFact(ctx context.Context, req *AssertFactRequest) (*AssertFactResponse, error)
@@ -88,7 +88,7 @@ func (c *Client) AssertFact(ctx context.Context, req *AssertFactRequest) (*Asser
 AssertFact asserts a single fact into the session's working memory.
 
 <a name="Client.Evaluate"></a>
-### func \(\*Client\) [Evaluate](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L74>)
+### func \(\*Client\) [Evaluate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L74>)
 
 ```go
 func (c *Client) Evaluate(ctx context.Context, req *EvaluateRequest) (*EvaluateResponse, error)
@@ -97,7 +97,7 @@ func (c *Client) Evaluate(ctx context.Context, req *EvaluateRequest) (*EvaluateR
 Evaluate sends facts to the engine and returns the policy decision.
 
 <a name="Client.Query"></a>
-### func \(\*Client\) [Query](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L116>)
+### func \(\*Client\) [Query](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L116>)
 
 ```go
 func (c *Client) Query(ctx context.Context, req *QueryRequest) (*QueryResponse, error)
@@ -106,7 +106,7 @@ func (c *Client) Query(ctx context.Context, req *QueryRequest) (*QueryResponse, 
 Query retrieves facts from the session's working memory.
 
 <a name="Client.Retract"></a>
-### func \(\*Client\) [Retract](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L138>)
+### func \(\*Client\) [Retract](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L138>)
 
 ```go
 func (c *Client) Retract(ctx context.Context, req *RetractRequest) (*RetractResponse, error)
@@ -115,7 +115,7 @@ func (c *Client) Retract(ctx context.Context, req *RetractRequest) (*RetractResp
 Retract removes facts matching the request's template \+ optional filter from the session's working memory and returns the number of retractions.
 
 <a name="ClientOption"></a>
-## type [ClientOption](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L21>)
+## type [ClientOption](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L21>)
 
 ClientOption mutates a Client during construction.
 
@@ -124,7 +124,7 @@ type ClientOption func(*Client)
 ```
 
 <a name="WithBearerToken"></a>
-### func [WithBearerToken](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L25>)
+### func [WithBearerToken](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L25>)
 
 ```go
 func WithBearerToken(tok string) ClientOption
@@ -133,7 +133,7 @@ func WithBearerToken(tok string) ClientOption
 WithBearerToken configures the client to send "Authorization: Bearer \<tok\>" on every request.
 
 <a name="WithHTTPClient"></a>
-### func [WithHTTPClient](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L31>)
+### func [WithHTTPClient](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L31>)
 
 ```go
 func WithHTTPClient(hc *http.Client) ClientOption
@@ -142,7 +142,7 @@ func WithHTTPClient(hc *http.Client) ClientOption
 WithHTTPClient overrides the underlying \*http.Client \(useful for tests or custom transports\).
 
 <a name="EvaluateRequest"></a>
-## type [EvaluateRequest](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L57-L61>)
+## type [EvaluateRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L57-L61>)
 
 EvaluateRequest is the payload for POST /v1/evaluate.
 
@@ -155,7 +155,7 @@ type EvaluateRequest struct {
 ```
 
 <a name="EvaluateResponse"></a>
-## type [EvaluateResponse](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L64-L71>)
+## type [EvaluateResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L64-L71>)
 
 EvaluateResponse is the response from POST /v1/evaluate.
 
@@ -171,7 +171,7 @@ type EvaluateResponse struct {
 ```
 
 <a name="FactInput"></a>
-## type [FactInput](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L51-L54>)
+## type [FactInput](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L51-L54>)
 
 FactInput is a single fact assertion used inside EvaluateRequest.
 
@@ -183,7 +183,7 @@ type FactInput struct {
 ```
 
 <a name="QueryRequest"></a>
-## type [QueryRequest](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L104-L108>)
+## type [QueryRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L104-L108>)
 
 QueryRequest is the payload for POST /v1/query.
 
@@ -196,7 +196,7 @@ type QueryRequest struct {
 ```
 
 <a name="QueryResponse"></a>
-## type [QueryResponse](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L111-L113>)
+## type [QueryResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L111-L113>)
 
 QueryResponse is the response from POST /v1/query.
 
@@ -207,7 +207,7 @@ type QueryResponse struct {
 ```
 
 <a name="RetractRequest"></a>
-## type [RetractRequest](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L125-L129>)
+## type [RetractRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L125-L129>)
 
 RetractRequest is the payload for DELETE /v1/facts.
 
@@ -220,13 +220,1560 @@ type RetractRequest struct {
 ```
 
 <a name="RetractResponse"></a>
-## type [RetractResponse](<https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-go/client.go#L132-L134>)
+## type [RetractResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L132-L134>)
 
 RetractResponse is the response from DELETE /v1/facts.
 
 ```go
 type RetractResponse struct {
     RetractedCount int `json:"retracted_count"`
+}
+```
+
+# fathomv1
+
+```go
+import "github.com/KrakenNet/fathom-go/proto"
+```
+
+## Index
+
+- [Constants](<#constants>)
+- [Variables](<#variables>)
+- [func RegisterFathomServiceServer\(s grpc.ServiceRegistrar, srv FathomServiceServer\)](<#RegisterFathomServiceServer>)
+- [type AssertFactRequest](<#AssertFactRequest>)
+  - [func \(\*AssertFactRequest\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#AssertFactRequest.Descriptor>)
+  - [func \(x \*AssertFactRequest\) GetDataJson\(\) string](<#AssertFactRequest.GetDataJson>)
+  - [func \(x \*AssertFactRequest\) GetSessionId\(\) string](<#AssertFactRequest.GetSessionId>)
+  - [func \(x \*AssertFactRequest\) GetTemplate\(\) string](<#AssertFactRequest.GetTemplate>)
+  - [func \(\*AssertFactRequest\) ProtoMessage\(\)](<#AssertFactRequest.ProtoMessage>)
+  - [func \(x \*AssertFactRequest\) ProtoReflect\(\) protoreflect.Message](<#AssertFactRequest.ProtoReflect>)
+  - [func \(x \*AssertFactRequest\) Reset\(\)](<#AssertFactRequest.Reset>)
+  - [func \(x \*AssertFactRequest\) String\(\) string](<#AssertFactRequest.String>)
+- [type AssertFactResponse](<#AssertFactResponse>)
+  - [func \(\*AssertFactResponse\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#AssertFactResponse.Descriptor>)
+  - [func \(x \*AssertFactResponse\) GetSuccess\(\) bool](<#AssertFactResponse.GetSuccess>)
+  - [func \(\*AssertFactResponse\) ProtoMessage\(\)](<#AssertFactResponse.ProtoMessage>)
+  - [func \(x \*AssertFactResponse\) ProtoReflect\(\) protoreflect.Message](<#AssertFactResponse.ProtoReflect>)
+  - [func \(x \*AssertFactResponse\) Reset\(\)](<#AssertFactResponse.Reset>)
+  - [func \(x \*AssertFactResponse\) String\(\) string](<#AssertFactResponse.String>)
+- [type ChangeType](<#ChangeType>)
+  - [func \(ChangeType\) Descriptor\(\) protoreflect.EnumDescriptor](<#ChangeType.Descriptor>)
+  - [func \(x ChangeType\) Enum\(\) \*ChangeType](<#ChangeType.Enum>)
+  - [func \(ChangeType\) EnumDescriptor\(\) \(\[\]byte, \[\]int\)](<#ChangeType.EnumDescriptor>)
+  - [func \(x ChangeType\) Number\(\) protoreflect.EnumNumber](<#ChangeType.Number>)
+  - [func \(x ChangeType\) String\(\) string](<#ChangeType.String>)
+  - [func \(ChangeType\) Type\(\) protoreflect.EnumType](<#ChangeType.Type>)
+- [type EvaluateRequest](<#EvaluateRequest>)
+  - [func \(\*EvaluateRequest\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#EvaluateRequest.Descriptor>)
+  - [func \(x \*EvaluateRequest\) GetFacts\(\) \[\]\*FactInput](<#EvaluateRequest.GetFacts>)
+  - [func \(x \*EvaluateRequest\) GetRuleset\(\) string](<#EvaluateRequest.GetRuleset>)
+  - [func \(x \*EvaluateRequest\) GetSessionId\(\) string](<#EvaluateRequest.GetSessionId>)
+  - [func \(\*EvaluateRequest\) ProtoMessage\(\)](<#EvaluateRequest.ProtoMessage>)
+  - [func \(x \*EvaluateRequest\) ProtoReflect\(\) protoreflect.Message](<#EvaluateRequest.ProtoReflect>)
+  - [func \(x \*EvaluateRequest\) Reset\(\)](<#EvaluateRequest.Reset>)
+  - [func \(x \*EvaluateRequest\) String\(\) string](<#EvaluateRequest.String>)
+- [type EvaluateResponse](<#EvaluateResponse>)
+  - [func \(\*EvaluateResponse\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#EvaluateResponse.Descriptor>)
+  - [func \(x \*EvaluateResponse\) GetDecision\(\) string](<#EvaluateResponse.GetDecision>)
+  - [func \(x \*EvaluateResponse\) GetDurationUs\(\) int64](<#EvaluateResponse.GetDurationUs>)
+  - [func \(x \*EvaluateResponse\) GetModuleTrace\(\) \[\]string](<#EvaluateResponse.GetModuleTrace>)
+  - [func \(x \*EvaluateResponse\) GetReason\(\) string](<#EvaluateResponse.GetReason>)
+  - [func \(x \*EvaluateResponse\) GetRuleTrace\(\) \[\]string](<#EvaluateResponse.GetRuleTrace>)
+  - [func \(\*EvaluateResponse\) ProtoMessage\(\)](<#EvaluateResponse.ProtoMessage>)
+  - [func \(x \*EvaluateResponse\) ProtoReflect\(\) protoreflect.Message](<#EvaluateResponse.ProtoReflect>)
+  - [func \(x \*EvaluateResponse\) Reset\(\)](<#EvaluateResponse.Reset>)
+  - [func \(x \*EvaluateResponse\) String\(\) string](<#EvaluateResponse.String>)
+- [type FactChange](<#FactChange>)
+  - [func \(\*FactChange\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#FactChange.Descriptor>)
+  - [func \(x \*FactChange\) GetChangeType\(\) ChangeType](<#FactChange.GetChangeType>)
+  - [func \(x \*FactChange\) GetDataJson\(\) string](<#FactChange.GetDataJson>)
+  - [func \(x \*FactChange\) GetTemplate\(\) string](<#FactChange.GetTemplate>)
+  - [func \(\*FactChange\) ProtoMessage\(\)](<#FactChange.ProtoMessage>)
+  - [func \(x \*FactChange\) ProtoReflect\(\) protoreflect.Message](<#FactChange.ProtoReflect>)
+  - [func \(x \*FactChange\) Reset\(\)](<#FactChange.Reset>)
+  - [func \(x \*FactChange\) String\(\) string](<#FactChange.String>)
+- [type FactInput](<#FactInput>)
+  - [func \(\*FactInput\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#FactInput.Descriptor>)
+  - [func \(x \*FactInput\) GetDataJson\(\) string](<#FactInput.GetDataJson>)
+  - [func \(x \*FactInput\) GetTemplate\(\) string](<#FactInput.GetTemplate>)
+  - [func \(\*FactInput\) ProtoMessage\(\)](<#FactInput.ProtoMessage>)
+  - [func \(x \*FactInput\) ProtoReflect\(\) protoreflect.Message](<#FactInput.ProtoReflect>)
+  - [func \(x \*FactInput\) Reset\(\)](<#FactInput.Reset>)
+  - [func \(x \*FactInput\) String\(\) string](<#FactInput.String>)
+- [type FathomServiceClient](<#FathomServiceClient>)
+  - [func NewFathomServiceClient\(cc grpc.ClientConnInterface\) FathomServiceClient](<#NewFathomServiceClient>)
+- [type FathomServiceServer](<#FathomServiceServer>)
+- [type FathomService\_SubscribeChangesClient](<#FathomService_SubscribeChangesClient>)
+- [type FathomService\_SubscribeChangesServer](<#FathomService_SubscribeChangesServer>)
+- [type QueryRequest](<#QueryRequest>)
+  - [func \(\*QueryRequest\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#QueryRequest.Descriptor>)
+  - [func \(x \*QueryRequest\) GetFilterJson\(\) string](<#QueryRequest.GetFilterJson>)
+  - [func \(x \*QueryRequest\) GetSessionId\(\) string](<#QueryRequest.GetSessionId>)
+  - [func \(x \*QueryRequest\) GetTemplate\(\) string](<#QueryRequest.GetTemplate>)
+  - [func \(\*QueryRequest\) ProtoMessage\(\)](<#QueryRequest.ProtoMessage>)
+  - [func \(x \*QueryRequest\) ProtoReflect\(\) protoreflect.Message](<#QueryRequest.ProtoReflect>)
+  - [func \(x \*QueryRequest\) Reset\(\)](<#QueryRequest.Reset>)
+  - [func \(x \*QueryRequest\) String\(\) string](<#QueryRequest.String>)
+- [type QueryResponse](<#QueryResponse>)
+  - [func \(\*QueryResponse\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#QueryResponse.Descriptor>)
+  - [func \(x \*QueryResponse\) GetFactsJson\(\) \[\]string](<#QueryResponse.GetFactsJson>)
+  - [func \(\*QueryResponse\) ProtoMessage\(\)](<#QueryResponse.ProtoMessage>)
+  - [func \(x \*QueryResponse\) ProtoReflect\(\) protoreflect.Message](<#QueryResponse.ProtoReflect>)
+  - [func \(x \*QueryResponse\) Reset\(\)](<#QueryResponse.Reset>)
+  - [func \(x \*QueryResponse\) String\(\) string](<#QueryResponse.String>)
+- [type ReloadRequest](<#ReloadRequest>)
+  - [func \(\*ReloadRequest\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#ReloadRequest.Descriptor>)
+  - [func \(x \*ReloadRequest\) GetRulesetPath\(\) string](<#ReloadRequest.GetRulesetPath>)
+  - [func \(x \*ReloadRequest\) GetRulesetYaml\(\) string](<#ReloadRequest.GetRulesetYaml>)
+  - [func \(x \*ReloadRequest\) GetSignature\(\) \[\]byte](<#ReloadRequest.GetSignature>)
+  - [func \(x \*ReloadRequest\) GetSource\(\) isReloadRequest\_Source](<#ReloadRequest.GetSource>)
+  - [func \(\*ReloadRequest\) ProtoMessage\(\)](<#ReloadRequest.ProtoMessage>)
+  - [func \(x \*ReloadRequest\) ProtoReflect\(\) protoreflect.Message](<#ReloadRequest.ProtoReflect>)
+  - [func \(x \*ReloadRequest\) Reset\(\)](<#ReloadRequest.Reset>)
+  - [func \(x \*ReloadRequest\) String\(\) string](<#ReloadRequest.String>)
+- [type ReloadRequest\_RulesetPath](<#ReloadRequest_RulesetPath>)
+- [type ReloadRequest\_RulesetYaml](<#ReloadRequest_RulesetYaml>)
+- [type ReloadResponse](<#ReloadResponse>)
+  - [func \(\*ReloadResponse\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#ReloadResponse.Descriptor>)
+  - [func \(x \*ReloadResponse\) GetAttestationToken\(\) string](<#ReloadResponse.GetAttestationToken>)
+  - [func \(x \*ReloadResponse\) GetRulesetHashAfter\(\) string](<#ReloadResponse.GetRulesetHashAfter>)
+  - [func \(x \*ReloadResponse\) GetRulesetHashBefore\(\) string](<#ReloadResponse.GetRulesetHashBefore>)
+  - [func \(\*ReloadResponse\) ProtoMessage\(\)](<#ReloadResponse.ProtoMessage>)
+  - [func \(x \*ReloadResponse\) ProtoReflect\(\) protoreflect.Message](<#ReloadResponse.ProtoReflect>)
+  - [func \(x \*ReloadResponse\) Reset\(\)](<#ReloadResponse.Reset>)
+  - [func \(x \*ReloadResponse\) String\(\) string](<#ReloadResponse.String>)
+- [type RetractRequest](<#RetractRequest>)
+  - [func \(\*RetractRequest\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#RetractRequest.Descriptor>)
+  - [func \(x \*RetractRequest\) GetFilterJson\(\) string](<#RetractRequest.GetFilterJson>)
+  - [func \(x \*RetractRequest\) GetSessionId\(\) string](<#RetractRequest.GetSessionId>)
+  - [func \(x \*RetractRequest\) GetTemplate\(\) string](<#RetractRequest.GetTemplate>)
+  - [func \(\*RetractRequest\) ProtoMessage\(\)](<#RetractRequest.ProtoMessage>)
+  - [func \(x \*RetractRequest\) ProtoReflect\(\) protoreflect.Message](<#RetractRequest.ProtoReflect>)
+  - [func \(x \*RetractRequest\) Reset\(\)](<#RetractRequest.Reset>)
+  - [func \(x \*RetractRequest\) String\(\) string](<#RetractRequest.String>)
+- [type RetractResponse](<#RetractResponse>)
+  - [func \(\*RetractResponse\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#RetractResponse.Descriptor>)
+  - [func \(x \*RetractResponse\) GetRetractedCount\(\) int32](<#RetractResponse.GetRetractedCount>)
+  - [func \(\*RetractResponse\) ProtoMessage\(\)](<#RetractResponse.ProtoMessage>)
+  - [func \(x \*RetractResponse\) ProtoReflect\(\) protoreflect.Message](<#RetractResponse.ProtoReflect>)
+  - [func \(x \*RetractResponse\) Reset\(\)](<#RetractResponse.Reset>)
+  - [func \(x \*RetractResponse\) String\(\) string](<#RetractResponse.String>)
+- [type SubscribeRequest](<#SubscribeRequest>)
+  - [func \(\*SubscribeRequest\) Descriptor\(\) \(\[\]byte, \[\]int\)](<#SubscribeRequest.Descriptor>)
+  - [func \(x \*SubscribeRequest\) GetSessionId\(\) string](<#SubscribeRequest.GetSessionId>)
+  - [func \(\*SubscribeRequest\) ProtoMessage\(\)](<#SubscribeRequest.ProtoMessage>)
+  - [func \(x \*SubscribeRequest\) ProtoReflect\(\) protoreflect.Message](<#SubscribeRequest.ProtoReflect>)
+  - [func \(x \*SubscribeRequest\) Reset\(\)](<#SubscribeRequest.Reset>)
+  - [func \(x \*SubscribeRequest\) String\(\) string](<#SubscribeRequest.String>)
+- [type UnimplementedFathomServiceServer](<#UnimplementedFathomServiceServer>)
+  - [func \(UnimplementedFathomServiceServer\) AssertFact\(context.Context, \*AssertFactRequest\) \(\*AssertFactResponse, error\)](<#UnimplementedFathomServiceServer.AssertFact>)
+  - [func \(UnimplementedFathomServiceServer\) Evaluate\(context.Context, \*EvaluateRequest\) \(\*EvaluateResponse, error\)](<#UnimplementedFathomServiceServer.Evaluate>)
+  - [func \(UnimplementedFathomServiceServer\) Query\(context.Context, \*QueryRequest\) \(\*QueryResponse, error\)](<#UnimplementedFathomServiceServer.Query>)
+  - [func \(UnimplementedFathomServiceServer\) Reload\(context.Context, \*ReloadRequest\) \(\*ReloadResponse, error\)](<#UnimplementedFathomServiceServer.Reload>)
+  - [func \(UnimplementedFathomServiceServer\) Retract\(context.Context, \*RetractRequest\) \(\*RetractResponse, error\)](<#UnimplementedFathomServiceServer.Retract>)
+  - [func \(UnimplementedFathomServiceServer\) SubscribeChanges\(\*SubscribeRequest, grpc.ServerStreamingServer\[FactChange\]\) error](<#UnimplementedFathomServiceServer.SubscribeChanges>)
+- [type UnsafeFathomServiceServer](<#UnsafeFathomServiceServer>)
+
+
+## Constants
+
+<a name="FathomService_Evaluate_FullMethodName"></a>
+
+```go
+const (
+    FathomService_Evaluate_FullMethodName         = "/fathom.v1.FathomService/Evaluate"
+    FathomService_AssertFact_FullMethodName       = "/fathom.v1.FathomService/AssertFact"
+    FathomService_Query_FullMethodName            = "/fathom.v1.FathomService/Query"
+    FathomService_Retract_FullMethodName          = "/fathom.v1.FathomService/Retract"
+    FathomService_SubscribeChanges_FullMethodName = "/fathom.v1.FathomService/SubscribeChanges"
+    FathomService_Reload_FullMethodName           = "/fathom.v1.FathomService/Reload"
+)
+```
+
+## Variables
+
+<a name="ChangeType_name"></a>Enum value maps for ChangeType.
+
+```go
+var (
+    ChangeType_name = map[int32]string{
+        0:  "CHANGE_TYPE_UNSPECIFIED",
+        1:  "ASSERT",
+        2:  "RETRACT",
+    }
+    ChangeType_value = map[string]int32{
+        "CHANGE_TYPE_UNSPECIFIED": 0,
+        "ASSERT":                  1,
+        "RETRACT":                 2,
+    }
+)
+```
+
+<a name="FathomService_ServiceDesc"></a>FathomService\_ServiceDesc is the grpc.ServiceDesc for FathomService service. It's only intended for direct use with grpc.RegisterService, and not to be introspected or modified \(even as a copy\)
+
+```go
+var FathomService_ServiceDesc = grpc.ServiceDesc{
+    ServiceName: "fathom.v1.FathomService",
+    HandlerType: (*FathomServiceServer)(nil),
+    Methods: []grpc.MethodDesc{
+        {
+            MethodName: "Evaluate",
+            Handler:    _FathomService_Evaluate_Handler,
+        },
+        {
+            MethodName: "AssertFact",
+            Handler:    _FathomService_AssertFact_Handler,
+        },
+        {
+            MethodName: "Query",
+            Handler:    _FathomService_Query_Handler,
+        },
+        {
+            MethodName: "Retract",
+            Handler:    _FathomService_Retract_Handler,
+        },
+        {
+            MethodName: "Reload",
+            Handler:    _FathomService_Reload_Handler,
+        },
+    },
+    Streams: []grpc.StreamDesc{
+        {
+            StreamName:    "SubscribeChanges",
+            Handler:       _FathomService_SubscribeChanges_Handler,
+            ServerStreams: true,
+        },
+    },
+    Metadata: "fathom.proto",
+}
+```
+
+<a name="File_fathom_proto"></a>
+
+```go
+var File_fathom_proto protoreflect.FileDescriptor
+```
+
+<a name="RegisterFathomServiceServer"></a>
+## func [RegisterFathomServiceServer](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L185>)
+
+```go
+func RegisterFathomServiceServer(s grpc.ServiceRegistrar, srv FathomServiceServer)
+```
+
+
+
+<a name="AssertFactRequest"></a>
+## type [AssertFactRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L268-L276>)
+
+
+
+```go
+type AssertFactRequest struct {
+    SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+    Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+    // JSON-encoded slot data.
+    DataJson string `protobuf:"bytes,3,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="AssertFactRequest.Descriptor"></a>
+### func \(\*AssertFactRequest\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L304>)
+
+```go
+func (*AssertFactRequest) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use AssertFactRequest.ProtoReflect.Descriptor instead.
+
+<a name="AssertFactRequest.GetDataJson"></a>
+### func \(\*AssertFactRequest\) [GetDataJson](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L322>)
+
+```go
+func (x *AssertFactRequest) GetDataJson() string
+```
+
+
+
+<a name="AssertFactRequest.GetSessionId"></a>
+### func \(\*AssertFactRequest\) [GetSessionId](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L308>)
+
+```go
+func (x *AssertFactRequest) GetSessionId() string
+```
+
+
+
+<a name="AssertFactRequest.GetTemplate"></a>
+### func \(\*AssertFactRequest\) [GetTemplate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L315>)
+
+```go
+func (x *AssertFactRequest) GetTemplate() string
+```
+
+
+
+<a name="AssertFactRequest.ProtoMessage"></a>
+### func \(\*AssertFactRequest\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L289>)
+
+```go
+func (*AssertFactRequest) ProtoMessage()
+```
+
+
+
+<a name="AssertFactRequest.ProtoReflect"></a>
+### func \(\*AssertFactRequest\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L291>)
+
+```go
+func (x *AssertFactRequest) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="AssertFactRequest.Reset"></a>
+### func \(\*AssertFactRequest\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L278>)
+
+```go
+func (x *AssertFactRequest) Reset()
+```
+
+
+
+<a name="AssertFactRequest.String"></a>
+### func \(\*AssertFactRequest\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L285>)
+
+```go
+func (x *AssertFactRequest) String() string
+```
+
+
+
+<a name="AssertFactResponse"></a>
+## type [AssertFactResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L329-L334>)
+
+
+
+```go
+type AssertFactResponse struct {
+    Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="AssertFactResponse.Descriptor"></a>
+### func \(\*AssertFactResponse\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L362>)
+
+```go
+func (*AssertFactResponse) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use AssertFactResponse.ProtoReflect.Descriptor instead.
+
+<a name="AssertFactResponse.GetSuccess"></a>
+### func \(\*AssertFactResponse\) [GetSuccess](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L366>)
+
+```go
+func (x *AssertFactResponse) GetSuccess() bool
+```
+
+
+
+<a name="AssertFactResponse.ProtoMessage"></a>
+### func \(\*AssertFactResponse\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L347>)
+
+```go
+func (*AssertFactResponse) ProtoMessage()
+```
+
+
+
+<a name="AssertFactResponse.ProtoReflect"></a>
+### func \(\*AssertFactResponse\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L349>)
+
+```go
+func (x *AssertFactResponse) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="AssertFactResponse.Reset"></a>
+### func \(\*AssertFactResponse\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L336>)
+
+```go
+func (x *AssertFactResponse) Reset()
+```
+
+
+
+<a name="AssertFactResponse.String"></a>
+### func \(\*AssertFactResponse\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L343>)
+
+```go
+func (x *AssertFactResponse) String() string
+```
+
+
+
+<a name="ChangeType"></a>
+## type [ChangeType](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L30>)
+
+
+
+```go
+type ChangeType int32
+```
+
+<a name="ChangeType_CHANGE_TYPE_UNSPECIFIED"></a>
+
+```go
+const (
+    ChangeType_CHANGE_TYPE_UNSPECIFIED ChangeType = 0
+    ChangeType_ASSERT                  ChangeType = 1
+    ChangeType_RETRACT                 ChangeType = 2
+)
+```
+
+<a name="ChangeType.Descriptor"></a>
+### func \(ChangeType\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L62>)
+
+```go
+func (ChangeType) Descriptor() protoreflect.EnumDescriptor
+```
+
+
+
+<a name="ChangeType.Enum"></a>
+### func \(ChangeType\) [Enum](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L52>)
+
+```go
+func (x ChangeType) Enum() *ChangeType
+```
+
+
+
+<a name="ChangeType.EnumDescriptor"></a>
+### func \(ChangeType\) [EnumDescriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L75>)
+
+```go
+func (ChangeType) EnumDescriptor() ([]byte, []int)
+```
+
+Deprecated: Use ChangeType.Descriptor instead.
+
+<a name="ChangeType.Number"></a>
+### func \(ChangeType\) [Number](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L70>)
+
+```go
+func (x ChangeType) Number() protoreflect.EnumNumber
+```
+
+
+
+<a name="ChangeType.String"></a>
+### func \(ChangeType\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L58>)
+
+```go
+func (x ChangeType) String() string
+```
+
+
+
+<a name="ChangeType.Type"></a>
+### func \(ChangeType\) [Type](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L66>)
+
+```go
+func (ChangeType) Type() protoreflect.EnumType
+```
+
+
+
+<a name="EvaluateRequest"></a>
+## type [EvaluateRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L132-L139>)
+
+
+
+```go
+type EvaluateRequest struct {
+    SessionId string       `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+    Ruleset   string       `protobuf:"bytes,2,opt,name=ruleset,proto3" json:"ruleset,omitempty"`
+    Facts     []*FactInput `protobuf:"bytes,3,rep,name=facts,proto3" json:"facts,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="EvaluateRequest.Descriptor"></a>
+### func \(\*EvaluateRequest\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L167>)
+
+```go
+func (*EvaluateRequest) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use EvaluateRequest.ProtoReflect.Descriptor instead.
+
+<a name="EvaluateRequest.GetFacts"></a>
+### func \(\*EvaluateRequest\) [GetFacts](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L185>)
+
+```go
+func (x *EvaluateRequest) GetFacts() []*FactInput
+```
+
+
+
+<a name="EvaluateRequest.GetRuleset"></a>
+### func \(\*EvaluateRequest\) [GetRuleset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L178>)
+
+```go
+func (x *EvaluateRequest) GetRuleset() string
+```
+
+
+
+<a name="EvaluateRequest.GetSessionId"></a>
+### func \(\*EvaluateRequest\) [GetSessionId](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L171>)
+
+```go
+func (x *EvaluateRequest) GetSessionId() string
+```
+
+
+
+<a name="EvaluateRequest.ProtoMessage"></a>
+### func \(\*EvaluateRequest\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L152>)
+
+```go
+func (*EvaluateRequest) ProtoMessage()
+```
+
+
+
+<a name="EvaluateRequest.ProtoReflect"></a>
+### func \(\*EvaluateRequest\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L154>)
+
+```go
+func (x *EvaluateRequest) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="EvaluateRequest.Reset"></a>
+### func \(\*EvaluateRequest\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L141>)
+
+```go
+func (x *EvaluateRequest) Reset()
+```
+
+
+
+<a name="EvaluateRequest.String"></a>
+### func \(\*EvaluateRequest\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L148>)
+
+```go
+func (x *EvaluateRequest) String() string
+```
+
+
+
+<a name="EvaluateResponse"></a>
+## type [EvaluateResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L192-L201>)
+
+
+
+```go
+type EvaluateResponse struct {
+    Decision    string   `protobuf:"bytes,1,opt,name=decision,proto3" json:"decision,omitempty"`
+    Reason      string   `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+    RuleTrace   []string `protobuf:"bytes,3,rep,name=rule_trace,json=ruleTrace,proto3" json:"rule_trace,omitempty"`
+    ModuleTrace []string `protobuf:"bytes,4,rep,name=module_trace,json=moduleTrace,proto3" json:"module_trace,omitempty"`
+    DurationUs  int64    `protobuf:"varint,5,opt,name=duration_us,json=durationUs,proto3" json:"duration_us,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="EvaluateResponse.Descriptor"></a>
+### func \(\*EvaluateResponse\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L229>)
+
+```go
+func (*EvaluateResponse) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use EvaluateResponse.ProtoReflect.Descriptor instead.
+
+<a name="EvaluateResponse.GetDecision"></a>
+### func \(\*EvaluateResponse\) [GetDecision](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L233>)
+
+```go
+func (x *EvaluateResponse) GetDecision() string
+```
+
+
+
+<a name="EvaluateResponse.GetDurationUs"></a>
+### func \(\*EvaluateResponse\) [GetDurationUs](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L261>)
+
+```go
+func (x *EvaluateResponse) GetDurationUs() int64
+```
+
+
+
+<a name="EvaluateResponse.GetModuleTrace"></a>
+### func \(\*EvaluateResponse\) [GetModuleTrace](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L254>)
+
+```go
+func (x *EvaluateResponse) GetModuleTrace() []string
+```
+
+
+
+<a name="EvaluateResponse.GetReason"></a>
+### func \(\*EvaluateResponse\) [GetReason](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L240>)
+
+```go
+func (x *EvaluateResponse) GetReason() string
+```
+
+
+
+<a name="EvaluateResponse.GetRuleTrace"></a>
+### func \(\*EvaluateResponse\) [GetRuleTrace](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L247>)
+
+```go
+func (x *EvaluateResponse) GetRuleTrace() []string
+```
+
+
+
+<a name="EvaluateResponse.ProtoMessage"></a>
+### func \(\*EvaluateResponse\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L214>)
+
+```go
+func (*EvaluateResponse) ProtoMessage()
+```
+
+
+
+<a name="EvaluateResponse.ProtoReflect"></a>
+### func \(\*EvaluateResponse\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L216>)
+
+```go
+func (x *EvaluateResponse) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="EvaluateResponse.Reset"></a>
+### func \(\*EvaluateResponse\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L203>)
+
+```go
+func (x *EvaluateResponse) Reset()
+```
+
+
+
+<a name="EvaluateResponse.String"></a>
+### func \(\*EvaluateResponse\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L210>)
+
+```go
+func (x *EvaluateResponse) String() string
+```
+
+
+
+<a name="FactChange"></a>
+## type [FactChange](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L628-L636>)
+
+
+
+```go
+type FactChange struct {
+    ChangeType ChangeType `protobuf:"varint,1,opt,name=change_type,json=changeType,proto3,enum=fathom.v1.ChangeType" json:"change_type,omitempty"`
+    Template   string     `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+    // JSON-encoded slot data of the changed fact.
+    DataJson string `protobuf:"bytes,3,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="FactChange.Descriptor"></a>
+### func \(\*FactChange\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L664>)
+
+```go
+func (*FactChange) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use FactChange.ProtoReflect.Descriptor instead.
+
+<a name="FactChange.GetChangeType"></a>
+### func \(\*FactChange\) [GetChangeType](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L668>)
+
+```go
+func (x *FactChange) GetChangeType() ChangeType
+```
+
+
+
+<a name="FactChange.GetDataJson"></a>
+### func \(\*FactChange\) [GetDataJson](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L682>)
+
+```go
+func (x *FactChange) GetDataJson() string
+```
+
+
+
+<a name="FactChange.GetTemplate"></a>
+### func \(\*FactChange\) [GetTemplate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L675>)
+
+```go
+func (x *FactChange) GetTemplate() string
+```
+
+
+
+<a name="FactChange.ProtoMessage"></a>
+### func \(\*FactChange\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L649>)
+
+```go
+func (*FactChange) ProtoMessage()
+```
+
+
+
+<a name="FactChange.ProtoReflect"></a>
+### func \(\*FactChange\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L651>)
+
+```go
+func (x *FactChange) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="FactChange.Reset"></a>
+### func \(\*FactChange\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L638>)
+
+```go
+func (x *FactChange) Reset()
+```
+
+
+
+<a name="FactChange.String"></a>
+### func \(\*FactChange\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L645>)
+
+```go
+func (x *FactChange) String() string
+```
+
+
+
+<a name="FactInput"></a>
+## type [FactInput](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L79-L86>)
+
+
+
+```go
+type FactInput struct {
+    Template string `protobuf:"bytes,1,opt,name=template,proto3" json:"template,omitempty"`
+    // JSON-encoded slot data (e.g. {"tool_name": "bash", "agent_id": "a1"}).
+    DataJson string `protobuf:"bytes,2,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="FactInput.Descriptor"></a>
+### func \(\*FactInput\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L114>)
+
+```go
+func (*FactInput) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use FactInput.ProtoReflect.Descriptor instead.
+
+<a name="FactInput.GetDataJson"></a>
+### func \(\*FactInput\) [GetDataJson](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L125>)
+
+```go
+func (x *FactInput) GetDataJson() string
+```
+
+
+
+<a name="FactInput.GetTemplate"></a>
+### func \(\*FactInput\) [GetTemplate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L118>)
+
+```go
+func (x *FactInput) GetTemplate() string
+```
+
+
+
+<a name="FactInput.ProtoMessage"></a>
+### func \(\*FactInput\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L99>)
+
+```go
+func (*FactInput) ProtoMessage()
+```
+
+
+
+<a name="FactInput.ProtoReflect"></a>
+### func \(\*FactInput\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L101>)
+
+```go
+func (x *FactInput) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="FactInput.Reset"></a>
+### func \(\*FactInput\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L88>)
+
+```go
+func (x *FactInput) Reset()
+```
+
+
+
+<a name="FactInput.String"></a>
+### func \(\*FactInput\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L95>)
+
+```go
+func (x *FactInput) String() string
+```
+
+
+
+<a name="FathomServiceClient"></a>
+## type [FathomServiceClient](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L39-L52>)
+
+FathomServiceClient is the client API for FathomService service.
+
+For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+
+```go
+type FathomServiceClient interface {
+    // Evaluate asserted facts against loaded rules and return a decision.
+    Evaluate(ctx context.Context, in *EvaluateRequest, opts ...grpc.CallOption) (*EvaluateResponse, error)
+    // Assert one or more facts into working memory.
+    AssertFact(ctx context.Context, in *AssertFactRequest, opts ...grpc.CallOption) (*AssertFactResponse, error)
+    // Query working memory for facts matching a template and optional filter.
+    Query(ctx context.Context, in *QueryRequest, opts ...grpc.CallOption) (*QueryResponse, error)
+    // Retract facts matching a template and optional filter.
+    Retract(ctx context.Context, in *RetractRequest, opts ...grpc.CallOption) (*RetractResponse, error)
+    // Stream working-memory changes as they occur during evaluation.
+    SubscribeChanges(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FactChange], error)
+    // Hot-reload the ruleset from a path or inline YAML.
+    Reload(ctx context.Context, in *ReloadRequest, opts ...grpc.CallOption) (*ReloadResponse, error)
+}
+```
+
+<a name="NewFathomServiceClient"></a>
+### func [NewFathomServiceClient](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L58>)
+
+```go
+func NewFathomServiceClient(cc grpc.ClientConnInterface) FathomServiceClient
+```
+
+
+
+<a name="FathomServiceServer"></a>
+## type [FathomServiceServer](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L134-L148>)
+
+FathomServiceServer is the server API for FathomService service. All implementations must embed UnimplementedFathomServiceServer for forward compatibility.
+
+```go
+type FathomServiceServer interface {
+    // Evaluate asserted facts against loaded rules and return a decision.
+    Evaluate(context.Context, *EvaluateRequest) (*EvaluateResponse, error)
+    // Assert one or more facts into working memory.
+    AssertFact(context.Context, *AssertFactRequest) (*AssertFactResponse, error)
+    // Query working memory for facts matching a template and optional filter.
+    Query(context.Context, *QueryRequest) (*QueryResponse, error)
+    // Retract facts matching a template and optional filter.
+    Retract(context.Context, *RetractRequest) (*RetractResponse, error)
+    // Stream working-memory changes as they occur during evaluation.
+    SubscribeChanges(*SubscribeRequest, grpc.ServerStreamingServer[FactChange]) error
+    // Hot-reload the ruleset from a path or inline YAML.
+    Reload(context.Context, *ReloadRequest) (*ReloadResponse, error)
+    // contains filtered or unexported methods
+}
+```
+
+<a name="FathomService_SubscribeChangesClient"></a>
+## type [FathomService\\\_SubscribeChangesClient](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L119>)
+
+This type alias is provided for backwards compatibility with existing code that references the prior non\-generic stream type by name.
+
+```go
+type FathomService_SubscribeChangesClient = grpc.ServerStreamingClient[FactChange]
+```
+
+<a name="FathomService_SubscribeChangesServer"></a>
+## type [FathomService\\\_SubscribeChangesServer](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L277>)
+
+This type alias is provided for backwards compatibility with existing code that references the prior non\-generic stream type by name.
+
+```go
+type FathomService_SubscribeChangesServer = grpc.ServerStreamingServer[FactChange]
+```
+
+<a name="QueryRequest"></a>
+## type [QueryRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L373-L381>)
+
+
+
+```go
+type QueryRequest struct {
+    SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+    Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+    // Optional JSON-encoded filter (e.g. {"agent_id": "a1"}).
+    FilterJson string `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="QueryRequest.Descriptor"></a>
+### func \(\*QueryRequest\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L409>)
+
+```go
+func (*QueryRequest) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use QueryRequest.ProtoReflect.Descriptor instead.
+
+<a name="QueryRequest.GetFilterJson"></a>
+### func \(\*QueryRequest\) [GetFilterJson](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L427>)
+
+```go
+func (x *QueryRequest) GetFilterJson() string
+```
+
+
+
+<a name="QueryRequest.GetSessionId"></a>
+### func \(\*QueryRequest\) [GetSessionId](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L413>)
+
+```go
+func (x *QueryRequest) GetSessionId() string
+```
+
+
+
+<a name="QueryRequest.GetTemplate"></a>
+### func \(\*QueryRequest\) [GetTemplate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L420>)
+
+```go
+func (x *QueryRequest) GetTemplate() string
+```
+
+
+
+<a name="QueryRequest.ProtoMessage"></a>
+### func \(\*QueryRequest\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L394>)
+
+```go
+func (*QueryRequest) ProtoMessage()
+```
+
+
+
+<a name="QueryRequest.ProtoReflect"></a>
+### func \(\*QueryRequest\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L396>)
+
+```go
+func (x *QueryRequest) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="QueryRequest.Reset"></a>
+### func \(\*QueryRequest\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L383>)
+
+```go
+func (x *QueryRequest) Reset()
+```
+
+
+
+<a name="QueryRequest.String"></a>
+### func \(\*QueryRequest\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L390>)
+
+```go
+func (x *QueryRequest) String() string
+```
+
+
+
+<a name="QueryResponse"></a>
+## type [QueryResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L434-L440>)
+
+
+
+```go
+type QueryResponse struct {
+
+    // Each entry is a JSON-encoded dict representing one fact.
+    FactsJson []string `protobuf:"bytes,1,rep,name=facts_json,json=factsJson,proto3" json:"facts_json,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="QueryResponse.Descriptor"></a>
+### func \(\*QueryResponse\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L468>)
+
+```go
+func (*QueryResponse) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use QueryResponse.ProtoReflect.Descriptor instead.
+
+<a name="QueryResponse.GetFactsJson"></a>
+### func \(\*QueryResponse\) [GetFactsJson](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L472>)
+
+```go
+func (x *QueryResponse) GetFactsJson() []string
+```
+
+
+
+<a name="QueryResponse.ProtoMessage"></a>
+### func \(\*QueryResponse\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L453>)
+
+```go
+func (*QueryResponse) ProtoMessage()
+```
+
+
+
+<a name="QueryResponse.ProtoReflect"></a>
+### func \(\*QueryResponse\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L455>)
+
+```go
+func (x *QueryResponse) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="QueryResponse.Reset"></a>
+### func \(\*QueryResponse\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L442>)
+
+```go
+func (x *QueryResponse) Reset()
+```
+
+
+
+<a name="QueryResponse.String"></a>
+### func \(\*QueryResponse\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L449>)
+
+```go
+func (x *QueryResponse) String() string
+```
+
+
+
+<a name="ReloadRequest"></a>
+## type [ReloadRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L689-L699>)
+
+
+
+```go
+type ReloadRequest struct {
+
+    // Types that are valid to be assigned to Source:
+    //
+    //	*ReloadRequest_RulesetPath
+    //	*ReloadRequest_RulesetYaml
+    Source    isReloadRequest_Source `protobuf_oneof:"source"`
+    Signature []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="ReloadRequest.Descriptor"></a>
+### func \(\*ReloadRequest\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L727>)
+
+```go
+func (*ReloadRequest) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use ReloadRequest.ProtoReflect.Descriptor instead.
+
+<a name="ReloadRequest.GetRulesetPath"></a>
+### func \(\*ReloadRequest\) [GetRulesetPath](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L738>)
+
+```go
+func (x *ReloadRequest) GetRulesetPath() string
+```
+
+
+
+<a name="ReloadRequest.GetRulesetYaml"></a>
+### func \(\*ReloadRequest\) [GetRulesetYaml](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L747>)
+
+```go
+func (x *ReloadRequest) GetRulesetYaml() string
+```
+
+
+
+<a name="ReloadRequest.GetSignature"></a>
+### func \(\*ReloadRequest\) [GetSignature](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L756>)
+
+```go
+func (x *ReloadRequest) GetSignature() []byte
+```
+
+
+
+<a name="ReloadRequest.GetSource"></a>
+### func \(\*ReloadRequest\) [GetSource](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L731>)
+
+```go
+func (x *ReloadRequest) GetSource() isReloadRequest_Source
+```
+
+
+
+<a name="ReloadRequest.ProtoMessage"></a>
+### func \(\*ReloadRequest\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L712>)
+
+```go
+func (*ReloadRequest) ProtoMessage()
+```
+
+
+
+<a name="ReloadRequest.ProtoReflect"></a>
+### func \(\*ReloadRequest\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L714>)
+
+```go
+func (x *ReloadRequest) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="ReloadRequest.Reset"></a>
+### func \(\*ReloadRequest\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L701>)
+
+```go
+func (x *ReloadRequest) Reset()
+```
+
+
+
+<a name="ReloadRequest.String"></a>
+### func \(\*ReloadRequest\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L708>)
+
+```go
+func (x *ReloadRequest) String() string
+```
+
+
+
+<a name="ReloadRequest_RulesetPath"></a>
+## type [ReloadRequest\\\_RulesetPath](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L767-L769>)
+
+
+
+```go
+type ReloadRequest_RulesetPath struct {
+    RulesetPath string `protobuf:"bytes,1,opt,name=ruleset_path,json=rulesetPath,proto3,oneof"`
+}
+```
+
+<a name="ReloadRequest_RulesetYaml"></a>
+## type [ReloadRequest\\\_RulesetYaml](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L771-L773>)
+
+
+
+```go
+type ReloadRequest_RulesetYaml struct {
+    RulesetYaml string `protobuf:"bytes,2,opt,name=ruleset_yaml,json=rulesetYaml,proto3,oneof"`
+}
+```
+
+<a name="ReloadResponse"></a>
+## type [ReloadResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L779-L786>)
+
+
+
+```go
+type ReloadResponse struct {
+    RulesetHashBefore string `protobuf:"bytes,1,opt,name=ruleset_hash_before,json=rulesetHashBefore,proto3" json:"ruleset_hash_before,omitempty"`
+    RulesetHashAfter  string `protobuf:"bytes,2,opt,name=ruleset_hash_after,json=rulesetHashAfter,proto3" json:"ruleset_hash_after,omitempty"`
+    AttestationToken  string `protobuf:"bytes,3,opt,name=attestation_token,json=attestationToken,proto3" json:"attestation_token,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="ReloadResponse.Descriptor"></a>
+### func \(\*ReloadResponse\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L814>)
+
+```go
+func (*ReloadResponse) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use ReloadResponse.ProtoReflect.Descriptor instead.
+
+<a name="ReloadResponse.GetAttestationToken"></a>
+### func \(\*ReloadResponse\) [GetAttestationToken](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L832>)
+
+```go
+func (x *ReloadResponse) GetAttestationToken() string
+```
+
+
+
+<a name="ReloadResponse.GetRulesetHashAfter"></a>
+### func \(\*ReloadResponse\) [GetRulesetHashAfter](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L825>)
+
+```go
+func (x *ReloadResponse) GetRulesetHashAfter() string
+```
+
+
+
+<a name="ReloadResponse.GetRulesetHashBefore"></a>
+### func \(\*ReloadResponse\) [GetRulesetHashBefore](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L818>)
+
+```go
+func (x *ReloadResponse) GetRulesetHashBefore() string
+```
+
+
+
+<a name="ReloadResponse.ProtoMessage"></a>
+### func \(\*ReloadResponse\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L799>)
+
+```go
+func (*ReloadResponse) ProtoMessage()
+```
+
+
+
+<a name="ReloadResponse.ProtoReflect"></a>
+### func \(\*ReloadResponse\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L801>)
+
+```go
+func (x *ReloadResponse) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="ReloadResponse.Reset"></a>
+### func \(\*ReloadResponse\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L788>)
+
+```go
+func (x *ReloadResponse) Reset()
+```
+
+
+
+<a name="ReloadResponse.String"></a>
+### func \(\*ReloadResponse\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L795>)
+
+```go
+func (x *ReloadResponse) String() string
+```
+
+
+
+<a name="RetractRequest"></a>
+## type [RetractRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L479-L487>)
+
+
+
+```go
+type RetractRequest struct {
+    SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+    Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+    // Optional JSON-encoded filter.
+    FilterJson string `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="RetractRequest.Descriptor"></a>
+### func \(\*RetractRequest\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L515>)
+
+```go
+func (*RetractRequest) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use RetractRequest.ProtoReflect.Descriptor instead.
+
+<a name="RetractRequest.GetFilterJson"></a>
+### func \(\*RetractRequest\) [GetFilterJson](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L533>)
+
+```go
+func (x *RetractRequest) GetFilterJson() string
+```
+
+
+
+<a name="RetractRequest.GetSessionId"></a>
+### func \(\*RetractRequest\) [GetSessionId](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L519>)
+
+```go
+func (x *RetractRequest) GetSessionId() string
+```
+
+
+
+<a name="RetractRequest.GetTemplate"></a>
+### func \(\*RetractRequest\) [GetTemplate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L526>)
+
+```go
+func (x *RetractRequest) GetTemplate() string
+```
+
+
+
+<a name="RetractRequest.ProtoMessage"></a>
+### func \(\*RetractRequest\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L500>)
+
+```go
+func (*RetractRequest) ProtoMessage()
+```
+
+
+
+<a name="RetractRequest.ProtoReflect"></a>
+### func \(\*RetractRequest\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L502>)
+
+```go
+func (x *RetractRequest) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="RetractRequest.Reset"></a>
+### func \(\*RetractRequest\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L489>)
+
+```go
+func (x *RetractRequest) Reset()
+```
+
+
+
+<a name="RetractRequest.String"></a>
+### func \(\*RetractRequest\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L496>)
+
+```go
+func (x *RetractRequest) String() string
+```
+
+
+
+<a name="RetractResponse"></a>
+## type [RetractResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L540-L545>)
+
+
+
+```go
+type RetractResponse struct {
+    RetractedCount int32 `protobuf:"varint,1,opt,name=retracted_count,json=retractedCount,proto3" json:"retracted_count,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="RetractResponse.Descriptor"></a>
+### func \(\*RetractResponse\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L573>)
+
+```go
+func (*RetractResponse) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use RetractResponse.ProtoReflect.Descriptor instead.
+
+<a name="RetractResponse.GetRetractedCount"></a>
+### func \(\*RetractResponse\) [GetRetractedCount](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L577>)
+
+```go
+func (x *RetractResponse) GetRetractedCount() int32
+```
+
+
+
+<a name="RetractResponse.ProtoMessage"></a>
+### func \(\*RetractResponse\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L558>)
+
+```go
+func (*RetractResponse) ProtoMessage()
+```
+
+
+
+<a name="RetractResponse.ProtoReflect"></a>
+### func \(\*RetractResponse\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L560>)
+
+```go
+func (x *RetractResponse) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="RetractResponse.Reset"></a>
+### func \(\*RetractResponse\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L547>)
+
+```go
+func (x *RetractResponse) Reset()
+```
+
+
+
+<a name="RetractResponse.String"></a>
+### func \(\*RetractResponse\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L554>)
+
+```go
+func (x *RetractResponse) String() string
+```
+
+
+
+<a name="SubscribeRequest"></a>
+## type [SubscribeRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L584-L589>)
+
+
+
+```go
+type SubscribeRequest struct {
+    SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+    // contains filtered or unexported fields
+}
+```
+
+<a name="SubscribeRequest.Descriptor"></a>
+### func \(\*SubscribeRequest\) [Descriptor](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L617>)
+
+```go
+func (*SubscribeRequest) Descriptor() ([]byte, []int)
+```
+
+Deprecated: Use SubscribeRequest.ProtoReflect.Descriptor instead.
+
+<a name="SubscribeRequest.GetSessionId"></a>
+### func \(\*SubscribeRequest\) [GetSessionId](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L621>)
+
+```go
+func (x *SubscribeRequest) GetSessionId() string
+```
+
+
+
+<a name="SubscribeRequest.ProtoMessage"></a>
+### func \(\*SubscribeRequest\) [ProtoMessage](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L602>)
+
+```go
+func (*SubscribeRequest) ProtoMessage()
+```
+
+
+
+<a name="SubscribeRequest.ProtoReflect"></a>
+### func \(\*SubscribeRequest\) [ProtoReflect](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L604>)
+
+```go
+func (x *SubscribeRequest) ProtoReflect() protoreflect.Message
+```
+
+
+
+<a name="SubscribeRequest.Reset"></a>
+### func \(\*SubscribeRequest\) [Reset](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L591>)
+
+```go
+func (x *SubscribeRequest) Reset()
+```
+
+
+
+<a name="SubscribeRequest.String"></a>
+### func \(\*SubscribeRequest\) [String](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom.pb.go#L598>)
+
+```go
+func (x *SubscribeRequest) String() string
+```
+
+
+
+<a name="UnimplementedFathomServiceServer"></a>
+## type [UnimplementedFathomServiceServer](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L155>)
+
+UnimplementedFathomServiceServer must be embedded to have forward compatible implementations.
+
+NOTE: this should be embedded by value instead of pointer to avoid a nil pointer dereference when methods are called.
+
+```go
+type UnimplementedFathomServiceServer struct{}
+```
+
+<a name="UnimplementedFathomServiceServer.AssertFact"></a>
+### func \(UnimplementedFathomServiceServer\) [AssertFact](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L160>)
+
+```go
+func (UnimplementedFathomServiceServer) AssertFact(context.Context, *AssertFactRequest) (*AssertFactResponse, error)
+```
+
+
+
+<a name="UnimplementedFathomServiceServer.Evaluate"></a>
+### func \(UnimplementedFathomServiceServer\) [Evaluate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L157>)
+
+```go
+func (UnimplementedFathomServiceServer) Evaluate(context.Context, *EvaluateRequest) (*EvaluateResponse, error)
+```
+
+
+
+<a name="UnimplementedFathomServiceServer.Query"></a>
+### func \(UnimplementedFathomServiceServer\) [Query](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L163>)
+
+```go
+func (UnimplementedFathomServiceServer) Query(context.Context, *QueryRequest) (*QueryResponse, error)
+```
+
+
+
+<a name="UnimplementedFathomServiceServer.Reload"></a>
+### func \(UnimplementedFathomServiceServer\) [Reload](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L172>)
+
+```go
+func (UnimplementedFathomServiceServer) Reload(context.Context, *ReloadRequest) (*ReloadResponse, error)
+```
+
+
+
+<a name="UnimplementedFathomServiceServer.Retract"></a>
+### func \(UnimplementedFathomServiceServer\) [Retract](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L166>)
+
+```go
+func (UnimplementedFathomServiceServer) Retract(context.Context, *RetractRequest) (*RetractResponse, error)
+```
+
+
+
+<a name="UnimplementedFathomServiceServer.SubscribeChanges"></a>
+### func \(UnimplementedFathomServiceServer\) [SubscribeChanges](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L169>)
+
+```go
+func (UnimplementedFathomServiceServer) SubscribeChanges(*SubscribeRequest, grpc.ServerStreamingServer[FactChange]) error
+```
+
+
+
+<a name="UnsafeFathomServiceServer"></a>
+## type [UnsafeFathomServiceServer](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/proto/fathom_grpc.pb.go#L181-L183>)
+
+UnsafeFathomServiceServer may be embedded to opt out of forward compatibility for this service. Use of this interface is not recommended, as added methods to FathomServiceServer will result in compilation errors.
+
+```go
+type UnsafeFathomServiceServer interface {
+    // contains filtered or unexported methods
 }
 ```
 

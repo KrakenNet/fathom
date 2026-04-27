@@ -15,5 +15,7 @@ last_verified: 2026-04-15
 | [`fathom compile`](compile.md) | |
 | [`fathom info`](info.md) | |
 | [`fathom repl`](repl.md) | |
+| [`fathom status`](status.md) | |
 | [`fathom test`](test.md) | |
 | [`fathom validate`](validate.md) | |
+| [`fathom verify-artifact`](verify-artifact.md) | |

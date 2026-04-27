@@ -1,26 +1,26 @@
 ---
-title: fathom compile
-summary: CLI reference for `fathom compile`
+title: fathom verify-artifact
+summary: CLI reference for `fathom verify-artifact`
 audience: [app-developers, rule-authors]
 diataxis: reference
 status: stable
 last_verified: 2026-04-15
 ---
 
-# `fathom compile`
+# `fathom verify-artifact`
 
 ```
                                                                                                     
- Usage: fathom compile [OPTIONS] PATH                                                               
+ Usage: fathom verify-artifact [OPTIONS] ARTIFACT                                                   
                                                                                                     
- Compile YAML definitions into CLIPS constructs.                                                    
+ Verify an artifact's detached minisign signature against a pubkey.                                 
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    path      PATH  Path to a YAML file or directory to compile. [required]                     │
+│ *    artifact      PATH  Artifact to verify. [required]                                          │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --format  -f      [raw|pretty]  Output format: raw (valid CLIPS) or pretty (human-readable).     │
-│                                 [default: raw]                                                   │
-│ --help                          Show this message and exit.                                      │
+│ --sig           PATH  Sig path (default: <path>.minisig).                                        │
+│ --pubkey        PATH  Pubkey (default: embedded).                                                │
+│ --help                Show this message and exit.                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```

@@ -16,7 +16,7 @@ A single fact assertion used inside [EvaluateRequest](EvaluateRequest.md).
 
 #### Defined in
 
-[src/client.ts:21](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L21)
+[src/client.ts:21](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L21)
 
 ***
 
@@ -26,4 +26,4 @@ A single fact assertion used inside [EvaluateRequest](EvaluateRequest.md).
 
 #### Defined in
 
-[src/client.ts:20](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L20)
+[src/client.ts:20](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L20)
