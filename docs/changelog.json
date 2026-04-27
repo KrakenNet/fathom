@@ -2,20 +2,19 @@
   {
     "version": "0.3.0",
     "date": "2026-04-14",
-    "removed": [],
     "added": [
       "`ConditionEntry.test` field: raw-CLIPS escape hatch on the LHS. When set,",
       "`ConditionEntry.slot` is now optional (defaults to `\"\"`) when `test` is"
     ],
     "changed": [],
     "deprecated": [],
-    "security": [],
-    "fixed": []
+    "removed": [],
+    "fixed": [],
+    "security": []
   },
   {
     "version": "0.2.0",
     "date": "2026-04-14",
-    "removed": [],
     "added": [
       "`then.assert` action block in the YAML rule DSL: rules may now emit one or more",
       "`ConditionEntry.bind` field: LHS patterns can bind slot values to variables",
@@ -25,7 +24,8 @@
       "`AuditRecord.asserted_facts` is now populated with the list of user facts"
     ],
     "deprecated": [],
-    "security": [],
-    "fixed": []
+    "removed": [],
+    "fixed": [],
+    "security": []
   }
 ]

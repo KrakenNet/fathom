@@ -11,16 +11,23 @@ from pathlib import Path
 
 # Pin terminal width and disable color BEFORE Typer/Rich imports. Rich reads
 # COLUMNS and color-control env vars at Console construction time; without
-# these pins, the drift gate fails on any machine whose terminal differs from
+# these pins the drift gate fails on any machine whose terminal differs from
 # CI's default width, and CI environments that set FORCE_COLOR=1 (GitHub
 # Actions does, by default for many setups) cause ANSI escapes to leak into
-# the generated docs. Override FORCE_COLOR explicitly — setdefault is not
-# enough when the env var is already set upstream.
-os.environ.setdefault("COLUMNS", "100")
-os.environ.setdefault("TERMINAL_WIDTH", "100")
+# the generated docs.
+#
+# Notes on the exact combination below:
+#  - COLUMNS / TERMINAL_WIDTH must be force-set (not setdefault): when
+#    pytest runs the script via subprocess, COLUMNS is typically unset,
+#    and Rich falls back to its 80-col default if we don't pin 100.
+#  - FORCE_COLOR must be popped, not set to "0": Click/Rich treat any
+#    value of FORCE_COLOR (including "0") as a request to force color.
+#  - TERM=dumb is intentionally NOT set: it disables color but also
+#    clamps Rich's width to 80, which would shrink every help table.
+os.environ["COLUMNS"] = "100"
+os.environ["TERMINAL_WIDTH"] = "100"
 os.environ["NO_COLOR"] = "1"
-os.environ["FORCE_COLOR"] = "0"
-os.environ["TERM"] = "dumb"
+os.environ.pop("FORCE_COLOR", None)
 
 DEFAULT_OUT = Path("docs/reference/cli")
 

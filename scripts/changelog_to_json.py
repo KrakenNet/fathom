@@ -11,7 +11,19 @@ VERSION_HEADING = re.compile(r"^##\s*\[([^\]]+)\]\s*-\s*(\d{4}-\d{2}-\d{2})")
 SECTION_HEADING = re.compile(r"^###\s+([A-Za-z]+)")
 BULLET = re.compile(r"^[-*]\s+(.+)")
 
-KNOWN_SECTIONS = {"added", "changed", "deprecated", "removed", "fixed", "security"}
+# Tuple, not set: iteration must be deterministic across processes. With a
+# set, Python's string hash randomization (PYTHONHASHSEED) randomizes
+# iteration order across processes, which shuffles the emitted JSON key
+# order and breaks the docs drift gate. Order follows Keep-a-Changelog
+# 1.1.0.
+KNOWN_SECTIONS: tuple[str, ...] = (
+    "added",
+    "changed",
+    "deprecated",
+    "removed",
+    "fixed",
+    "security",
+)
 
 
 def parse(text: str) -> list[dict[str, Any]]:
