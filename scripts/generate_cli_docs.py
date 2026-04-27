@@ -6,28 +6,28 @@ One Markdown page per Typer @app.command() in fathom.cli.app.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
-# Pin terminal width and disable color BEFORE Typer/Rich imports. Rich reads
-# COLUMNS and color-control env vars at Console construction time; without
-# these pins the drift gate fails on any machine whose terminal differs from
-# CI's default width, and CI environments that set FORCE_COLOR=1 (GitHub
-# Actions does, by default for many setups) cause ANSI escapes to leak into
-# the generated docs.
+# Pin terminal width BEFORE Typer/Rich imports. Rich reads COLUMNS at
+# Console construction time; without this pin, the drift gate fails on
+# any machine whose terminal differs from CI's default width.
 #
-# Notes on the exact combination below:
+# Notes:
 #  - COLUMNS / TERMINAL_WIDTH must be force-set (not setdefault): when
-#    pytest runs the script via subprocess, COLUMNS is typically unset,
-#    and Rich falls back to its 80-col default if we don't pin 100.
-#  - FORCE_COLOR must be popped, not set to "0": Click/Rich treat any
-#    value of FORCE_COLOR (including "0") as a request to force color.
-#  - TERM=dumb is intentionally NOT set: it disables color but also
-#    clamps Rich's width to 80, which would shrink every help table.
+#    pytest runs the script via subprocess, COLUMNS is typically unset
+#    and Rich falls back to its 80-col default.
+#  - We don't bother trying to suppress ANSI emission via env vars: Rich
+#    treats *any* FORCE_COLOR value (including "0") as force-on, and the
+#    GITHUB_ACTIONS=true env CI sets independently re-enables color even
+#    under NO_COLOR=1. Stripping ANSI from the captured help text after
+#    the fact (see _ANSI_ESCAPE below) is the only reliable approach.
 os.environ["COLUMNS"] = "100"
 os.environ["TERMINAL_WIDTH"] = "100"
-os.environ["NO_COLOR"] = "1"
-os.environ.pop("FORCE_COLOR", None)
+
+# CSI sequences used by Rich for bold/dim/color: ESC [ ... letter.
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 DEFAULT_OUT = Path("docs/reference/cli")
 
@@ -45,7 +45,7 @@ def _help_for(command_name: str | None) -> str:
             f"fathom {command_name} --help failed "
             f"(exit {result.exit_code}): {result.output}"
         )
-    return result.output
+    return _ANSI_ESCAPE.sub("", result.output)
 
 
 def _page(command_name: str, help_text: str) -> str:
