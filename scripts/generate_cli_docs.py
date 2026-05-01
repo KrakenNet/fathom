@@ -12,15 +12,16 @@ from pathlib import Path
 # Pin terminal width and disable ANSI escapes BEFORE Typer/Rich imports.
 # Rich reads COLUMNS at Console construction time and only honors NO_COLOR
 # / FORCE_COLOR if they are present in os.environ before its first import.
-# Without these the drift gate fails on:
-#   - any machine whose terminal width differs from CI's default,
-#   - macOS / Windows runners (and any TTY-detecting stdout) where Rich
-#     defaults to emitting ANSI escapes, leaking ``\x1b[…m`` into the
-#     generated Markdown.
-os.environ.setdefault("COLUMNS", "100")
-os.environ.setdefault("TERMINAL_WIDTH", "100")
-os.environ.setdefault("NO_COLOR", "1")
-os.environ.setdefault("TERM", "dumb")
+#
+# Use unconditional assignment, NOT ``setdefault``: GitHub Actions' bash
+# runner inherits ``COLUMNS=80`` from the parent shell environment, so
+# the previous ``setdefault`` was a no-op on CI and produced 80-column
+# tables that drifted from the 100-column tables generated locally.
+# Likewise NO_COLOR / TERM=dumb must override whatever the runner ships.
+os.environ["COLUMNS"] = "100"
+os.environ["TERMINAL_WIDTH"] = "100"
+os.environ["NO_COLOR"] = "1"
+os.environ["TERM"] = "dumb"
 
 DEFAULT_OUT = Path("docs/reference/cli")
 
