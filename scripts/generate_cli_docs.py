@@ -46,12 +46,19 @@ def _help_for(command_name: str | None) -> str:
     # bypasses MAX_WIDTH still receives a 100-col Console. Some Rich
     # 14.x versions appear to read ``width`` from the Console init and
     # then resize on first render based on captured-stream detection.
-    typer.rich_utils.MAX_WIDTH = 100
+    # Pin to 80 columns (the GH Actions runner's effective default and
+    # the lowest common denominator for terminal-width detection across
+    # ubuntu / macOS / Windows runners). 100 was tried and worked
+    # locally on every shell I tested but Rich on the CI runner kept
+    # falling back to 80 regardless of MAX_WIDTH / Console(width=...) /
+    # post-init Console.width assignment. Pinning to 80 forces the
+    # local regen to match CI's regen byte-for-byte.
+    typer.rich_utils.MAX_WIDTH = 80
     _orig_get_console = typer.rich_utils._get_rich_console
 
     def _pinned_console(stderr: bool = False):  # type: ignore[no-untyped-def]
         c = _orig_get_console(stderr=stderr)
-        c.width = 100
+        c.width = 80
         return c
 
     typer.rich_utils._get_rich_console = _pinned_console

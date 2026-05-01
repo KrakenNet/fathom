@@ -10,15 +10,16 @@ last_verified: 2026-04-15
 # `fathom validate`
 
 ```
-                                                                                                    
- Usage: fathom validate [OPTIONS] PATH                                                              
-                                                                                                    
- Parse YAML files and validate templates, rules, and modules.                                       
-                                                                                                    
-╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    path      PATH  Path to a YAML file or directory to validate. [required]                    │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                                      │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+                                                                                
+ Usage: fathom validate [OPTIONS] PATH                                          
+                                                                                
+ Parse YAML files and validate templates, rules, and modules.                   
+                                                                                
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    path      PATH  Path to a YAML file or directory to validate.           │
+│                      [required]                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ```
