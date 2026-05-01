@@ -19,7 +19,7 @@ rule through the raw-CLIPS `test:` escape hatch on a `ConditionEntry`.
 
 ## Register the function
 
-Call `Engine.register_function(name, callable)`. The callable becomes invokable from
+Call `Engine.register_function(name, callable)`. The callable becomes invocable from
 CLIPS as `(name arg1 arg2 ...)`.
 
 ```python
