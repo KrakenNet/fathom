@@ -31,9 +31,13 @@ def _help_for(command_name: str | None) -> str:
 
     from fathom.cli import app
 
+    # Click's CliRunner ignores ``COLUMNS`` because the invocation is not
+    # a real TTY; it falls back to its own 80-column default unless the
+    # caller passes ``terminal_width`` explicitly. Pin to 100 here so the
+    # generated CLI docs match across local regens and the CI runner.
     runner = CliRunner()
     args = [command_name, "--help"] if command_name else ["--help"]
-    result = runner.invoke(app, args)
+    result = runner.invoke(app, args, terminal_width=100)
     if result.exit_code != 0:
         raise RuntimeError(
             f"fathom {command_name} --help failed "
