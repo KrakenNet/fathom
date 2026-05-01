@@ -80,7 +80,23 @@ def main(out_dir: Path) -> int:
 
     gomarkdoc = _resolve_gomarkdoc()
 
-    cmd = [gomarkdoc, "--output", str(out_file.resolve()), "./..."]
+    # Explicitly pin the repository URL, default branch, and path. Auto
+    # detection works locally but silently produces link-less output on
+    # the GH Actions runner — even with ``fetch-depth: 0`` — so the
+    # drift gate kept failing on every PR. Forcing these values keeps
+    # gomarkdoc's anchor links stable across local and CI regens.
+    cmd = [
+        gomarkdoc,
+        "--repository.url",
+        "https://github.com/KrakenNet/fathom",
+        "--repository.default-branch",
+        "main",
+        "--repository.path",
+        "/packages/fathom-go",
+        "--output",
+        str(out_file.resolve()),
+        "./...",
+    ]
     result = subprocess.run(
         cmd, cwd=GO_PKG, capture_output=True, text=True, check=False, timeout=120
     )
