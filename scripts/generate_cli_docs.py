@@ -40,7 +40,21 @@ def _help_for(command_name: str | None) -> str:
     # committed. Pin the module-level width so output is hermetic.
     # ``COLUMNS``/``terminal_width`` kwargs are not honoured by Typer
     # in this code path.
+    #
+    # Belt-and-suspenders: also monkey-patch _get_rich_console so that
+    # any caller (typer's get_help, click's formatter helpers) that
+    # bypasses MAX_WIDTH still receives a 100-col Console. Some Rich
+    # 14.x versions appear to read ``width`` from the Console init and
+    # then resize on first render based on captured-stream detection.
     typer.rich_utils.MAX_WIDTH = 100
+    _orig_get_console = typer.rich_utils._get_rich_console
+
+    def _pinned_console(stderr: bool = False):  # type: ignore[no-untyped-def]
+        c = _orig_get_console(stderr=stderr)
+        c.width = 100
+        return c
+
+    typer.rich_utils._get_rich_console = _pinned_console
 
     runner = CliRunner()
     args = [command_name, "--help"] if command_name else ["--help"]
