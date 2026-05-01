@@ -27,17 +27,24 @@ DEFAULT_OUT = Path("docs/reference/cli")
 
 
 def _help_for(command_name: str | None) -> str:
+    import typer.rich_utils
     from typer.testing import CliRunner
 
     from fathom.cli import app
 
-    # Click's CliRunner ignores ``COLUMNS`` because the invocation is not
-    # a real TTY; it falls back to its own 80-column default unless the
-    # caller passes ``terminal_width`` explicitly. Pin to 100 here so the
-    # generated CLI docs match across local regens and the CI runner.
+    # Typer renders --help via its own Rich Console built in
+    # ``typer.rich_utils._get_rich_console`` with ``width=MAX_WIDTH``.
+    # When MAX_WIDTH is None (default) Rich falls back to terminal
+    # auto-detection, which produces an 80-column box on the GH runner
+    # and a TTY-dependent box locally — neither matches what was
+    # committed. Pin the module-level width so output is hermetic.
+    # ``COLUMNS``/``terminal_width`` kwargs are not honoured by Typer
+    # in this code path.
+    typer.rich_utils.MAX_WIDTH = 100
+
     runner = CliRunner()
     args = [command_name, "--help"] if command_name else ["--help"]
-    result = runner.invoke(app, args, terminal_width=100)
+    result = runner.invoke(app, args)
     if result.exit_code != 0:
         raise RuntimeError(
             f"fathom {command_name} --help failed "
