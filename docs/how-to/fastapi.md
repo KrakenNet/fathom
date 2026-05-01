@@ -4,7 +4,7 @@ summary: Mount the bundled Fathom REST app or wrap Engine directly to add rule e
 audience: [app-developers]
 diataxis: how-to
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-05-01
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/engine.py

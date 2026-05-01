@@ -4,7 +4,7 @@ summary: Expose a Python callable to CLIPS rules via Engine.register_function an
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-05-01
 sources:
   - src/fathom/engine.py
   - src/fathom/models.py
