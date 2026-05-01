@@ -61,18 +61,26 @@ def test_ts_sdk_docs_generated(tmp_path: Path) -> None:
 def test_ts_sdk_docs_are_deterministic(tmp_path: Path) -> None:
     if not _node_pkg_manager_available():
         pytest.skip("neither pnpm nor npm available")
-    out = tmp_path / "fresh"
-    result = subprocess.run(
-        [sys.executable, "scripts/generate_ts_sdk_docs.py", str(out)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
+    out_a = tmp_path / "fresh-a"
+    out_b = tmp_path / "fresh-b"
+    for out in (out_a, out_b):
+        result = subprocess.run(
+            [sys.executable, "scripts/generate_ts_sdk_docs.py", str(out)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
 
-    regenerated = _collect(out)
-    committed = _collect(COMMITTED)
-    assert regenerated == committed, (
-        "regenerated TS SDK docs differ from committed copy — "
-        "run `uv run python scripts/generate_ts_sdk_docs.py` and commit the result"
+    # Two consecutive regens must produce identical output. The
+    # "regenerated == committed" gate that used to live here was removed
+    # in favour of the canonical drift gate in
+    # ``.github/workflows/docs.yml`` (``Drift gate`` step), which runs
+    # ``make docs-gen && make docs-gen-foreign`` against a pinned Node +
+    # pnpm + typedoc toolchain. This unit test ran against whatever
+    # Node/pnpm the runner happened to ship and broke every PR whenever
+    # the committer's toolchain diverged from the runner's. Keep the
+    # determinism guarantee; drop the cross-machine comparison.
+    assert _collect(out_a) == _collect(out_b), (
+        "typedoc output differs between regens — flag version or input drift"
     )
