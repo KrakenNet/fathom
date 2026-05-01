@@ -9,19 +9,59 @@ import os
 import sys
 from pathlib import Path
 
-# Pin terminal width BEFORE Typer/Rich imports. Rich reads COLUMNS at Console
-# construction time; without this the drift gate fails on any machine whose
-# terminal differs from CI's default width.
-os.environ.setdefault("COLUMNS", "100")
-os.environ.setdefault("TERMINAL_WIDTH", "100")
+# Pin terminal width and disable ANSI escapes BEFORE Typer/Rich imports.
+# Rich reads COLUMNS at Console construction time and only honors NO_COLOR
+# / FORCE_COLOR if they are present in os.environ before its first import.
+#
+# Use unconditional assignment, NOT ``setdefault``: GitHub Actions' bash
+# runner inherits ``COLUMNS=80`` from the parent shell environment, so
+# the previous ``setdefault`` was a no-op on CI and produced 80-column
+# tables that drifted from the 100-column tables generated locally.
+# Likewise NO_COLOR / TERM=dumb must override whatever the runner ships.
+os.environ["COLUMNS"] = "100"
+os.environ["TERMINAL_WIDTH"] = "100"
+os.environ["NO_COLOR"] = "1"
+os.environ["TERM"] = "dumb"
 
 DEFAULT_OUT = Path("docs/reference/cli")
 
 
 def _help_for(command_name: str | None) -> str:
+    import typer.rich_utils
     from typer.testing import CliRunner
 
     from fathom.cli import app
+
+    # Typer renders --help via its own Rich Console built in
+    # ``typer.rich_utils._get_rich_console`` with ``width=MAX_WIDTH``.
+    # When MAX_WIDTH is None (default) Rich falls back to terminal
+    # auto-detection, which produces an 80-column box on the GH runner
+    # and a TTY-dependent box locally — neither matches what was
+    # committed. Pin the module-level width so output is hermetic.
+    # ``COLUMNS``/``terminal_width`` kwargs are not honoured by Typer
+    # in this code path.
+    #
+    # Belt-and-suspenders: also monkey-patch _get_rich_console so that
+    # any caller (typer's get_help, click's formatter helpers) that
+    # bypasses MAX_WIDTH still receives a 100-col Console. Some Rich
+    # 14.x versions appear to read ``width`` from the Console init and
+    # then resize on first render based on captured-stream detection.
+    # Pin to 80 columns (the GH Actions runner's effective default and
+    # the lowest common denominator for terminal-width detection across
+    # ubuntu / macOS / Windows runners). 100 was tried and worked
+    # locally on every shell I tested but Rich on the CI runner kept
+    # falling back to 80 regardless of MAX_WIDTH / Console(width=...) /
+    # post-init Console.width assignment. Pinning to 80 forces the
+    # local regen to match CI's regen byte-for-byte.
+    typer.rich_utils.MAX_WIDTH = 80
+    _orig_get_console = typer.rich_utils._get_rich_console
+
+    def _pinned_console(stderr: bool = False):  # type: ignore[no-untyped-def]
+        c = _orig_get_console(stderr=stderr)
+        c.width = 80
+        return c
+
+    typer.rich_utils._get_rich_console = _pinned_console
 
     runner = CliRunner()
     args = [command_name, "--help"] if command_name else ["--help"]

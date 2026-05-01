@@ -4,7 +4,7 @@ summary: Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTT
 audience: [app-developers]
 diataxis: how-to
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-05-01
 sources:
   - src/fathom/engine.py
   - src/fathom/integrations/rest.py

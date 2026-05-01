@@ -3,7 +3,17 @@
   "default": true,
   "MD013": false,
   "MD024": { "siblings_only": true },
+  // mkdocs front-matter sets ``title:`` and the body opens with ``# Title``;
+  // both are intentional. Don't treat the front-matter as a phantom H1.
+  "MD025": { "front_matter_title": "" },
   "MD033": false,
+  // Many fenced blocks in our docs hold verbatim shell/output snippets
+  // ("(no matches)", JSON-ish dumps, raw stack traces) where there is no
+  // sensible language tag. Forcing one would just cause copy-pasted noise.
+  "MD040": false,
   "MD041": false,
-  "MD046": { "style": "fenced" }
+  "MD046": { "style": "fenced" },
+  // Compact-vs-padded table pipes. Stylistic and fires noisily on any
+  // markdownlint upgrade; we don't enforce a house style on tables.
+  "MD060": false
 }

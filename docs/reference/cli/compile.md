@@ -10,17 +10,18 @@ last_verified: 2026-04-15
 # `fathom compile`
 
 ```
-                                                                                                    
- Usage: fathom compile [OPTIONS] PATH                                                               
-                                                                                                    
- Compile YAML definitions into CLIPS constructs.                                                    
-                                                                                                    
-╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    path      PATH  Path to a YAML file or directory to compile. [required]                     │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --format  -f      [raw|pretty]  Output format: raw (valid CLIPS) or pretty (human-readable).     │
-│                                 [default: raw]                                                   │
-│ --help                          Show this message and exit.                                      │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+                                                                                
+ Usage: fathom compile [OPTIONS] PATH                                           
+                                                                                
+ Compile YAML definitions into CLIPS constructs.                                
+                                                                                
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    path      PATH  Path to a YAML file or directory to compile. [required] │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      [raw|pretty]  Output format: raw (valid CLIPS) or pretty   │
+│                                 (human-readable).                            │
+│                                 [default: raw]                               │
+│ --help                          Show this message and exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ```

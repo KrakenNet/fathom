@@ -4,7 +4,7 @@ summary: Expose a Python callable to CLIPS rules via Engine.register_function an
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-05-01
 sources:
   - src/fathom/engine.py
   - src/fathom/models.py
@@ -19,7 +19,7 @@ rule through the raw-CLIPS `test:` escape hatch on a `ConditionEntry`.
 
 ## Register the function
 
-Call `Engine.register_function(name, callable)`. The callable becomes invokable from
+Call `Engine.register_function(name, callable)`. The callable becomes invocable from
 CLIPS as `(name arg1 arg2 ...)`.
 
 ```python

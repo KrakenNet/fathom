@@ -8,3 +8,9 @@
 # Example pattern for local-only URLs
 ^http://localhost
 ^http://127\.0\.0\.1
+# pkg.go.dev only indexes modules after someone has fetched them at the
+# pinned tag. The fathom-go module's landing page therefore returns 404
+# until the first ``go get github.com/KrakenNet/fathom-go@…`` warms its
+# cache. Ignore this URL so PRs don't break on a third-party indexing
+# delay we don't control.
+^https://pkg\.go\.dev/github\.com/KrakenNet/fathom-go
