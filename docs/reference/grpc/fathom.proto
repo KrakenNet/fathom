@@ -30,6 +30,9 @@ service FathomService {
 
   // Stream working-memory changes as they occur during evaluation.
   rpc SubscribeChanges (SubscribeRequest) returns (stream FactChange);
+
+  // Hot-reload the ruleset from a path or inline YAML.
+  rpc Reload (ReloadRequest) returns (ReloadResponse);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,4 +124,22 @@ message FactChange {
   string template = 2;
   // JSON-encoded slot data of the changed fact.
   string data_json = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Reload
+// ---------------------------------------------------------------------------
+
+message ReloadRequest {
+  oneof source {
+    string ruleset_path = 1;
+    string ruleset_yaml = 2;
+  }
+  bytes signature = 3;
+}
+
+message ReloadResponse {
+  string ruleset_hash_before = 1;
+  string ruleset_hash_after = 2;
+  string attestation_token = 3;
 }
