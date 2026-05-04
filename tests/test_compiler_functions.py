@@ -74,44 +74,20 @@ class TestCompileFunctionRaw:
         assert result == body
 
 
-class TestCompileFunctionTemporal:
-    """Tests for temporal function compilation (returns empty stub)."""
+class TestCompileFunctionTemporalRejected:
+    """Vestigial ``type: temporal`` is rejected at the model layer."""
 
-    def test_temporal_returns_empty(self, compiler: Compiler) -> None:
-        defn = FunctionDefinition(
-            name="changed_within",
-            type="temporal",
-            params=["timestamp", "window"],
-        )
-        result = compiler.compile_function(defn)
-        assert result == ""
-
-    def test_temporal_count_exceeds_returns_empty(self, compiler: Compiler) -> None:
-        defn = FunctionDefinition(
-            name="count_exceeds",
-            type="temporal",
-            params=["template", "slot", "value", "threshold"],
-        )
-        result = compiler.compile_function(defn)
-        assert result == ""
-
-    def test_temporal_rate_exceeds_returns_empty(self, compiler: Compiler) -> None:
-        defn = FunctionDefinition(
-            name="rate_exceeds",
-            type="temporal",
-            params=["template", "slot", "value", "threshold", "window"],
-        )
-        result = compiler.compile_function(defn)
-        assert result == ""
-
-    @pytest.mark.parametrize(
-        "name",
-        ["changed_within", "count_exceeds", "rate_exceeds", "my_temporal"],
-    )
-    def test_temporal_various_names_return_empty(self, compiler: Compiler, name: str) -> None:
-        defn = FunctionDefinition(name=name, type="temporal", params=[])
-        result = compiler.compile_function(defn)
-        assert result == ""
+    def test_temporal_type_rejected_by_pydantic(self) -> None:
+        # ``temporal`` was removed from the FunctionDefinition.type Literal
+        # because temporal operators (changed_within, count_exceeds, ...)
+        # are served by Python externals registered in Engine, not by
+        # compiled CLIPS deffunctions. See docs/concepts/not-in-v1.md.
+        with pytest.raises(ValueError, match="temporal"):
+            FunctionDefinition(
+                name="changed_within",
+                type="temporal",  # pyright: ignore[reportArgumentType]
+                params=["timestamp", "window"],
+            )
 
 
 class TestCompileFunctionValidation:
@@ -500,16 +476,6 @@ class TestParseFunctionFileValid:
         functions = compiler.parse_function_file(sample_functions_path / "classification.yaml")
         assert functions[0].hierarchy_ref == "classification.yaml"
 
-    def test_parses_temporal_fixture(
-        self, compiler: Compiler, sample_functions_path: Path
-    ) -> None:
-        functions = compiler.parse_function_file(sample_functions_path / "temporal.yaml")
-        assert len(functions) == 3
-
-    def test_temporal_fixture_types(self, compiler: Compiler, sample_functions_path: Path) -> None:
-        functions = compiler.parse_function_file(sample_functions_path / "temporal.yaml")
-        assert all(f.type == "temporal" for f in functions)
-
     def test_returns_function_definition_objects(
         self, compiler: Compiler, sample_functions_path: Path
     ) -> None:
@@ -535,11 +501,13 @@ class TestParseFunctionFileValid:
         yaml_file.write_text(
             "functions:\n"
             "  - name: fn1\n"
-            "    type: temporal\n"
+            "    type: raw\n"
             "    params: [a]\n"
+            '    body: "(deffunction MAIN::fn1 (?a) ?a)"\n'
             "  - name: fn2\n"
-            "    type: temporal\n"
+            "    type: raw\n"
             "    params: [a, b]\n"
+            '    body: "(deffunction MAIN::fn2 (?a ?b) (+ ?a ?b))"\n'
         )
         functions = compiler.parse_function_file(yaml_file)
         assert len(functions) == 2
@@ -585,11 +553,13 @@ class TestParseFunctionFileErrors:
         yaml_file.write_text(
             "functions:\n"
             "  - name: same\n"
-            "    type: temporal\n"
+            "    type: raw\n"
             "    params: []\n"
+            '    body: "(deffunction MAIN::same () TRUE)"\n'
             "  - name: same\n"
-            "    type: temporal\n"
+            "    type: raw\n"
             "    params: []\n"
+            '    body: "(deffunction MAIN::same () TRUE)"\n'
         )
         with pytest.raises(CompilationError, match="(?i)duplicate"):
             compiler.parse_function_file(yaml_file)
@@ -599,11 +569,13 @@ class TestParseFunctionFileErrors:
         yaml_file.write_text(
             "functions:\n"
             "  - name: dup\n"
-            "    type: temporal\n"
+            "    type: raw\n"
             "    params: []\n"
+            '    body: "(deffunction MAIN::dup () TRUE)"\n'
             "  - name: dup\n"
-            "    type: temporal\n"
+            "    type: raw\n"
             "    params: []\n"
+            '    body: "(deffunction MAIN::dup () TRUE)"\n'
         )
         with pytest.raises(CompilationError) as exc_info:
             compiler.parse_function_file(yaml_file)
@@ -695,14 +667,6 @@ class TestFunctionCompileIntegration:
         assert "below" in result
         assert "meets-or-exceeds" in result
         assert "within-scope" in result
-
-    def test_parsed_temporal_compiles(
-        self, compiler: Compiler, sample_functions_path: Path
-    ) -> None:
-        functions = compiler.parse_function_file(sample_functions_path / "temporal.yaml")
-        for fn in functions:
-            result = compiler.compile_function(fn)
-            assert result == ""
 
     def test_parsed_raw_compiles(self, compiler: Compiler, tmp_path: Path) -> None:
         yaml_file = tmp_path / "raw.yaml"

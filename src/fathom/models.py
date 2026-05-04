@@ -315,13 +315,13 @@ class ModuleDefinition(BaseModel):
 
 
 class FunctionDefinition(BaseModel):
-    """YAML function definition (classification, temporal, or raw CLIPS)."""
+    """YAML function definition (classification or raw CLIPS)."""
 
     name: str
     description: str = ""
     params: list[str]
     hierarchy_ref: str | None = None
-    type: Literal["classification", "temporal", "raw"] = "classification"
+    type: Literal["classification", "raw"] = "classification"
     body: str | None = None
 
     @field_validator("name")

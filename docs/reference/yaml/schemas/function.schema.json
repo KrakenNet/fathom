@@ -46,7 +46,6 @@
       "default": "classification",
       "enum": [
         "classification",
-        "temporal",
         "raw"
       ],
       "title": "Type",

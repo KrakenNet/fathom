@@ -55,7 +55,9 @@ class TestGrpcAuth:
         ctx.metadata = (("authorization", "Bearer testtok"),)
         req = SimpleNamespace(session_id="", ruleset="", facts=[])
         result = svc.Evaluate(req, ctx)
-        assert "decision" in result
+        # EvaluateResponse proto: ``decision`` is the empty string when
+        # no rule fired (no rules loaded in this servicer fixture).
+        assert hasattr(result, "decision")
 
     def test_path_jail_parent_traversal(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

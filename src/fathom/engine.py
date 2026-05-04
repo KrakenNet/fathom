@@ -751,6 +751,26 @@ class Engine:
             )
         self._env.define_function(fn, name)
 
+    def subscribe(
+        self,
+        callback: Callable[[str, str, dict[str, Any]], None],
+    ) -> Callable[[], None]:
+        """Register a callback fired on every successful fact assert/retract.
+
+        The callback receives ``(template_name, action, data)`` where
+        ``action`` is ``"assert"`` or ``"retract"`` and ``data`` is the
+        slot dict that was asserted or just retracted (validated form,
+        not CLIPS-coerced).
+
+        Returns an unsubscribe callable. Listener exceptions are
+        logged and swallowed -- a wedged subscriber never breaks
+        ``assert_fact`` / ``retract``.
+
+        This is the foundation under the gRPC ``SubscribeChanges`` RPC
+        and any custom in-process change-feed.
+        """
+        return self._fact_manager.add_listener(callback)
+
     @staticmethod
     def _resolve_hierarchy(
         hierarchy_ref: str,
