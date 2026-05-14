@@ -11,11 +11,12 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-COMMITTED = Path("docs/reference/typescript-sdk")
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _node_pkg_manager_available() -> bool:
@@ -84,3 +85,9 @@ def test_ts_sdk_docs_are_deterministic(tmp_path: Path) -> None:
     assert _collect(out_a) == _collect(out_b), (
         "typedoc output differs between regens — flag version or input drift"
     )
+
+    # Drift vs the committed docs/reference/typescript-sdk tree is enforced by
+    # the docs workflow's drift gate. It is intentionally not asserted here:
+    # the committed tree was generated under pnpm (paths like
+    # node_modules/.pnpm/typescript@.../...), but the regular CI lane only
+    # has npm available, which produces flat node_modules paths.

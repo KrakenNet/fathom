@@ -11,10 +11,11 @@ VERSION_HEADING = re.compile(r"^##\s*\[([^\]]+)\]\s*-\s*(\d{4}-\d{2}-\d{2})")
 SECTION_HEADING = re.compile(r"^###\s+([A-Za-z]+)")
 BULLET = re.compile(r"^[-*]\s+(.+)")
 
-# Tuple, not set — set iteration order is hash-randomised, which made
-# this script's output (``docs/changelog.json``) non-deterministic
-# across machines and Python versions and broke the docs drift gate on
-# every regen. Order matches Keep-a-Changelog convention.
+# Tuple, not set: iteration must be deterministic across processes. With a
+# set, Python's string hash randomization (PYTHONHASHSEED) randomizes
+# iteration order across processes, which shuffles the emitted JSON key
+# order and breaks the docs drift gate. Order follows Keep-a-Changelog
+# 1.1.0.
 KNOWN_SECTIONS: tuple[str, ...] = (
     "added",
     "changed",

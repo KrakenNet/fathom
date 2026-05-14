@@ -1,6 +1,11 @@
 """Drift gate: fail if any page's cited sources were modified after
 the page's last_verified date, or if a cited source file is missing.
 
+Honors `.git-blame-ignore-revs` (the standard git convention used by
+`git blame` and `git config blame.ignoreRevsFile`) so that format-only
+or otherwise non-content commits don't trip the gate. Add a SHA to
+that file to declare a commit irrelevant for source-doc drift.
+
 Exit codes: 0 clean; 1 drift or missing source; 2 misconfig.
 """
 from __future__ import annotations
@@ -24,20 +29,46 @@ def _read_frontmatter(path: Path) -> dict[str, Any]:
     return yaml.safe_load(text[3:end]) or {}
 
 
-def _last_commit_date(source: Path, repo: Path) -> date | None:
+def _read_ignore_revs(repo: Path) -> set[str]:
+    """Return the set of commit SHAs from `.git-blame-ignore-revs`.
+
+    Same format `git blame` honors: one SHA per line, `#` comments and
+    blank lines are skipped, only the first whitespace-separated token
+    on each line is treated as a SHA.
+    """
+    f = repo / ".git-blame-ignore-revs"
+    if not f.exists():
+        return set()
+    revs: set[str] = set()
+    for raw in f.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        revs.add(line.split()[0])
+    return revs
+
+
+def _last_commit_date(source: Path, repo: Path, ignore: set[str]) -> date | None:
     result = subprocess.run(
-        ["git", "log", "-1", "--format=%cI", "--", str(source.relative_to(repo))],
+        ["git", "log", "--format=%H %cI", "--", str(source.relative_to(repo))],
         cwd=repo,
         capture_output=True,
         text=True,
         check=False,
     )
-    if result.returncode != 0 or not result.stdout.strip():
+    if result.returncode != 0:
         return None
-    return datetime.fromisoformat(result.stdout.strip()).date()
+    for raw in result.stdout.splitlines():
+        sha, _, iso = raw.partition(" ")
+        if not sha or sha in ignore:
+            continue
+        if not iso.strip():
+            return None
+        return datetime.fromisoformat(iso.strip()).date()
+    return None
 
 
-def _check_page(page: Path, repo: Path) -> list[str]:
+def _check_page(page: Path, repo: Path, ignore: set[str]) -> list[str]:
     try:
         fm = _read_frontmatter(page)
     except ValueError as exc:
@@ -56,7 +87,7 @@ def _check_page(page: Path, repo: Path) -> list[str]:
         if not src_path.exists():
             errors.append(f"{page}: cited source {src!r} does not exist")
             continue
-        last = _last_commit_date(src_path, repo)
+        last = _last_commit_date(src_path, repo, ignore)
         if last is None:
             errors.append(f"{page}: {src!r} is not tracked by git")
             continue
@@ -74,11 +105,12 @@ def main(argv: list[str]) -> int:
     if not docs.is_dir():
         print(f"error: {docs} not a directory", file=sys.stderr)
         return 2
+    ignore = _read_ignore_revs(repo)
     had_errors = False
     for page in sorted(docs.rglob("*.md")):
         if "/superpowers/" in page.as_posix():
             continue
-        errors = _check_page(page, repo)
+        errors = _check_page(page, repo, ignore)
         for e in errors:
             print(e, file=sys.stderr)
         if errors:

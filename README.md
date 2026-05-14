@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml/badge.svg)](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-fathom.krakn.ai-blue)](https://fathom.krakn.ai)
+[![Docs](https://img.shields.io/badge/docs-fathom.krakn.ai-blue)](https://krakennet.github.io/fathom)
 
 **Current version:** 0.3.1
 
@@ -76,6 +76,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 Phase 1–3 of the roadmap are complete; Phase 4 is in progress. See [design.md](design.md) for the full roadmap with status.
 
 **Core runtime (Python)**
+
 - YAML compiler for templates, rules, modules, and functions
 - Forward-chaining evaluation with rule + module traces
 - Working memory persistence across evaluations within a session
@@ -87,6 +88,7 @@ Phase 1–3 of the roadmap are complete; Phase 4 is in progress. See [design.md]
 - Fleet reasoning with Redis and Postgres backends for shared working memory
 
 **Integrations**
+
 - **FastAPI REST server** with bearer-token auth and rule-path jailing
 - **gRPC server** with bearer-token auth (see `protos/fathom.proto`)
 - **MCP tool server** (`FathomMCPServer`) for agent discovery
@@ -96,25 +98,27 @@ Phase 1–3 of the roadmap are complete; Phase 4 is in progress. See [design.md]
 - **Prometheus metrics** export (`/metrics` endpoint)
 
 **Rule packs**
+
 - `fathom-owasp-agentic` — OWASP Agentic Top 10 mitigations
 - `fathom-nist-800-53` — Access control, audit, information flow
 - `fathom-hipaa` — PHI handling, minimum necessary, breach triggers
 - `fathom-cmmc` — CMMC Level 2+ controls
 
 **SDKs (in progress)**
+
 - `fathom-go` — REST + gRPC client (`packages/fathom-go/`)
 - `fathom-ts` — `@fathom-rules/sdk` v0.1.0 (`packages/fathom-ts/`); OpenAPI-generated client pending
 - `fathom-editor` — React visual rule editor (`packages/fathom-editor/`); stub
 
 ## Core Primitives
 
-| Primitive | Purpose | CLIPS Construct |
-|-----------|---------|-----------------|
-| **Templates** | Define fact schemas with typed slots | `deftemplate` |
-| **Facts** | Typed instances asserted into working memory | working memory |
-| **Rules** | Pattern-matching logic with conditions and actions | `defrule` |
-| **Modules** | Namespace rules with controlled execution order | `defmodule` |
-| **Functions** | Reusable logic for conditions and actions | `deffunction` |
+| Primitive     | Purpose                                            | CLIPS Construct |
+| ------------- | -------------------------------------------------- | --------------- |
+| **Templates** | Define fact schemas with typed slots               | `deftemplate`   |
+| **Facts**     | Typed instances asserted into working memory       | working memory  |
+| **Rules**     | Pattern-matching logic with conditions and actions | `defrule`       |
+| **Modules**   | Namespace rules with controlled execution order    | `defmodule`     |
+| **Functions** | Reusable logic for conditions and actions          | `deffunction`   |
 
 ## Key Differentiator: Working Memory
 
@@ -127,6 +131,7 @@ Unlike stateless policy engines (OPA, Cedar), Fathom maintains working memory ac
 ## Integration Shapes
 
 **As a library**
+
 ```python
 from fathom import Engine
 engine = Engine.from_rules("rules/")
@@ -134,6 +139,7 @@ result = engine.evaluate()
 ```
 
 **As a REST sidecar**
+
 ```bash
 docker run -p 8080:8080 -v ./rules:/rules kraken/fathom:latest
 curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8080/v1/evaluate \
@@ -141,6 +147,7 @@ curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8080/v1/evaluate \
 ```
 
 **As a gRPC sidecar**
+
 ```bash
 # protos/fathom.proto — regenerate Go/TS clients from the proto
 grpcurl -H "authorization: Bearer $TOKEN" \
@@ -148,6 +155,7 @@ grpcurl -H "authorization: Bearer $TOKEN" \
 ```
 
 **As an MCP tool**
+
 ```python
 from fathom.integrations.mcp_server import FathomMCPServer
 server = FathomMCPServer(engine)
@@ -159,6 +167,7 @@ server.serve()
 Docs live under [`docs/`](docs/) and build with MkDocs Material (Diátaxis information architecture).
 
 Entry points:
+
 - [Getting Started](docs/getting-started.md)
 - [Tutorials](docs/tutorials/index.md)
 - [How-to Guides](docs/how-to/index.md)
@@ -167,12 +176,12 @@ Entry points:
 
 ## Performance Targets
 
-| Operation | Target |
-|-----------|--------|
+| Operation              | Target  |
+| ---------------------- | ------- |
 | Single rule evaluation | < 100µs |
-| 100-rule evaluation | < 500µs |
-| Fact assertion | < 10µs |
-| YAML compilation | < 50ms |
+| 100-rule evaluation    | < 500µs |
+| Fact assertion         | < 10µs  |
+| YAML compilation       | < 50ms  |
 
 ## Related Projects
 
@@ -194,6 +203,7 @@ uv run mkdocs serve             # docs preview
 ```
 
 Run the live REST server locally:
+
 ```bash
 uv run uvicorn fathom.integrations.rest:app --reload
 ```

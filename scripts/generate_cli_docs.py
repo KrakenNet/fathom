@@ -6,22 +6,28 @@ One Markdown page per Typer @app.command() in fathom.cli.app.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
-# Pin terminal width and disable ANSI escapes BEFORE Typer/Rich imports.
-# Rich reads COLUMNS at Console construction time and only honors NO_COLOR
-# / FORCE_COLOR if they are present in os.environ before its first import.
+# Pin terminal width BEFORE Typer/Rich imports. Rich reads COLUMNS at
+# Console construction time; without this pin, the drift gate fails on
+# any machine whose terminal differs from CI's default width.
 #
-# Use unconditional assignment, NOT ``setdefault``: GitHub Actions' bash
-# runner inherits ``COLUMNS=80`` from the parent shell environment, so
-# the previous ``setdefault`` was a no-op on CI and produced 80-column
-# tables that drifted from the 100-column tables generated locally.
-# Likewise NO_COLOR / TERM=dumb must override whatever the runner ships.
+# Notes:
+#  - COLUMNS / TERMINAL_WIDTH must be force-set (not setdefault): when
+#    pytest runs the script via subprocess, COLUMNS is typically unset
+#    and Rich falls back to its 80-col default.
+#  - We don't bother trying to suppress ANSI emission via env vars: Rich
+#    treats *any* FORCE_COLOR value (including "0") as force-on, and the
+#    GITHUB_ACTIONS=true env CI sets independently re-enables color even
+#    under NO_COLOR=1. Stripping ANSI from the captured help text after
+#    the fact (see _ANSI_ESCAPE below) is the only reliable approach.
 os.environ["COLUMNS"] = "100"
 os.environ["TERMINAL_WIDTH"] = "100"
-os.environ["NO_COLOR"] = "1"
-os.environ["TERM"] = "dumb"
+
+# CSI sequences used by Rich for bold/dim/color: ESC [ ... letter.
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 DEFAULT_OUT = Path("docs/reference/cli")
 
@@ -71,7 +77,7 @@ def _help_for(command_name: str | None) -> str:
             f"fathom {command_name} --help failed "
             f"(exit {result.exit_code}): {result.output}"
         )
-    return result.output
+    return _ANSI_ESCAPE.sub("", result.output)
 
 
 def _page(command_name: str, help_text: str) -> str:

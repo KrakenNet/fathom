@@ -41,14 +41,10 @@ def test_go_sdk_docs_are_deterministic(tmp_path: Path) -> None:
         "gomarkdoc output differs between regens — flag version or input drift"
     )
 
-    # The "regenerated == committed" gate that used to live here was
-    # removed in favour of the canonical drift gate in
-    # ``.github/workflows/docs.yml`` (``Drift gate`` step), which runs
-    # ``make docs-gen && make docs-gen-foreign`` against a pinned Go +
-    # gomarkdoc + Node + pnpm toolchain. This unit test ran against
-    # whatever Go the runner happened to ship (Go 1.24 on ubuntu-latest,
-    # different on macOS / Windows) and broke every PR whenever the
-    # committer's Go version diverged from the runner's by even a single
-    # minor — gomarkdoc's link-rendering output is not byte-stable across
-    # Go releases. Keep the determinism guarantee; drop the cross-machine
-    # comparison.
+    # Drift vs the committed docs/reference/go-sdk/fathom-go.md is enforced by
+    # the docs workflow's drift gate (`make docs-gen-foreign` + `git diff
+    # --exit-code`), which runs in an environment with full git history and
+    # the pinned Go toolchain. It is intentionally not asserted here: this
+    # job runs in the regular CI lane where the GitHub-runner checkout is
+    # shallow, which causes gomarkdoc to omit the source-URL anchors that
+    # the committed copy contains.
