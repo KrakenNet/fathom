@@ -11,6 +11,7 @@ Requires ``grpcio >= 1.60``.  Install via::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -257,14 +258,10 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             except queue.Full:
                 # Drop oldest event to make room. Logged so operators
                 # can spot subscribers that have wedged.
-                try:
+                with contextlib.suppress(queue.Empty):  # pragma: no cover - racy fallback
                     events.get_nowait()
-                except queue.Empty:  # pragma: no cover - racy fallback
-                    pass
-                try:
+                with contextlib.suppress(queue.Full):  # pragma: no cover - extremely racy fallback
                     events.put_nowait((template, action, data))
-                except queue.Full:  # pragma: no cover - extremely racy fallback
-                    pass
                 logger.warning(
                     "SubscribeChanges queue overflow; dropping oldest event "
                     "(session_id=%s, template=%s)",
