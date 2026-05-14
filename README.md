@@ -9,7 +9,7 @@
 [![CI](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml/badge.svg)](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-fathom.krakn.ai-blue)](https://krakennet.github.io/fathom)
 
-**Current version:** 0.3.1
+**Current version:** 0.3.3
 
 **License:** MIT
 
