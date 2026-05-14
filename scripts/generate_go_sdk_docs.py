@@ -80,17 +80,19 @@ def main(out_dir: Path) -> int:
 
     gomarkdoc = _resolve_gomarkdoc()
 
-    # Pin the repository URL and default branch so gomarkdoc emits the same
-    # `blob/main/...` source-link anchors regardless of the local git state.
-    # On CI the checkout is detached at a PR-merge SHA and gomarkdoc would
-    # otherwise omit the source-URL anchors entirely, causing the drift gate
-    # to fail against the locally-committed copy.
+    # Explicitly pin the repository URL, default branch, and path. Auto
+    # detection works locally but silently produces link-less output on
+    # the GH Actions runner — even with ``fetch-depth: 0`` — so the
+    # drift gate kept failing on every PR. Forcing these values keeps
+    # gomarkdoc's anchor links stable across local and CI regens.
     cmd = [
         gomarkdoc,
         "--repository.url",
         "https://github.com/KrakenNet/fathom",
         "--repository.default-branch",
         "main",
+        "--repository.path",
+        "/packages/fathom-go",
         "--output",
         str(out_file.resolve()),
         "./...",

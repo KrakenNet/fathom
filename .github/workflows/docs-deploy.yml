@@ -28,11 +28,19 @@ jobs:
         with:
           python-version: "3.13"
 
+      # arduino/setup-protoc@v3 has an unfixed bug ("unable to get latest
+      # version", arduino/setup-protoc#108) that intermittently breaks CI
+      # even with an explicit version pin. Install protoc directly from
+      # the upstream release archive instead — same pattern as docs.yml.
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.3"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PROTOC_VERSION=27.3
+          curl -fsSL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          sudo unzip -q -o /tmp/protoc.zip -d /usr/local
+          sudo chmod +x /usr/local/bin/protoc
+          protoc --version
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -51,12 +59,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 9
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5                                                                                                                                                
-        with:
-          python-version: "3.13"  
-      
+
       - name: Install Python deps
         run: uv sync --extra docs --extra server --extra mcp
 
@@ -72,9 +75,13 @@ jobs:
 
       - name: Resolve version label
         id: label
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "version=$DISPATCH_VERSION" >> "$GITHUB_OUTPUT"
             echo "alias=" >> "$GITHUB_OUTPUT"
           else
             TAG="${GITHUB_REF##refs/tags/}"
@@ -84,13 +91,34 @@ jobs:
             echo "alias=latest" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Deploy via mike
+      # ``mike deploy --update-aliases X Y`` aborts with "alias 'Y' already
+      # specified as a version" when Y was previously deployed as a real
+      # version. Retire that collision before deploying so the workflow is
+      # idempotent across historical gh-pages states.
+      - name: Retire stale alias-as-version (if any)
+        if: steps.label.outputs.alias != ''
+        env:
+          ALIAS: ${{ steps.label.outputs.alias }}
         run: |
-          if [ -n "${{ steps.label.outputs.alias }}" ]; then
-            uv run mike deploy --push --update-aliases \
-              "${{ steps.label.outputs.version }}" "${{ steps.label.outputs.alias }}"
-            uv run mike set-default --push "${{ steps.label.outputs.alias }}"
+          set -euo pipefail
+          if uv run mike list --json 2>/dev/null \
+              | python -c "import json,os,sys; want=os.environ['ALIAS']; sys.exit(0 if any(e.get('version')==want for e in json.load(sys.stdin)) else 1)"; then
+            echo "Alias '$ALIAS' is registered as a version; deleting before redeploy."
+            uv run mike delete --push "$ALIAS"
           else
-            uv run mike deploy --push "${{ steps.label.outputs.version }}"
-            uv run mike set-default --push "${{ steps.label.outputs.version }}"
+            echo "No stale '$ALIAS' version to retire."
+          fi
+
+      - name: Deploy via mike
+        env:
+          VERSION: ${{ steps.label.outputs.version }}
+          ALIAS: ${{ steps.label.outputs.alias }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ALIAS" ]; then
+            uv run mike deploy --push --update-aliases "$VERSION" "$ALIAS"
+            uv run mike set-default --push "$ALIAS"
+          else
+            uv run mike deploy --push "$VERSION"
+            uv run mike set-default --push "$VERSION"
           fi

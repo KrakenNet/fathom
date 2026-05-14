@@ -10,17 +10,17 @@ last_verified: 2026-04-15
 # `fathom verify-artifact`
 
 ```
-                                                                                                    
- Usage: fathom verify-artifact [OPTIONS] ARTIFACT                                                   
-                                                                                                    
- Verify an artifact's detached minisign signature against a pubkey.                                 
-                                                                                                    
-╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    artifact      PATH  Artifact to verify. [required]                                          │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --sig           PATH  Sig path (default: <path>.minisig).                                        │
-│ --pubkey        PATH  Pubkey (default: embedded).                                                │
-│ --help                Show this message and exit.                                                │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+                                                                                
+ Usage: fathom verify-artifact [OPTIONS] ARTIFACT                               
+                                                                                
+ Verify an artifact's detached minisign signature against a pubkey.             
+                                                                                
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    artifact      PATH  Artifact to verify. [required]                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --sig           PATH  Sig path (default: <path>.minisig).                    │
+│ --pubkey        PATH  Pubkey (default: embedded).                            │
+│ --help                Show this message and exit.                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ```

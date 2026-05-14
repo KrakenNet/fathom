@@ -24,6 +24,7 @@ KNOWN_SECTIONS: tuple[str, ...] = (
     "fixed",
     "security",
 )
+KNOWN_SECTION_SET = frozenset(KNOWN_SECTIONS)
 
 
 def parse(text: str) -> list[dict[str, Any]]:
@@ -40,7 +41,7 @@ def parse(text: str) -> list[dict[str, Any]]:
             current_section = None
         elif m := SECTION_HEADING.match(raw):
             name = m.group(1).strip().lower()
-            current_section = name if name in KNOWN_SECTIONS else None
+            current_section = name if name in KNOWN_SECTION_SET else None
         elif m := BULLET.match(raw):
             if current is not None and current_section is not None:
                 current[current_section].append(m.group(1).strip())
