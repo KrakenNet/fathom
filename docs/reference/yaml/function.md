@@ -14,10 +14,13 @@ last_verified: 2026-05-01
 
 A **function** exposes a CLIPS `deffunction` that rules may call from
 either the LHS (inside a `test:` escape hatch) or the RHS. Fathom
-recognizes three function subtypes: `classification` (emitted as a
+recognizes two function subtypes: `classification` (emitted as a
 family of rank/below/meets-or-exceeds/within-scope deffunctions driven
-by a `HierarchyDefinition`), `raw` (the author-supplied CLIPS source
-is emitted verbatim), and `temporal` (reserved — currently a stub).
+by a `HierarchyDefinition`) and `raw` (the author-supplied CLIPS
+source is emitted verbatim). Temporal operators (`changed_within`,
+`count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`,
+`sequence_detected`) are served by Engine-registered Python externals
+under the reserved `fathom-` prefix, **not** by `FunctionDefinition`.
 For conceptual context see
 [Five Primitives](../../concepts/five-primitives.md); for exposing
 Python callables instead of authoring CLIPS, see
@@ -30,9 +33,9 @@ Python callables instead of authoring CLIPS, see
 | `name`          | `str`                                            | —                  | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$` (validated by `_name_must_be_clips_ident`). For `raw` functions this is authoring metadata only — the emitted CLIPS name comes from `body`. For `classification` the hierarchy name drives the emitted function names (see below). |
 | `description`   | `str`                                            | `""`               | no       | Author-facing prose. Not emitted to CLIPS.                                                                                                                             |
 | `params`        | `list[str]`                                      | —                  | yes      | Parameter names. Used when authoring `raw` bodies; the classification path ignores `params` and generates its own `(?level)` / `(?a ?b)` signatures from the hierarchy. |
-| `hierarchy_ref` | `str \| None`                                    | `None`             | no       | **Required** when `type == "classification"`. Names the hierarchy whose `levels` drive emission. A trailing `.yaml` is stripped: `hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]`. Ignored for `temporal` and `raw`. |
-| `type`          | `Literal["classification", "temporal", "raw"]`   | `"classification"` | no       | Selects the emission strategy. Default is `classification`.                                                                                                            |
-| `body`          | `str \| None`                                    | `None`             | no       | Raw CLIPS source. **Required** when `type == "raw"`. Ignored for `classification` and `temporal`.                                                                      |
+| `hierarchy_ref` | `str \| None`                                    | `None`             | no       | **Required** when `type == "classification"`. Names the hierarchy whose `levels` drive emission. A trailing `.yaml` is stripped: `hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]`. Ignored for `raw`. |
+| `type`          | `Literal["classification", "raw"]`               | `"classification"` | no       | Selects the emission strategy. Default is `classification`.                                                                                                            |
+| `body`          | `str \| None`                                    | `None`             | no       | Raw CLIPS source. **Required** when `type == "raw"`. Ignored for `classification`.                                                                                     |
 
 Emission is dispatched in `compile_function` in
 `src/fathom/compiler.py`. Empty `name`, missing `body` for a `raw`
@@ -79,17 +82,15 @@ Compilation failures:
 
 - Missing `body` → `CompilationError`.
 
-### `temporal`
+### Temporal operators (no `FunctionDefinition` needed)
 
-Currently a stub. `compile_function` returns `""` (empty string) for
-`type: temporal` — the YAML surface accepts the subtype, but emission
-is a no-op at this phase of development. Temporal operators in rules
-(`changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`,
-`distinct_count`, `sequence_detected`) are served by Python-side
-external functions the engine registers under the reserved `fathom-`
-prefix, not by compiled CLIPS deffunctions. Authors typically do not
-need to declare a `type: temporal` function for these operators to
-work. See
+Temporal operators (`changed_within`, `count_exceeds`, `rate_exceeds`,
+`last_n`, `distinct_count`, `sequence_detected`) are served by
+Engine-registered Python externals under the reserved `fathom-`
+prefix, not by compiled CLIPS deffunctions. Use them directly in rule
+conditions; **no `FunctionDefinition` declaration is required or
+accepted** — `type: temporal` was removed in 0.4.0 (raises a Pydantic
+validation error if encountered in YAML). See
 [Register a Python function](../../how-to/register-function.md) for
 the external-function path and
 [Not in v1](../../concepts/not-in-v1.md) for the broader roadmap.
@@ -209,7 +210,6 @@ prevent collisions with the runtime's own bindings.
 ## What is not emitted
 
 - `description` — author-facing only.
-- `type: temporal` — emits the empty string.
 - `HierarchyDefinition.compartments` — accepted by the model, unused by
   today's classification emission.
 - `FunctionDefinition.name` and `params` — ignored by the

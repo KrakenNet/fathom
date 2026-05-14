@@ -11,9 +11,11 @@ Requires ``grpcio >= 1.60``.  Install via::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
+import queue
 from concurrent import futures
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -72,10 +74,14 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     Each method receives a protobuf request, extracts parameters, calls
     the appropriate Engine method, and returns a protobuf response.
 
-    ``Reload`` returns a real :class:`fathom_pb2.ReloadResponse` so it can
-    be registered on a ``grpc.server`` and called via a generated stub.
-    The other RPCs still return plain ``dict`` payloads as structural
-    stubs — they are not exercised via the real gRPC channel yet.
+    All RPCs return real protobuf messages and serialize cleanly over
+    a real ``grpc.server``: ``Evaluate`` →
+    :class:`fathom_pb2.EvaluateResponse`, ``AssertFact`` →
+    :class:`fathom_pb2.AssertFactResponse`, ``Query`` →
+    :class:`fathom_pb2.QueryResponse`, ``Retract`` →
+    :class:`fathom_pb2.RetractResponse`, ``Reload`` →
+    :class:`fathom_pb2.ReloadResponse`, ``SubscribeChanges`` → stream
+    of :class:`fathom_pb2.FactChange`.
 
     Args:
         default_engine: Engine instance used for session-less requests.
@@ -145,7 +151,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.EvaluateResponse:
         """Evaluate facts against loaded rules.
 
         Asserts each fact from the request into working memory, runs
@@ -164,31 +170,31 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
 
         result = engine.evaluate()
 
-        return {
-            "decision": result.decision or "",
-            "reason": result.reason or "",
-            "rule_trace": list(result.rule_trace),
-            "module_trace": list(result.module_trace),
-            "duration_us": result.duration_us,
-        }
+        return fathom_pb2.EvaluateResponse(
+            decision=result.decision or "",
+            reason=result.reason or "",
+            rule_trace=list(result.rule_trace),
+            module_trace=list(result.module_trace),
+            duration_us=result.duration_us,
+        )
 
     def AssertFact(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.AssertFactResponse:
         """Assert a single fact into working memory."""
         self._check_auth(context)
         engine = self._engine_for(request.session_id)
         data = json.loads(request.data_json)
         engine.assert_fact(request.template, data)
-        return {"success": True}
+        return fathom_pb2.AssertFactResponse(success=True)
 
     def Query(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.QueryResponse:
         """Query working memory for matching facts."""
         self._check_auth(context)
         engine = self._engine_for(request.session_id)
@@ -198,13 +204,13 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             fact_filter = json.loads(request.filter_json)
 
         facts = engine.query(request.template, fact_filter)
-        return {"facts_json": [json.dumps(f) for f in facts]}
+        return fathom_pb2.QueryResponse(facts_json=[json.dumps(f) for f in facts])
 
     def Retract(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.RetractResponse:
         """Retract facts matching template and optional filter."""
         self._check_auth(context)
         engine = self._engine_for(request.session_id)
@@ -214,21 +220,90 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             fact_filter = json.loads(request.filter_json)
 
         count = engine.retract(request.template, fact_filter)
-        return {"retracted_count": count}
+        return fathom_pb2.RetractResponse(retracted_count=count)
 
     def SubscribeChanges(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> Iterator[dict[str, Any]]:
-        """Stream working-memory changes (stub).
+    ) -> Iterator[Any]:
+        """Stream working-memory changes for ``request.session_id``.
 
-        Full implementation requires an event bus wired into the Engine's
-        fact assertion and retraction paths.  This stub yields nothing
-        and returns immediately.
+        Subscribes to the session-scoped :class:`Engine` and yields one
+        :class:`fathom_pb2.FactChange` per ``assert_fact`` / ``retract``
+        on that engine. The stream lives until the client disconnects
+        (``context`` cancellation) or the servicer is shut down.
+
+        Backpressure: events are buffered in a bounded thread-safe
+        queue. If the queue fills (slow client), oldest events are
+        dropped and a warning is logged. Use :meth:`Query` to
+        re-synchronize after a drop.
+
+        Note: only events fired on the same ``session_id`` (resolved
+        via :meth:`_engine_for`) are observed. Events asserted via the
+        REST server, a different gRPC session, or a separate process
+        will not appear here -- :class:`Engine` is in-process state.
         """
         self._check_auth(context)
-        return iter([])
+        engine = self._engine_for(request.session_id)
+
+        # 1024 events ~= a few hundred KB of buffer. Generous for
+        # interactive subscribers; truncates rather than OOMs the
+        # server when a client stalls.
+        events: queue.Queue[tuple[str, str, dict[str, Any]] | None] = queue.Queue(maxsize=1024)
+
+        def listener(template: str, action: str, data: dict[str, Any]) -> None:
+            try:
+                events.put_nowait((template, action, data))
+            except queue.Full:
+                # Drop oldest event to make room. Logged so operators
+                # can spot subscribers that have wedged.
+                with contextlib.suppress(queue.Empty):  # pragma: no cover - racy fallback
+                    events.get_nowait()
+                with contextlib.suppress(queue.Full):  # pragma: no cover - extremely racy fallback
+                    events.put_nowait((template, action, data))
+                logger.warning(
+                    "SubscribeChanges queue overflow; dropping oldest event "
+                    "(session_id=%s, template=%s)",
+                    request.session_id,
+                    template,
+                )
+
+        unsubscribe = engine.subscribe(listener)
+        # Wake the consumer loop when the gRPC context is cancelled so
+        # this generator returns promptly instead of waiting on the
+        # next event. ``add_callback`` is part of grpc.ServicerContext;
+        # missing in some unit-test stubs, so we guard with getattr.
+        add_callback = getattr(context, "add_callback", None)
+        if callable(add_callback):
+            add_callback(lambda: events.put(None))
+
+        try:
+            while True:
+                # Short poll so we still notice context cancellation
+                # even if no callback is wired (test harnesses).
+                try:
+                    item = events.get(timeout=0.5)
+                except queue.Empty:
+                    is_active = getattr(context, "is_active", None)
+                    if callable(is_active) and not is_active():
+                        return
+                    continue
+                if item is None:
+                    return
+                template, action, data = item
+                change_type = (
+                    fathom_pb2.ChangeType.ASSERT
+                    if action == "assert"
+                    else fathom_pb2.ChangeType.RETRACT
+                )
+                yield fathom_pb2.FactChange(
+                    change_type=change_type,
+                    template=template,
+                    data_json=json.dumps(data, default=str),
+                )
+        finally:
+            unsubscribe()
 
     def _write_audit(self, record: dict[str, Any]) -> None:
         """Forward ``record`` to the audit sink; swallow sink errors.

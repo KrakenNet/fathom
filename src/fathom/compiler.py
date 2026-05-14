@@ -379,11 +379,6 @@ class Compiler:
                 )
             return defn.body
 
-        if defn.type == "temporal":
-            # Temporal functions are registered as Python external functions
-            # (handled in a later task). Return empty stub.
-            return ""
-
         # classification type
         if not defn.hierarchy_ref:
             raise CompilationError(
