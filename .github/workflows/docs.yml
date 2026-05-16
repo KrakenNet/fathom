@@ -29,7 +29,7 @@ jobs:
       # the drift gate fails on every PR.
       # ``scripts/check_doc_sources.py`` also walks ``git log`` to find
       # the most recent commit touching each cited source file.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
