@@ -6,13 +6,14 @@
 CLAUDE.md
 
 # Specs / orchestration state
-./specs/
-specs/.current-spec
-specs/.index/.work-indicators/
+specs/
+.forge*
 **/.tasks.lock
 **/.progress.md
 **/.ralph-state.json
 **/.git-commit.lock
+TODO.md
+**/superpowers
 
 # Python bytecode
 __pycache__/
