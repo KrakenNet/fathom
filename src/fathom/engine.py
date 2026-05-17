@@ -174,7 +174,6 @@ class Engine:
         self._reload_lock = threading.Lock()
         self._ruleset_yaml_bytes: bytes | None = None
 
-        # Placeholders for subsystems (wired up in later tasks)
         self._compiler = Compiler()
         self._fact_manager = FactManager(
             env_provider=lambda: self._env,

@@ -73,8 +73,6 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 
 ## What Ships Today
 
-Phase 1–3 of the roadmap are complete; Phase 4 is in progress. See [design.md](design.md) for the full roadmap with status.
-
 **Core runtime (Python)**
 
 - YAML compiler for templates, rules, modules, and functions

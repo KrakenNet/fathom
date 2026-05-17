@@ -15,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-05-01
+last_verified: 2026-05-17
 ---
 
 # Planned Integrations
@@ -38,10 +38,12 @@ Each entry declares a **Status** of one of:
 
 **Status:** Partial.
 
-**Location:** `packages/fathom-go/` — a hand-written REST client. The
-package contents are `client.go` (180 lines), `go.mod`, and a `Makefile`;
-no other Go files exist. `go.mod` declares `module
-github.com/KrakenNet/fathom-go` at `go 1.21`.
+**Location:** `packages/fathom-go/` — a hand-written REST client plus
+generated gRPC bindings. Package contents: `client.go` (180 lines),
+`client_test.go` (818 lines), `grpc_test.go` (230 lines, build-tagged
+`integration`), `tools.go`, `go.mod`, `go.sum`, `Makefile`, and
+`proto/` with `fathom.pb.go` + `fathom_grpc.pb.go`. `go.mod` declares
+`module github.com/KrakenNet/fathom-go` at `go 1.21`.
 
 **What works today:**
 
@@ -54,15 +56,16 @@ github.com/KrakenNet/fathom-go` at `go 1.21`.
   `Content-Type: application/json`, optional `Authorization: Bearer
   <token>` header, and error surfacing on any non-2xx status with the
   server body embedded in the returned error.
+- Unit tests in `client_test.go` exercise the REST surface against
+  `httptest` servers.
+- Generated gRPC stubs live in `packages/fathom-go/proto/` (built from
+  `protos/fathom.proto`); `grpc_test.go` is a `-tags=integration` test
+  that spawns the Python gRPC server and dials it via those stubs.
 
 **What is missing:**
 
-- **No tests.** A directory listing of `packages/fathom-go/` contains no
-  `*_test.go` files; nothing is exercised by CI.
-- **No gRPC client.** Only REST is wired up. `protos/fathom.proto:12`
-  declares `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`,
-  but no generated bindings are checked in and no `protoc` step runs in
-  the repo.
+- **No CI for the Go suite.** Unit and integration tests exist locally
+  but the Python suite is still the only one wired into CI.
 - **No released module.** Consumers must vendor the package from a local
   clone; nothing is published to a Go proxy.
 
@@ -87,15 +90,19 @@ vitest tests passing, and the typedoc reference is generated into
 `docs/reference/typescript-sdk/` by the `docs` npm script in
 `package.json:14`.
 
+**What works (additional):** The OpenAPI-generated client has been
+produced and committed. `openapi.json` lives at the repo root, and
+`packages/fathom-ts/src/generated/` contains `core/`, `index.ts`,
+`schemas.gen.ts`, `services.gen.ts`, and `types.gen.ts` — the output of
+the `generate` script at `package.json:12` (which shells out to
+`scripts/generate.sh` calling `npx @hey-api/openapi-ts` against
+`../../openapi.json`).
+
 **What is missing:**
 
-- **No OpenAPI-generated client.** `package.json:12` declares a
-  `generate` script that shells out to `scripts/generate.sh`, which
-  invokes `npx @hey-api/openapi-ts` against `../../openapi.json` and
-  writes into `src/generated/`. Neither `openapi.json` nor `src/generated/`
-  is in the tree — the generator has never been run and committed.
 - **No published npm release.** `repository.url` in `package.json` points
   at the monorepo; no `dist/` is published.
+- **No CI for the TS suite.** Vitest suites pass locally only.
 
 **How to use today:** Clone the monorepo, `pnpm install` in
 `packages/fathom-ts/`, and import from the local workspace path. The
@@ -154,9 +161,8 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   have broken `protoc` output). Resolved at HEAD:
   `protos/fathom.proto:12` now declares
   `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
-  `packages/fathom-go/go.mod:1`. Generated bindings still need to be
-  produced via `protoc` and checked into `packages/fathom-go/proto/`
-  before a gRPC client can be built.
+  `packages/fathom-go/go.mod:1`. Generated bindings now live in
+  `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
 - **No CI for the Go, TypeScript, or editor packages.** The Python test
   suite (1361 tests per `design.md:544`) is the only suite wired into CI;
   every "works today" claim above reduces to "works when run locally
