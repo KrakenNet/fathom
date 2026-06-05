@@ -34,8 +34,89 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      # The Linux job installs the full toolchain so the conditional skips in
+      # test_release_sig.py, test_grpc_docs.py, test_go_sdk_docs.py,
+      # test_ts_sdk_docs.py and test_postman.py actually run (issue #16). The
+      # prometheus packages for test_rest_metrics.py come from the `metrics`
+      # extra via `uv sync --all-extras` above. Windows/macOS matrix legs keep
+      # skipping these (apt/minisign are Linux-only); Linux is the lane that
+      # guarantees coverage.
+      - name: Install minisign (test_release_sig.py)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y minisign
+
+      - name: Set up Go (test_go_sdk_docs.py)
+        if: runner.os == 'Linux'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: packages/fathom-go/go.mod
+
+      # arduino/setup-protoc@v3 has an unfixed "unable to get latest version"
+      # bug; install protoc directly from the upstream release archive, the
+      # same way .github/workflows/docs.yml does.
+      - name: Install protoc (test_grpc_docs.py)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          PROTOC_VERSION=27.3
+          PROTOC_SHA256=6dab2adab83f915126cab53540d48957c40e9e9023969c3e84d44bfb936c7741
+          curl -fsSL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          echo "${PROTOC_SHA256}  /tmp/protoc.zip" | sha256sum -c -
+          sudo unzip -q -o /tmp/protoc.zip -d /usr/local
+          sudo chmod +x /usr/local/bin/protoc
+          protoc --version
+
+      # Use the prebuilt release binary rather than `go install`: compiling
+      # is slower and the go module-cache cleanup intermittently panics on
+      # runners ("lockedfile ... became unreachable without a call to Close").
+      - name: Install protoc-gen-doc (test_grpc_docs.py)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          PROTOC_GEN_DOC_VERSION=1.5.1
+          PROTOC_GEN_DOC_SHA256=47cd72b07e6dab3408d686a65d37d3a6ab616da7d8b564b2bd2a2963a72b72fd
+          curl -fsSL -o /tmp/protoc-gen-doc.tar.gz \
+            "https://github.com/pseudomuto/protoc-gen-doc/releases/download/v${PROTOC_GEN_DOC_VERSION}/protoc-gen-doc_${PROTOC_GEN_DOC_VERSION}_linux_amd64.tar.gz"
+          echo "${PROTOC_GEN_DOC_SHA256}  /tmp/protoc-gen-doc.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/protoc-gen-doc.tar.gz -C /usr/local/bin protoc-gen-doc
+          protoc-gen-doc --version
+
+      - name: Install Node (test_ts_sdk_docs.py, test_postman.py)
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install pnpm (test_ts_sdk_docs.py)
+        if: runner.os == 'Linux'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
       - name: Run tests with coverage
         run: uv run pytest --cov=fathom --cov-report=xml --cov-report=term-missing -q
+
+      # Regression guard (issue #16): on Linux the toolchain above is present,
+      # so the previously-skipped tests must run, not skip. Re-run just those
+      # files and fail if pytest reports any SKIPPED for them — that signals a
+      # toolchain step regressed and the coverage gap silently reopened.
+      - name: Guard — toolchain tests must not skip
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          out="$(uv run pytest -rs -q \
+            tests/test_release_sig.py \
+            tests/test_rest_metrics.py \
+            tests/test_scripts/test_go_sdk_docs.py \
+            tests/test_scripts/test_ts_sdk_docs.py \
+            tests/test_scripts/test_postman.py \
+            tests/test_scripts/test_grpc_docs.py 2>&1)"
+          echo "$out"
+          if echo "$out" | grep -q "SKIPPED"; then
+            echo "::error::A toolchain-gated test SKIPPED on Linux — install step regressed (issue #16)."
+            exit 1
+          fi
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
