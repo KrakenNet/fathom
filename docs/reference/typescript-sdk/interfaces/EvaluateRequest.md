@@ -6,7 +6,7 @@
 
 # Interface: EvaluateRequest
 
-Defined in: [src/client.ts:25](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L25)
+Defined in: [client.ts:25](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L25)
 
 Payload for POST /v1/evaluate.
 
@@ -16,7 +16,7 @@ Payload for POST /v1/evaluate.
 
 > **facts**: [`FactInput`](FactInput.md)[]
 
-Defined in: [src/client.ts:26](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L26)
+Defined in: [client.ts:26](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L26)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [src/client.ts:26](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **ruleset**: `string`
 
-Defined in: [src/client.ts:27](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L27)
+Defined in: [client.ts:27](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L27)
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [src/client.ts:27](https://github.com/KrakenNet/fathom/blob/master/p
 
 > `optional` **session\_id?**: `string`
 
-Defined in: [src/client.ts:28](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L28)
+Defined in: [client.ts:28](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L28)
