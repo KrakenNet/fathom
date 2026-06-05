@@ -56,9 +56,7 @@ def _engine_with_event_template(tmp_path: Path) -> Engine:
 
 
 @pytest.fixture
-def grpc_server(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> Iterator[str]:
+def grpc_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[str]:
     monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
 
     servicer = FathomServicer(
