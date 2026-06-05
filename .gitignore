@@ -35,7 +35,6 @@ MANIFEST
 .envrc
 
 # uv
-uv.lock
 
 # Testing / coverage
 htmlcov/

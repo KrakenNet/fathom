@@ -118,8 +118,12 @@ jobs:
       - name: Spelling
         run: uv run codespell docs/ --skip "docs/reference/*,docs/llms*.txt,docs/changelog.json,docs/superpowers/*"
 
+      # llms*.txt are generated machine-consumption artifacts (excluded
+      # from markdownlint/codespell too); their URLs point at the deployed
+      # /latest/ site, so pages added between releases would 404 until the
+      # next deploy. URL shape is covered by test_generate_llms_txt.py.
       - name: Link check
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --no-progress --exclude-path docs/superpowers docs/
+          args: --no-progress --exclude-path docs/superpowers --exclude-path docs/llms.txt --exclude-path docs/llms-full.txt docs/
           fail: true
