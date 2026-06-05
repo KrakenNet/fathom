@@ -6,7 +6,7 @@
 
 # Interface: RetractResponse
 
-Defined in: [src/client.ts:73](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L73)
+Defined in: [client.ts:73](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L73)
 
 Response from DELETE /v1/facts.
 
@@ -16,4 +16,4 @@ Response from DELETE /v1/facts.
 
 > **retracted\_count**: `number`
 
-Defined in: [src/client.ts:74](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L74)
+Defined in: [client.ts:74](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L74)

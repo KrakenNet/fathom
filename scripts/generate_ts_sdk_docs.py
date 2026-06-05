@@ -165,6 +165,11 @@ def main(out_dir: Path) -> int:
             # current HEAD SHA, which would fail the drift gate).
             "--gitRevision",
             "master",
+            # Inherited Error internals (stackTraceLimit, ...) come from
+            # @types/node, and typedoc emits its *versioned* pnpm store
+            # path as their source — every @types/node bump would drift
+            # the docs. They're noise in SDK reference anyway.
+            "--excludeExternals",
             "--out",
             str(staging_path.resolve()),
             "src/index.ts",
