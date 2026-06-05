@@ -32,7 +32,7 @@ class TestBackwardChainingDefault:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             Engine(experimental_backward_chaining=False)
-            bc_warnings = [x for x in w if "backward chaining" in str(x.message).lower()]
+            bc_warnings = [x for x in w if "backward_chaining" in str(x.message).lower()]
             assert len(bc_warnings) == 0
 
 
@@ -52,15 +52,19 @@ class TestBackwardChainingEnabled:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             Engine(experimental_backward_chaining=True)
-            bc_warnings = [x for x in w if "backward chaining" in str(x.message).lower()]
+            bc_warnings = [x for x in w if "backward_chaining" in str(x.message).lower()]
             assert len(bc_warnings) == 1
 
     def test_warning_message_content(self) -> None:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             Engine(experimental_backward_chaining=True)
-            bc_warnings = [x for x in w if "backward chaining" in str(x.message).lower()]
-            assert "experimental" in str(bc_warnings[0].message).lower()
+            bc_warnings = [x for x in w if "backward_chaining" in str(x.message).lower()]
+            message = str(bc_warnings[0].message).lower()
+            # The flag is reserved and currently a no-op.
+            assert "reserved" in message
+            assert "no effect" in message
+            assert issubclass(bc_warnings[0].category, FutureWarning)
 
 
 # ---------------------------------------------------------------------------
