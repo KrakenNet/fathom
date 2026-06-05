@@ -37,6 +37,8 @@ from httpx import ASGITransport
 
 from fathom.integrations.rest import app as rest_app
 from fathom.studio.app import get_sid
+from fathom.studio.scenarios import SCENARIOS, get_scenario
+from fathom.studio.scenarios import seed as seed_scenario
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -92,11 +94,17 @@ async def overview(request: Request) -> HTMLResponse:
 
 @router.get("/eval", response_class=HTMLResponse)
 async def eval_form(request: Request) -> HTMLResponse:
-    """Render the Playground form (no evaluation yet)."""
+    """Render the Playground form (no evaluation yet) plus scenario seeds."""
     return templates.TemplateResponse(
         request,
         "eval.html",
-        _ctx(request, configured=_api_token() is not None, result=None, error=None),
+        _ctx(
+            request,
+            configured=_api_token() is not None,
+            result=None,
+            error=None,
+            scenarios=SCENARIOS,
+        ),
     )
 
 
@@ -130,20 +138,53 @@ async def eval_run(
             result=result,
             error=error,
             sent={"template": template, "data": data, "ruleset": ruleset},
+            scenarios=SCENARIOS,
         ),
     )
 
 
 @router.get("/blp", response_class=HTMLResponse)
 async def blp(request: Request) -> HTMLResponse:
-    """Bell-LaPadula lattice gallery panel (content seeded by a later task)."""
-    return templates.TemplateResponse(request, "blp.html", _ctx(request))
+    """Bell-LaPadula gallery: one-click seed of example 03 (dominates())."""
+    return templates.TemplateResponse(
+        request, "blp.html", _ctx(request, scenario=get_scenario("03-classification-blp"))
+    )
 
 
 @router.get("/temporal", response_class=HTMLResponse)
 async def temporal(request: Request) -> HTMLResponse:
-    """Temporal-rule scenarios panel (content seeded by a later task)."""
-    return templates.TemplateResponse(request, "temporal.html", _ctx(request))
+    """Temporal scenarios: one-click seed of example 04 (rate_exceeds)."""
+    return templates.TemplateResponse(
+        request, "temporal.html", _ctx(request, scenario=get_scenario("04-temporal-anomaly"))
+    )
+
+
+@router.post("/scenarios/{scenario_id}/seed", response_class=HTMLResponse)
+async def seed_route(request: Request, scenario_id: str) -> HTMLResponse:
+    """Seed an example (01–05) and render its real evaluation decision."""
+    scenario = get_scenario(scenario_id)
+    if scenario is None:
+        return templates.TemplateResponse(
+            request,
+            "scenario.html",
+            _ctx(request, scenario=None, result=None, error=f"Unknown scenario: {scenario_id}"),
+            status_code=404,
+        )
+    token = _api_token()
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    if token is None:
+        error = "FATHOM_API_TOKEN is not configured; cannot seed."
+    else:
+        # Each seed gets its own fresh session (minted inside ``seed``) so a
+        # scenario always loads its own ruleset into clean working memory,
+        # independent of any prior seed in the same browser.
+        result, error = await seed_scenario(scenario, token=token)
+    return templates.TemplateResponse(
+        request,
+        "scenario.html",
+        _ctx(request, scenario=scenario, result=result, error=error),
+    )
 
 
 @router.get("/packs", response_class=HTMLResponse)

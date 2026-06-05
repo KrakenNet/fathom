@@ -31,6 +31,27 @@
     </form>
   </div>
 
+  {% if scenarios %}
+    <div class="card">
+      <h3>Seed an example</h3>
+      <p class="muted">
+        One-click load a bundled example (<code>examples/01–05</code>): its
+        rules + facts are asserted into a fresh session and evaluated.
+      </p>
+      <ul class="scenarios">
+        {% for s in scenarios %}
+          <li>
+            <form method="post" action="/scenarios/{{ s.id }}/seed">
+              <strong>{{ s.title }}</strong><br />
+              <span class="muted">{{ s.description }}</span><br />
+              <button type="submit" {% if not configured %}disabled{% endif %}>Seed</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
   {% if error %}
     <div class="card error"><strong>Error:</strong> {{ error }}</div>
   {% endif %}
