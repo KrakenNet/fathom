@@ -157,8 +157,11 @@ class Engine:
                 :class:`NullSink` (no-op).
             session_id: Optional session identifier. A random UUID is
                 generated when omitted.
-            experimental_backward_chaining: Enable experimental
-                backward-chaining support. Default ``False``.
+            experimental_backward_chaining: Reserved for a future
+                release. This flag currently has **no behavioural
+                effect**: setting it to ``True`` does not enable
+                backward chaining and only emits a ``FutureWarning``.
+                Default ``False``.
             attestation_service: Optional attestation service for signing
                 evaluation results. When provided, all evaluation results
                 are signed with an Ed25519 JWT token.
@@ -196,7 +199,9 @@ class Engine:
             import warnings
 
             warnings.warn(
-                "Backward chaining is experimental and may change in future versions.",
+                "experimental_backward_chaining is reserved for a future release "
+                "and currently has no effect.",
+                FutureWarning,
                 stacklevel=2,
             )
         self._attestation_service = attestation_service
