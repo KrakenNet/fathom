@@ -1,6 +1,6 @@
 [project]
 name = "fathom-rules"
-version = "0.4.0"
+version = "0.5.0"
 description = "Deterministic reasoning runtime for AI agents, built on CLIPS via clipspy"
 readme = "README.md"
 license = "MIT"
