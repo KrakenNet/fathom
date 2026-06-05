@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Temporal{% endblock %}
+{% block body %}
+  <h2>Temporal scenarios</h2>
+  <p class="muted">
+    Time-windowed rules: <code>rate_exceeds</code> and
+    <code>distinct_count</code> aggregates with TTL expiry of facts. Demonstrates
+    anomaly detection over a sliding window (example 04).
+  </p>
+  <div class="card notice">
+    Scenario seeds (rate / distinct-count rules with TTL expiry) load here once
+    the scenario task runs.
+  </div>
+{% endblock %}

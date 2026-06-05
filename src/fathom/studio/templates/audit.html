@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Audit{% endblock %}
+{% block body %}
+  <h2>Audit &amp; attestation</h2>
+  <p class="muted">
+    Every evaluation can emit an immutable JSONL audit record and an Ed25519
+    attestation token. This panel renders the audit timeline and lets you
+    generate and verify a signed attestation.
+  </p>
+  <div class="card notice">
+    The audit-log timeline and attestation generate/verify controls load here
+    once the audit task runs.
+  </div>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}BLP gallery{% endblock %}
+{% block body %}
+  <h2>Bell-LaPadula gallery</h2>
+  <p class="muted">
+    Classification lattice (UNCLASSIFIED &lt; CONFIDENTIAL &lt; SECRET &lt;
+    TOP SECRET) with the <code>dominates()</code> relation: no read up, no write
+    down. Worked scenarios are seeded into this panel by the scenario task.
+  </p>
+  <div class="card notice">
+    Scenario seeds (example 03 hierarchies and a <code>dominates()</code>
+    visualization) load here once the scenario task runs.
+  </div>
+{% endblock %}

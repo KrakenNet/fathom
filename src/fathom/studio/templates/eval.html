@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Playground{% endblock %}
+{% block body %}
+  <h2>Playground</h2>
+  <p class="muted">
+    Assert a fact and evaluate it against a ruleset. The decision, reason, and
+    full rule/module trace come straight from <code>POST /api/v1/evaluate</code>.
+  </p>
+
+  {% if not configured %}
+    <div class="card notice">
+      <strong>Read-only:</strong> set <code>FATHOM_API_TOKEN</code> and
+      <code>FATHOM_RULESET_ROOT</code> to evaluate against the mounted engine.
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <form method="post" action="/eval">
+      <label for="template">Fact template</label>
+      <input type="text" id="template" name="template"
+             value="{{ (sent.template if sent else '') }}"
+             placeholder="e.g. request" />
+      <label for="data">Fact data (JSON object)</label>
+      <textarea id="data" name="data" rows="4"
+                placeholder='{"action": "read", "role": "admin"}'>{{ (sent.data if sent else '') }}</textarea>
+      <label for="ruleset">Ruleset (relative to FATHOM_RULESET_ROOT; blank = root)</label>
+      <input type="text" id="ruleset" name="ruleset"
+             value="{{ (sent.ruleset if sent else '') }}"
+             placeholder="(blank)" />
+      <button type="submit" {% if not configured %}disabled{% endif %}>Evaluate</button>
+    </form>
+  </div>
+
+  {% if error %}
+    <div class="card error"><strong>Error:</strong> {{ error }}</div>
+  {% endif %}
+
+  {% if result %}
+    <div class="card">
+      <p class="decision decision--{{ 'allow' if result.decision == 'allow' else 'deny' }}">
+        decision: {{ result.decision if result.decision is not none else '(none)' }}
+      </p>
+      <table>
+        <tr><th>reason</th><td>{{ result.reason if result.reason is not none else '(none)' }}</td></tr>
+        <tr><th>duration_us</th><td>{{ result.duration_us }}</td></tr>
+      </table>
+      <h4>rule_trace</h4>
+      {% if result.rule_trace %}
+        <pre>{% for r in result.rule_trace %}{{ r }}
+{% endfor %}</pre>
+      {% else %}<p class="muted">(empty)</p>{% endif %}
+      <h4>module_trace</h4>
+      {% if result.module_trace %}
+        <pre>{% for m in result.module_trace %}{{ m }}
+{% endfor %}</pre>
+      {% else %}<p class="muted">(empty)</p>{% endif %}
+    </div>
+  {% endif %}
+{% endblock %}

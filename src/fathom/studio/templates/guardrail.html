@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Guardrail{% endblock %}
+{% block body %}
+  <h2>Guardrail simulator</h2>
+  <p class="muted">
+    A LangChain agent run gated by <code>FathomCallbackHandler</code>: each tool
+    call is checked against policy before it executes. The scripted path is
+    deterministic and needs no LLM; a live toggle (gated on
+    <code>LLM_BASE_URL</code> reachability) is wired by a later task.
+  </p>
+  <div class="card notice">
+    Scripted guardrail sequence and the live-LLM toggle load here once the
+    guardrail task runs.
+  </div>
+{% endblock %}

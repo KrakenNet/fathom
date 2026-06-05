@@ -106,6 +106,12 @@ def create_app() -> FastAPI:
         """Liveness probe for the Studio process."""
         return {"status": "ok"}
 
+    # Imported here (not at module scope) because ``panels`` imports ``get_sid``
+    # from this module — registering inside the factory avoids a circular import.
+    from fathom.studio.panels import router as panels_router
+
+    studio.include_router(panels_router)
+
     studio.mount("/api", rest_app)
     return studio
 
