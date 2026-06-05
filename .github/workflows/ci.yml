@@ -65,11 +65,18 @@ jobs:
           sudo chmod +x /usr/local/bin/protoc
           protoc --version
 
+      # Use the prebuilt release binary rather than `go install`: compiling
+      # is slower and the go module-cache cleanup intermittently panics on
+      # runners ("lockedfile ... became unreachable without a call to Close").
       - name: Install protoc-gen-doc (test_grpc_docs.py)
         if: runner.os == 'Linux'
         run: |
-          go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@v1.5.1
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          set -euo pipefail
+          PROTOC_GEN_DOC_VERSION=1.5.1
+          curl -fsSL -o /tmp/protoc-gen-doc.tar.gz \
+            "https://github.com/pseudomuto/protoc-gen-doc/releases/download/v${PROTOC_GEN_DOC_VERSION}/protoc-gen-doc_${PROTOC_GEN_DOC_VERSION}_linux_amd64.tar.gz"
+          sudo tar -xzf /tmp/protoc-gen-doc.tar.gz -C /usr/local/bin protoc-gen-doc
+          protoc-gen-doc --version
 
       - name: Install Node (test_ts_sdk_docs.py, test_postman.py)
         if: runner.os == 'Linux'
