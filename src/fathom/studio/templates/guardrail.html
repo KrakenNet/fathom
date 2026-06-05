@@ -4,12 +4,55 @@
   <h2>Guardrail simulator</h2>
   <p class="muted">
     A LangChain agent run gated by <code>FathomCallbackHandler</code>: each tool
-    call is checked against policy before it executes. The scripted path is
-    deterministic and needs no LLM; a live toggle (gated on
-    <code>LLM_BASE_URL</code> reachability) is wired by a later task.
+    call is checked against policy before it executes. The <strong>scripted</strong>
+    path is deterministic and needs no LLM. The <strong>live</strong> toggle is
+    gated on the LLM endpoint (<code>{{ llm_base_url }}</code>) reachability and
+    drives a LangChain <code>ChatOpenAI</code> agent.
   </p>
-  <div class="card notice">
-    Scripted guardrail sequence and the live-LLM toggle load here once the
-    guardrail task runs.
+
+  <div class="card">
+    <form action="/guardrail/run" method="post" style="display:inline">
+      <input type="hidden" name="mode" value="scripted" />
+      <button type="submit">Run scripted sequence</button>
+    </form>
+    <form action="/guardrail/run" method="post" style="display:inline; margin-left:0.5rem">
+      <input type="hidden" name="mode" value="live" />
+      <button type="submit">Run live (ChatOpenAI)</button>
+    </form>
+    <p class="muted">
+      Scripted feeds five canned tool calls (allowed read-only/admin tools plus a
+      shell-exec hard block) through the real callback handler. Live requires
+      <code>langchain</code> + <code>langchain-openai</code> and a reachable LLM.
+    </p>
   </div>
+
+  {% if live_error %}
+    <div class="card notice"><strong>Live mode:</strong> {{ live_error }}</div>
+  {% endif %}
+
+  {% if timeline is not none %}
+    <div class="card">
+      <h4>
+        {{ "Live" if mode == "live" else "Scripted" }} run timeline
+        ({{ timeline | length }} event{{ "" if timeline | length == 1 else "s" }})
+      </h4>
+      {% if timeline %}
+        <table>
+          <tr><th>tool</th><th>decision</th><th>reason</th><th>rules fired</th></tr>
+          {% for ev in timeline %}
+            <tr>
+              <td><code>{{ ev.tool }}</code></td>
+              <td class="decision decision--{{ 'allow' if ev.decision == 'allow' else 'deny' }}">
+                {{ ev.decision }}
+              </td>
+              <td>{{ ev.reason }}</td>
+              <td><code>{{ ev.rule_trace | join(", ") if ev.rule_trace else "—" }}</code></td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <p class="muted">No events were produced.</p>
+      {% endif %}
+    </div>
+  {% endif %}
 {% endblock %}

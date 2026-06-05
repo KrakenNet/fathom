@@ -3,12 +3,47 @@
 {% block body %}
   <h2>Audit &amp; attestation</h2>
   <p class="muted">
-    Every evaluation can emit an immutable JSONL audit record and an Ed25519
-    attestation token. This panel renders the audit timeline and lets you
-    generate and verify a signed attestation.
+    Guardrail decisions stream into an immutable JSONL audit timeline. You can
+    generate an Ed25519 attestation token over the latest event and verify it
+    cryptographically against the studio's public key.
   </p>
-  <div class="card notice">
-    The audit-log timeline and attestation generate/verify controls load here
-    once the audit task runs.
+
+  {% if error %}
+    <div class="card error"><strong>Error:</strong> {{ error }}</div>
+  {% endif %}
+
+  <div class="card">
+    <h4>Audit timeline ({{ events | length }} event{{ "" if events | length == 1 else "s" }})</h4>
+    {% if events %}
+      <pre>{% for ev in events %}{{ ev | tojson }}
+{% endfor %}</pre>
+    {% else %}
+      <p class="muted">
+        No audit events yet — run the
+        <a href="/guardrail">guardrail simulator</a> to populate the timeline.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h4>Ed25519 attestation</h4>
+    <form action="/audit/token" method="post">
+      <button type="submit">Generate token (latest event)</button>
+    </form>
+    {% if token %}
+      <label>token</label>
+      <pre>{{ token }}</pre>
+    {% endif %}
+    <form action="/audit/verify" method="post">
+      <label for="token">verify a token</label>
+      <textarea id="token" name="token" rows="3" placeholder="paste a token…">{{ token or "" }}</textarea>
+      <button type="submit">Verify token</button>
+    </form>
+    {% if verified %}
+      <div class="card notice">
+        <strong>Signature verified.</strong> Decoded claims:
+        <pre>{{ verified | tojson(indent=2) }}</pre>
+      </div>
+    {% endif %}
   </div>
 {% endblock %}
