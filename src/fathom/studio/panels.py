@@ -39,7 +39,6 @@ from httpx import ASGITransport
 from fathom import Engine
 from fathom.integrations.langchain import FathomCallbackHandler, PolicyViolation
 from fathom.integrations.rest import app as rest_app
-from fathom.studio.app import get_sid
 from fathom.studio.scenarios import SCENARIOS, get_scenario
 from fathom.studio.scenarios import seed as seed_scenario
 
@@ -131,6 +130,11 @@ async def eval_run(
     ruleset: str = Form(""),
 ) -> HTMLResponse:
     """Evaluate a single fact against the mounted REST app and render the trace."""
+    # Imported lazily (not at module scope) to break the ``panels`` ⇄ ``app``
+    # import cycle, which otherwise fails under ``python -m fathom.studio.app``
+    # where the module is loaded twice (as ``__main__`` and as ``fathom.studio.app``).
+    from fathom.studio.app import get_sid
+
     token = _api_token()
     result: dict[str, Any] | None = None
     error: str | None = None
