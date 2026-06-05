@@ -41,6 +41,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Identity-compared sentinel enqueued into a SubscribeChanges event
+# queue when the engine's ruleset is reloaded (ADR-0002 cancel-on-swap).
+# Typed as an event tuple so the queue annotation stays narrow; never
+# yielded to clients.
+_RELOAD_SENTINEL: tuple[str, str, dict[str, Any]] = ("__ruleset_reloaded__", "", {})
+
 
 class SessionStore:
     """Minimal session store for gRPC — same pattern as the REST server."""
@@ -239,6 +245,13 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         dropped and a warning is logged. Use :meth:`Query` to
         re-synchronize after a drop.
 
+        Reload semantics (ADR-0002, option a — cancel on swap): when
+        the engine's ruleset is atomically swapped by
+        :meth:`Engine.reload_rules` (via the :meth:`Reload` RPC or an
+        in-process call), this stream terminates with ``ABORTED`` and
+        details ``"ruleset_reloaded"``. Clients should re-subscribe to
+        bind to the new ruleset, then :meth:`Query` to re-synchronize.
+
         Note: only events fired on the same ``session_id`` (resolved
         via :meth:`_engine_for`) are observed. Events asserted via the
         REST server, a different gRPC session, or a separate process
@@ -270,6 +283,25 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                 )
 
         unsubscribe = engine.subscribe(listener)
+
+        # ADR-0002 option (a): cancel on swap. A ruleset reload
+        # invalidates the env this stream was bound to; enqueue the
+        # sentinel so the stream terminates with ABORTED and the
+        # client re-subscribes against the new ruleset.
+        def on_reload() -> None:
+            try:
+                events.put_nowait(_RELOAD_SENTINEL)
+            except queue.Full:
+                # Queued events are stale once the env is swapped; drop
+                # one so the sentinel always lands without blocking the
+                # reload thread.
+                with contextlib.suppress(queue.Empty):  # pragma: no cover - racy fallback
+                    events.get_nowait()
+                with contextlib.suppress(queue.Full):  # pragma: no cover - extremely racy fallback
+                    events.put_nowait(_RELOAD_SENTINEL)
+
+        unsubscribe_reload = engine.subscribe_reload(on_reload)
+
         # Wake the consumer loop when the gRPC context is cancelled so
         # this generator returns promptly instead of waiting on the
         # next event. ``add_callback`` is part of grpc.ServicerContext;
@@ -277,6 +309,17 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         add_callback = getattr(context, "add_callback", None)
         if callable(add_callback):
             add_callback(lambda: events.put(None))
+
+        def abort_reloaded() -> None:
+            # ``abort`` raises to unwind the generator; missing in some
+            # unit-test stubs, so we guard with getattr and fall back
+            # to a plain return (stream ends without a status).
+            abort = getattr(context, "abort", None)
+            if callable(abort):
+                abort(
+                    grpc.StatusCode.ABORTED,
+                    "ruleset_reloaded: re-subscribe to bind to the new ruleset",
+                )
 
         try:
             while True:
@@ -289,6 +332,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                     if callable(is_active) and not is_active():
                         return
                     continue
+                if item is _RELOAD_SENTINEL:
+                    abort_reloaded()
+                    return
                 if item is None:
                     return
                 template, action, data = item
@@ -303,6 +349,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                     data_json=json.dumps(data, default=str),
                 )
         finally:
+            unsubscribe_reload()
             unsubscribe()
 
     def _write_audit(self, record: dict[str, Any]) -> None:

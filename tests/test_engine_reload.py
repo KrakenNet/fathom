@@ -299,3 +299,76 @@ def test_inflight_eval_atomicity(tmp_path: Path) -> None:
     )
     assert result_b.reason == "from-B"
     assert result_b.rule_trace == ["gov::rule-b"]
+
+
+# --- subscribe_reload (ADR-0002 cancel-on-swap seam) ---
+
+
+def _engine_with_pack(tmp_path: Path) -> Engine:
+    """Engine with the minimal templates + modules pack loaded."""
+    _write_pack(tmp_path)
+    engine = Engine()
+    engine.load_templates(str(tmp_path / "templates.yaml"))
+    engine.load_modules(str(tmp_path / "modules.yaml"))
+    return engine
+
+
+def test_subscribe_reload_fires_after_swap(tmp_path: Path) -> None:
+    """Reload listeners fire exactly once per reload, after the swap is live."""
+    engine = _engine_with_pack(tmp_path)
+
+    observed_hashes: list[str] = []
+    engine.subscribe_reload(lambda: observed_hashes.append(engine.ruleset_hash))
+
+    _, hash_after = engine.reload_rules(_ruleset_yaml("rule-a", "alice"))
+
+    # Fired once, and the new env was already live when it fired.
+    assert observed_hashes == [hash_after]
+
+    _, hash_after_b = engine.reload_rules(_ruleset_yaml("rule-b", "bob"))
+    assert observed_hashes == [hash_after, hash_after_b]
+
+
+def test_subscribe_reload_unsubscribe(tmp_path: Path) -> None:
+    """An unsubscribed reload listener is not invoked."""
+    engine = _engine_with_pack(tmp_path)
+
+    calls: list[None] = []
+    unsubscribe = engine.subscribe_reload(lambda: calls.append(None))
+    unsubscribe()
+
+    engine.reload_rules(_ruleset_yaml("rule-a", "alice"))
+    assert calls == []
+
+    # Idempotent — double-unsubscribe must not raise.
+    unsubscribe()
+
+
+def test_subscribe_reload_not_fired_on_failed_reload(tmp_path: Path) -> None:
+    """A reload that fails to compile never notifies listeners."""
+    engine = _engine_with_pack(tmp_path)
+
+    calls: list[None] = []
+    engine.subscribe_reload(lambda: calls.append(None))
+
+    broken_yaml = b"ruleset: broken\nmodule: gov\nrules: [{name: broken, when: [{\n"
+    with pytest.raises(CompilationError):
+        engine.reload_rules(broken_yaml)
+
+    assert calls == []
+
+
+def test_subscribe_reload_listener_exception_swallowed(tmp_path: Path) -> None:
+    """A raising listener is logged and swallowed; later listeners still fire."""
+    engine = _engine_with_pack(tmp_path)
+
+    def bad_listener() -> None:
+        raise RuntimeError("wedged subscriber")
+
+    calls: list[None] = []
+    engine.subscribe_reload(bad_listener)
+    engine.subscribe_reload(lambda: calls.append(None))
+
+    # Must not raise, and the healthy listener still fires.
+    engine.reload_rules(_ruleset_yaml("rule-a", "alice"))
+    assert calls == [None]

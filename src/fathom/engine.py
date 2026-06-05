@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -35,6 +37,8 @@ if TYPE_CHECKING:
         TemplateDefinition,
     )
 
+
+logger = logging.getLogger(__name__)
 
 # Reserved prefix for fathom-internal CLIPS functions (see Engine.register_function).
 RESERVED_FUNCTION_PREFIX = "fathom-"
@@ -172,6 +176,7 @@ class Engine:
         self._hierarchy_registry: dict[str, HierarchyDefinition] = {}
         self._focus_order: list[str] = []
         self._reload_lock = threading.Lock()
+        self._reload_listeners: list[Callable[[], None]] = []
         self._ruleset_yaml_bytes: bytes | None = None
 
         self._compiler = Compiler()
@@ -770,6 +775,29 @@ class Engine:
         """
         return self._fact_manager.add_listener(callback)
 
+    def subscribe_reload(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback fired after every successful :meth:`reload_rules` swap.
+
+        The callback takes no arguments and is invoked *outside* the
+        reload lock, after the new env is live. Listener exceptions are
+        logged and swallowed — a wedged subscriber never breaks
+        :meth:`reload_rules`.
+
+        This is the seam under ADR-0002's cancel-on-swap semantics: the
+        gRPC ``SubscribeChanges`` RPC uses it to terminate in-flight
+        change streams when the ruleset they were bound to is swapped
+        out, so clients re-subscribe against the new ruleset.
+
+        Returns an unsubscribe callable.
+        """
+        self._reload_listeners.append(callback)
+
+        def unsubscribe() -> None:
+            with contextlib.suppress(ValueError):
+                self._reload_listeners.remove(callback)
+
+        return unsubscribe
+
     @staticmethod
     def _resolve_hierarchy(
         hierarchy_ref: str,
@@ -1008,6 +1036,15 @@ class Engine:
             self._module_registry.update(new_module_registry)
             self._has_asserting_rules = new_has_asserting_rules
             self._ruleset_yaml_bytes = ruleset_yaml
+
+        # Notify reload listeners outside the lock — listeners may do
+        # I/O (e.g. wake gRPC change streams) and must never extend the
+        # critical section. Snapshot so unsubscribe-during-notify is safe.
+        for cb in list(self._reload_listeners):
+            try:
+                cb()
+            except Exception:  # pragma: no cover - listener bugs must not crash reload
+                logger.exception("reload listener raised; continuing")
 
         hash_after = self.ruleset_hash
         return hash_before, hash_after
