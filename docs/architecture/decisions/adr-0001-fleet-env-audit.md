@@ -14,7 +14,7 @@ that no fleet module (`fleet.py`, `fleet_pg.py`, `fleet_redis.py`) reads
 `self._env`, `_env.`, or any CLIPS environment directly — otherwise the
 refactor would silently break fleet code.
 
-Design assumption (from `specs/fathom-update-1/design.md`):
+Design assumption (from the fathom-update-1 design):
 `Engine._env` is read by `Evaluator` and `FactManager` at init time, and
 fleet modules delegate all env interaction through the engine. This ADR
 verifies that assumption.

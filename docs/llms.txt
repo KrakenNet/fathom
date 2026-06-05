@@ -43,4 +43,4 @@ Deterministic reasoning runtime for AI agents
 - [nist-800-53](https://krakennet.github.io/fathom/latest/reference/rule-packs/nist-800-53/) — Rule pack — nist-800-53
 - [hipaa](https://krakennet.github.io/fathom/latest/reference/rule-packs/hipaa/) — Rule pack — hipaa
 - [cmmc](https://krakennet.github.io/fathom/latest/reference/rule-packs/cmmc/) — Rule pack — cmmc
-- [Planned Integrations](https://krakennet.github.io/fathom/latest/reference/planned-integrations/) — Reference catalog of scaffolded, partial, and planned Fathom integrations — what exists in-tree, what is missing, and what design.md promises.
+- [Planned Integrations](https://krakennet.github.io/fathom/latest/reference/planned-integrations/) — Reference catalog of scaffolded, partial, and planned Fathom integrations — what exists in-tree, what is missing, and what the original v1 design promised.

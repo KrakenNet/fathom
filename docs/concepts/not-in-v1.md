@@ -19,13 +19,13 @@ what's missing and why, so if you come from a CLIPS background and find
 yourself hunting for a feature that isn't there, you can stop hunting.
 
 There are two lists below. The first is the short, canonical list from
-`design.md` — three features that are explicitly deferred. The second is
+the original v1 design — three features that are explicitly deferred. The second is
 longer and less formal: parts of CLIPS that simply aren't plumbed through the
 YAML grammar or the Python API. Those aren't *forbidden* — a determined
 embedder can still hand-build raw CLIPS constructs — but they sit outside the
 Pydantic safety layer that makes authored rules reviewable.
 
-## Explicitly deferred (per `design.md`)
+## Explicitly deferred (per the original v1 design)
 
 These three are called out by name in the design document's
 "Explicitly Not in v1" section.
