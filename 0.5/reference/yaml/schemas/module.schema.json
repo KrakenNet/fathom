@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "CLIPS module definition with optional priority.",
+  "properties": {
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "priority": {
+      "default": 0,
+      "title": "Priority",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "ModuleDefinition",
+  "type": "object"
+}

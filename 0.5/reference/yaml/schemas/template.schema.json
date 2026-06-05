@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "SlotDefinition": {
+      "description": "Definition of a single slot within a template.",
+      "properties": {
+        "allowed_values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Values"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/SlotType"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "SlotDefinition",
+      "type": "object"
+    },
+    "SlotType": {
+      "description": "Supported CLIPS slot data types.",
+      "enum": [
+        "string",
+        "symbol",
+        "float",
+        "integer"
+      ],
+      "title": "SlotType",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "YAML template definition compiled to a CLIPS deftemplate.",
+  "properties": {
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "scope": {
+      "default": "session",
+      "enum": [
+        "session",
+        "fleet"
+      ],
+      "title": "Scope",
+      "type": "string"
+    },
+    "slots": {
+      "items": {
+        "$ref": "#/$defs/SlotDefinition"
+      },
+      "title": "Slots",
+      "type": "array"
+    },
+    "ttl": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ttl"
+    }
+  },
+  "required": [
+    "name",
+    "slots"
+  ],
+  "title": "TemplateDefinition",
+  "type": "object"
+}
