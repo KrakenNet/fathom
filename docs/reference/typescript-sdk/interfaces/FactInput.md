@@ -6,7 +6,7 @@
 
 # Interface: FactInput
 
-Defined in: [src/client.ts:19](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L19)
+Defined in: [client.ts:19](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L19)
 
 A single fact assertion used inside [EvaluateRequest](EvaluateRequest.md).
 
@@ -16,7 +16,7 @@ A single fact assertion used inside [EvaluateRequest](EvaluateRequest.md).
 
 > **data**: `Record`\<`string`, `unknown`\>
 
-Defined in: [src/client.ts:21](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L21)
+Defined in: [client.ts:21](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L21)
 
 ***
 
@@ -24,4 +24,4 @@ Defined in: [src/client.ts:21](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **template**: `string`
 
-Defined in: [src/client.ts:20](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L20)
+Defined in: [client.ts:20](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L20)

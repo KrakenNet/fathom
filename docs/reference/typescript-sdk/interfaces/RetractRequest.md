@@ -6,7 +6,7 @@
 
 # Interface: RetractRequest
 
-Defined in: [src/client.ts:66](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L66)
+Defined in: [client.ts:66](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L66)
 
 Payload for DELETE /v1/facts.
 
@@ -16,7 +16,7 @@ Payload for DELETE /v1/facts.
 
 > `optional` **filter?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [src/client.ts:69](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L69)
+Defined in: [client.ts:69](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L69)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [src/client.ts:69](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **session\_id**: `string`
 
-Defined in: [src/client.ts:67](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L67)
+Defined in: [client.ts:67](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L67)
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [src/client.ts:67](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **template**: `string`
 
-Defined in: [src/client.ts:68](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L68)
+Defined in: [client.ts:68](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L68)

@@ -6,7 +6,7 @@
 
 # Interface: EvaluateResponse
 
-Defined in: [src/client.ts:32](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L32)
+Defined in: [client.ts:32](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L32)
 
 Response from POST /v1/evaluate.
 
@@ -16,7 +16,7 @@ Response from POST /v1/evaluate.
 
 > `optional` **attestation\_token?**: `string` \| `null`
 
-Defined in: [src/client.ts:38](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L38)
+Defined in: [client.ts:38](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L38)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [src/client.ts:38](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **decision**: `string` \| `null`
 
-Defined in: [src/client.ts:33](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L33)
+Defined in: [client.ts:33](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L33)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/client.ts:33](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **duration\_us**: `number`
 
-Defined in: [src/client.ts:37](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L37)
+Defined in: [client.ts:37](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L37)
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: [src/client.ts:37](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **module\_trace**: `string`[]
 
-Defined in: [src/client.ts:36](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L36)
+Defined in: [client.ts:36](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L36)
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: [src/client.ts:36](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **reason**: `string` \| `null`
 
-Defined in: [src/client.ts:34](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L34)
+Defined in: [client.ts:34](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L34)
 
 ***
 
@@ -56,4 +56,4 @@ Defined in: [src/client.ts:34](https://github.com/KrakenNet/fathom/blob/master/p
 
 > **rule\_trace**: `string`[]
 
-Defined in: [src/client.ts:35](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L35)
+Defined in: [client.ts:35](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L35)
