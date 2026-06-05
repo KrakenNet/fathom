@@ -19,3 +19,4 @@ last_verified: 2026-04-15
 | [`fathom test`](test.md) | |
 | [`fathom validate`](validate.md) | |
 | [`fathom verify-artifact`](verify-artifact.md) | |
+| [`fathom verify-chain`](verify-chain.md) | |
