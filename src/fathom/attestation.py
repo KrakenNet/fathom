@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
+    NoEncryption,
+    PrivateFormat,
     PublicFormat,
 )
 
@@ -68,10 +70,7 @@ class AttestationService:
             "session_id": session_id,
         }
 
-        try:
-            return jwt.encode(payload, self._private_key, algorithm="EdDSA")
-        except Exception as exc:
-            raise AttestationError(f"Signing failed: {exc}") from exc
+        return self._encode(payload)
 
     def sign_event(self, payload: dict[str, Any]) -> str:
         """Sign an arbitrary JSON payload and return a JWT token.
@@ -86,8 +85,20 @@ class AttestationService:
             **payload,
         }
 
+        return self._encode(claims)
+
+    def sign_claims(self, claims: dict[str, Any], headers: dict[str, Any] | None = None) -> str:
+        """Sign a claim set exactly as given (no ``iss``/``iat`` injection).
+
+        Used by :class:`fathom.chained_log.ChainedAttestationLog`, which
+        manages its own issuer and timestamps. ``headers`` are added to the
+        JWS protected header (e.g. ``kid``).
+        """
+        return self._encode(claims, headers)
+
+    def _encode(self, claims: dict[str, Any], headers: dict[str, Any] | None = None) -> str:
         try:
-            return jwt.encode(claims, self._private_key, algorithm="EdDSA")
+            return jwt.encode(claims, self._private_key, algorithm="EdDSA", headers=headers)
         except Exception as exc:
             raise AttestationError(f"Signing failed: {exc}") from exc
 
@@ -97,6 +108,9 @@ class AttestationService:
 
     def public_key_pem(self) -> bytes:
         return self._public_key.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+
+    def private_key_pem(self) -> bytes:
+        return self._private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
 
 
 def verify_token(token: str, public_key: Ed25519PublicKey) -> dict[str, Any]:
