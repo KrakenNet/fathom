@@ -36,6 +36,11 @@ def main() -> int:
     cfg = yaml.safe_load((root / "mkdocs.yml").read_text(encoding="utf-8"))
     docs_dir = root / cfg.get("docs_dir", "docs")
     site_url = cfg.get("site_url", "").rstrip("/") + "/"
+    # With mike versioning, pages are deployed under /<default-alias>/;
+    # unversioned URLs 404 on the live site.
+    version_cfg = (cfg.get("extra") or {}).get("version") or {}
+    if version_cfg.get("provider") == "mike":
+        site_url += version_cfg.get("default", "latest").rstrip("/") + "/"
     site_name = cfg.get("site_name", "Site")
     nav = cfg.get("nav", [])
 
@@ -55,7 +60,11 @@ def main() -> int:
         if not md.exists():
             continue
         fm, body = _read_frontmatter(md)
-        url = site_url + rel_path.replace(".md", "/")
+        # index.md renders at its directory root, not at .../index/
+        url_path = rel_path[: -len(".md")] + "/"
+        if url_path.endswith("index/"):
+            url_path = url_path[: -len("index/")]
+        url = site_url + url_path
         title = fm.get("title") or label or md.stem
         summary = (fm.get("summary") or "").strip()
         summary_suffix = f" — {summary}" if summary else ""
