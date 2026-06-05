@@ -4,7 +4,7 @@ from fathom.engine import Engine
 from fathom.errors import CompilationError, EvaluationError, ValidationError
 from fathom.models import AssertedFact, AssertSpec, EvaluationResult
 
-__version__ = "0.3.3"  # x-release-please-version
+__version__ = "0.4.0"  # x-release-please-version
 
 __all__ = [
     "__version__",
