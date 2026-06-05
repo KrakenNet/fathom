@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "ActionType": {
+      "description": "Decision action types for rule outcomes.",
+      "enum": [
+        "allow",
+        "deny",
+        "escalate",
+        "scope",
+        "route"
+      ],
+      "title": "ActionType",
+      "type": "string"
+    },
+    "AssertSpec": {
+      "description": "A fact assertion emitted from a rule's ``then`` clause.\n\nCompile-time YAML spec: slot values are strings (CLIPS source text or\n``?var`` bindings from the LHS). Materialized values after evaluation\nare read back via :class:`AssertedFact`.\n\nExample:\n    >>> spec = AssertSpec(template=\"decision\", slots={\"action\": \"allow\"})\n    >>> spec.template\n    'decision'",
+      "properties": {
+        "slots": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Slots",
+          "type": "object"
+        },
+        "template": {
+          "title": "Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "template"
+      ],
+      "title": "AssertSpec",
+      "type": "object"
+    },
+    "ConditionEntry": {
+      "description": "A single slot condition within a fact pattern.",
+      "properties": {
+        "bind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LHS variable binding for this slot, e.g. ``?sid``. Must start with ``?`` and be a valid CLIPS symbol. When set, the compiler emits ``?sid`` in the slot position, making the bound value available to peer conditions and RHS asserts. Example: ``ConditionEntry(slot='subject_id', bind='?sid')``.",
+          "title": "Bind"
+        },
+        "expression": {
+          "default": "",
+          "title": "Expression",
+          "type": "string"
+        },
+        "slot": {
+          "default": "",
+          "title": "Slot",
+          "type": "string"
+        },
+        "test": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw CLIPS test conditional element, emitted verbatim as ``(test <test>)`` on the rule LHS. Escape hatch for calling custom functions registered via ``Engine.register_function`` (or any CLIPS built-in not covered by fathom's operator allow-list). When ``test`` is set standalone (no ``slot``, ``expression``, or ``bind``), the pattern emits only the test CE; when combined with slot constraints, both are emitted. Example: ``ConditionEntry(test='(my-fn ?sid)')``.",
+          "title": "Test"
+        }
+      },
+      "title": "ConditionEntry",
+      "type": "object"
+    },
+    "FactPattern": {
+      "description": "A fact pattern in a rule's ``when`` clause.",
+      "properties": {
+        "alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alias"
+        },
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/ConditionEntry"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "template": {
+          "title": "Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "template",
+        "conditions"
+      ],
+      "title": "FactPattern",
+      "type": "object"
+    },
+    "LogLevel": {
+      "description": "Audit log verbosity levels.",
+      "enum": [
+        "none",
+        "summary",
+        "full"
+      ],
+      "title": "LogLevel",
+      "type": "string"
+    },
+    "RuleDefinition": {
+      "description": "A single rule with conditions and an action.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "salience": {
+          "default": 0,
+          "title": "Salience",
+          "type": "integer"
+        },
+        "then": {
+          "$ref": "#/$defs/ThenBlock"
+        },
+        "when": {
+          "items": {
+            "$ref": "#/$defs/FactPattern"
+          },
+          "title": "When",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "when",
+        "then"
+      ],
+      "title": "RuleDefinition",
+      "type": "object"
+    },
+    "ThenBlock": {
+      "description": "The ``then`` clause of a rule defining the decision and metadata.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "assert": {
+          "description": "Facts to assert when the rule fires, in order. Each entry is an :class:`AssertSpec`. YAML authors use the ``assert`` key; Python callers may use the ``asserts`` attribute name (``populate_by_name=True``). Example: ``ThenBlock(action='allow', **{'assert': [AssertSpec(template='audit-log', slots={'uid': '?sid'})]})``.",
+          "items": {
+            "$ref": "#/$defs/AssertSpec"
+          },
+          "title": "Assert",
+          "type": "array"
+        },
+        "attestation": {
+          "default": false,
+          "title": "Attestation",
+          "type": "boolean"
+        },
+        "log": {
+          "$ref": "#/$defs/LogLevel",
+          "default": "summary"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "notify": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notify",
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope"
+        }
+      },
+      "title": "ThenBlock",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A named ruleset containing rules scoped to a module.",
+  "properties": {
+    "module": {
+      "title": "Module",
+      "type": "string"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/RuleDefinition"
+      },
+      "title": "Rules",
+      "type": "array"
+    },
+    "ruleset": {
+      "title": "Ruleset",
+      "type": "string"
+    },
+    "version": {
+      "default": "1.0",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ruleset",
+    "module",
+    "rules"
+  ],
+  "title": "RulesetDefinition",
+  "type": "object"
+}
