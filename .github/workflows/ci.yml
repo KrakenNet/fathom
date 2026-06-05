@@ -34,8 +34,78 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      # The Linux job installs the full toolchain so the conditional skips in
+      # test_release_sig.py, test_grpc_docs.py, test_go_sdk_docs.py,
+      # test_ts_sdk_docs.py and test_postman.py actually run (issue #16). The
+      # prometheus packages for test_rest_metrics.py come from the `metrics`
+      # extra via `uv sync --all-extras` above. Windows/macOS matrix legs keep
+      # skipping these (apt/minisign are Linux-only); Linux is the lane that
+      # guarantees coverage.
+      - name: Install minisign (test_release_sig.py)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y minisign
+
+      - name: Set up Go (test_go_sdk_docs.py)
+        if: runner.os == 'Linux'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: packages/fathom-go/go.mod
+
+      # arduino/setup-protoc@v3 has an unfixed "unable to get latest version"
+      # bug; install protoc directly from the upstream release archive, the
+      # same way .github/workflows/docs.yml does.
+      - name: Install protoc (test_grpc_docs.py)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          PROTOC_VERSION=27.3
+          curl -fsSL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          sudo unzip -q -o /tmp/protoc.zip -d /usr/local
+          sudo chmod +x /usr/local/bin/protoc
+          protoc --version
+
+      - name: Install protoc-gen-doc (test_grpc_docs.py)
+        if: runner.os == 'Linux'
+        run: |
+          go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@v1.5.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Node (test_ts_sdk_docs.py, test_postman.py)
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install pnpm (test_ts_sdk_docs.py)
+        if: runner.os == 'Linux'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
       - name: Run tests with coverage
         run: uv run pytest --cov=fathom --cov-report=xml --cov-report=term-missing -q
+
+      # Regression guard (issue #16): on Linux the toolchain above is present,
+      # so the previously-skipped tests must run, not skip. Re-run just those
+      # files and fail if pytest reports any SKIPPED for them — that signals a
+      # toolchain step regressed and the coverage gap silently reopened.
+      - name: Guard — toolchain tests must not skip
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          out="$(uv run pytest -rs -q \
+            tests/test_release_sig.py \
+            tests/test_rest_metrics.py \
+            tests/test_scripts/test_go_sdk_docs.py \
+            tests/test_scripts/test_ts_sdk_docs.py \
+            tests/test_scripts/test_postman.py \
+            tests/test_scripts/test_grpc_docs.py 2>&1)"
+          echo "$out"
+          if echo "$out" | grep -q "SKIPPED"; then
+            echo "::error::A toolchain-gated test SKIPPED on Linux — install step regressed (issue #16)."
+            exit 1
+          fi
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
