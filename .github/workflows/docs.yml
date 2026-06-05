@@ -1,17 +1,11 @@
 name: docs
 
+# No path filter on pull_request: docs is a required status check for
+# branch protection (dependabot auto-merge waits on it). A path-filtered
+# required check never reports on non-matching PRs, which would block
+# merging forever.
 on:
   pull_request:
-    paths:
-      - "src/**"
-      - "docs/**"
-      - "packages/**"
-      - "protos/**"
-      - "CHANGELOG.md"
-      - "mkdocs.yml"
-      - "Makefile"
-      - "scripts/**"
-      - ".github/workflows/docs.yml"
   push:
     branches: [main]
 

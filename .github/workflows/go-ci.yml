@@ -1,11 +1,11 @@
 name: go-ci
 
+# No path filter on pull_request: test/integration are required status
+# checks for branch protection (dependabot auto-merge waits on them). A
+# path-filtered required check never reports on non-matching PRs, which
+# would block merging forever.
 on:
   pull_request:
-    paths:
-      - "protos/**"
-      - "packages/fathom-go/**"
-      - ".github/workflows/go-ci.yml"
   push:
     branches: [main]
     paths:
