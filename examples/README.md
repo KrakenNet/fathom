@@ -59,6 +59,6 @@ uv run python examples/05-langchain-guardrails/main.py
 
 - Browse `src/fathom/rule_packs/` for production-grade rule packs
   (NIST 800-53, HIPAA, CMMC) you can load with `engine.load_pack("nist_800_53")`.
-- Read `design.md` for the full runtime specification.
+- Read the [Fathom documentation](https://krakennet.github.io/fathom/latest/) for the full runtime specification.
 - Run `fathom --help` (the CLI lives in `fathom.cli`) for `validate`,
   `compile`, `bench`, and `repl` commands.

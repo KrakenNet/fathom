@@ -1,6 +1,6 @@
 ---
 title: Planned Integrations
-summary: Reference catalog of scaffolded, partial, and planned Fathom integrations — what exists in-tree, what is missing, and what design.md promises.
+summary: Reference catalog of scaffolded, partial, and planned Fathom integrations — what exists in-tree, what is missing, and what the original v1 design promised.
 audience: [integrators]
 diataxis: reference
 status: stable
@@ -21,8 +21,8 @@ last_verified: 2026-06-05
 # Planned Integrations
 
 This page catalogs integrations that are **not** production-ready: scaffolded
-SDKs, stub applications, and adapter surfaces named in `design.md` that are
-not implemented. For shipped integrations, see the dedicated reference
+SDKs, stub applications, and adapter surfaces named in the original v1
+design that are not implemented. For shipped integrations, see the dedicated reference
 pages ([Python SDK](./python-sdk/index.md), [REST API](./rest/index.md),
 [gRPC API](./grpc/index.md), [MCP Tools](./mcp/index.md),
 [CLI](./cli/index.md), [VSCode Tooling](./tooling/vscode/index.md),
@@ -32,7 +32,7 @@ Each entry declares a **Status** of one of:
 
 - **Shipped** — in-tree, tested, documented, and reachable from a release artifact.
 - **Partial** — in-tree with working code but missing tests, packaging, or CI coverage.
-- **Planned** — named in `design.md` with no implementation in the source tree.
+- **Planned** — named in the original v1 design with no implementation in the source tree.
 
 ## Go SDK — `packages/fathom-go/`
 
@@ -85,7 +85,7 @@ at [Go SDK](./go-sdk/fathom-go.md).
 `test/errors.test.ts`.
 
 **What works today:** A hand-written `FathomClient` plus a typed error
-hierarchy. Per `design.md:571`, the package ships at v0.1.0 with 19
+hierarchy. The package ships at v0.1.0 with 19
 vitest tests passing, and the typedoc reference is generated into
 `docs/reference/typescript-sdk/` by the `docs` npm script in
 `package.json:14`.
@@ -126,8 +126,8 @@ at `src/main.tsx`, and an `src/api/` directory for backend glue.
 
 - **No tests.** `package.json` declares no `test` script and no test
   runner is installed.
-- **No backend wiring.** Per `design.md:572`, "components exist but not
-  production-ready." The stubs do not round-trip against a live Fathom
+- **No backend wiring.** The original v1 design described the editor as
+  "components exist but not production-ready." The stubs do not round-trip against a live Fathom
   REST server.
 - **Not publishable.** The package is marked `private: true` and has no
   build artifact consumers.
@@ -138,7 +138,7 @@ scaffold, not a supported end-user artifact.
 
 ## Framework adapters
 
-`design.md:490-495` lists four framework adapters. All four are now shipped.
+The original v1 design listed four framework adapters. All four are now shipped.
 
 | Adapter                    | Status | Location |
 |----------------------------|--------------------|-----------------|
@@ -164,7 +164,7 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   `packages/fathom-go/go.mod:1`. Generated bindings now live in
   `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
 - **No CI for the Go, TypeScript, or editor packages.** The Python test
-  suite (1361 tests per `design.md:544`) is the only suite wired into CI;
+  suite (1361 tests) is the only suite wired into CI;
   every "works today" claim above reduces to "works when run locally
   against a developer's machine."
 
