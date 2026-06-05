@@ -29,7 +29,7 @@ jobs:
       # the drift gate fails on every PR.
       # ``scripts/check_doc_sources.py`` also walks ``git log`` to find
       # the most recent commit touching each cited source file.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -64,7 +64,7 @@ jobs:
         run: go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@v1.5.1
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
 
@@ -106,7 +106,7 @@ jobs:
         if: hashFiles('docs/tutorials/*.md') != ''
 
       - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@v16
+        uses: DavidAnson/markdownlint-cli2-action@v23
         with:
           globs: |
             docs/**/*.md
@@ -119,7 +119,7 @@ jobs:
         run: uv run codespell docs/ --skip "docs/reference/*,docs/llms*.txt,docs/changelog.json,docs/superpowers/*"
 
       - name: Link check
-        uses: lycheeverse/lychee-action@v1
+        uses: lycheeverse/lychee-action@v2
         with:
           args: --no-progress --exclude-path docs/superpowers docs/
           fail: true
