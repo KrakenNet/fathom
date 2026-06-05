@@ -1,4 +1,4 @@
-[**@fathom-rules/sdk**](../index.md) • **Docs**
+[**@fathom-rules/sdk**](../index.md)
 
 ***
 
@@ -6,17 +6,17 @@
 
 # Interface: QueryRequest
 
+Defined in: [src/client.ts:54](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L54)
+
 Payload for POST /v1/query.
 
 ## Properties
 
 ### filter?
 
-> `optional` **filter**: `Record`\<`string`, `unknown`\>
+> `optional` **filter?**: `Record`\<`string`, `unknown`\>
 
-#### Defined in
-
-[src/client.ts:57](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L57)
+Defined in: [src/client.ts:57](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L57)
 
 ***
 
@@ -24,9 +24,7 @@ Payload for POST /v1/query.
 
 > **session\_id**: `string`
 
-#### Defined in
-
-[src/client.ts:55](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L55)
+Defined in: [src/client.ts:55](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L55)
 
 ***
 
@@ -34,6 +32,4 @@ Payload for POST /v1/query.
 
 > **template**: `string`
 
-#### Defined in
-
-[src/client.ts:56](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L56)
+Defined in: [src/client.ts:56](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L56)
