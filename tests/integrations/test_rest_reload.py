@@ -135,6 +135,60 @@ def test_shape_neither_source_rejected(client: TestClient) -> None:
     assert resp.json()["error"] == "invalid_request"
 
 
+def test_oversized_body_rejected_413(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Body over FATHOM_MAX_RELOAD_BYTES → 413 ``payload_too_large`` (issue #45).
+
+    The cap is read per-request, so a low override makes a small body trip it.
+    The 413 must fire before any YAML parsing (envelope matches the endpoint's
+    ``{"error", "detail"}`` style).
+    """
+    monkeypatch.setenv("FATHOM_MAX_RELOAD_BYTES", "64")
+    body = {"ruleset_yaml": _ruleset_yaml("rule-big", "alice" * 100)}
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+    assert resp.status_code == 413, resp.text
+    assert resp.json()["error"] == "payload_too_large"
+
+
+def test_admin_token_rejects_data_plane_token(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With FATHOM_ADMIN_TOKEN set, the data-plane token no longer reloads (issue #45).
+
+    The ``client`` fixture sets ``FATHOM_API_TOKEN=testtok`` (the data-plane
+    token used in ``AUTH``). Once an admin token is configured, that header
+    must be rejected with 401 — matching the existing auth error style.
+    """
+    monkeypatch.setenv("FATHOM_ADMIN_TOKEN", "admintok")
+    body = {"ruleset_yaml": _ruleset_yaml("rule-scoped", "alice")}
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+    assert resp.status_code == 401, resp.text
+
+
+def test_admin_token_accepts_admin_token(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With FATHOM_ADMIN_TOKEN set, the admin token authorises reload (issue #45)."""
+    monkeypatch.setenv("FATHOM_ADMIN_TOKEN", "admintok")
+    body = {"ruleset_yaml": _ruleset_yaml("rule-admin", "bob")}
+    resp = client.post(
+        "/v1/rules/reload",
+        json=body,
+        headers={"Authorization": "Bearer admintok"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json().keys()) == {"hash_before", "hash_after", "attestation_token"}
+
+
+def test_admin_token_unset_data_plane_still_works(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: no FATHOM_ADMIN_TOKEN → data-plane token reloads as before (issue #45)."""
+    monkeypatch.delenv("FATHOM_ADMIN_TOKEN", raising=False)
+    body = {"ruleset_yaml": _ruleset_yaml("rule-compat", "carol")}
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+    assert resp.status_code == 200, resp.text
+
+
 class _ListAuditSink:
     """Duck-typed in-memory sink collecting ``write()`` records into a list."""
 

@@ -299,46 +299,6 @@
         "title": "RetractFactsResponse",
         "type": "object"
       },
-      "RulesetReloadRequest": {
-        "description": "Request body for ``POST /v1/rules/reload``.\n\nExactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.\n``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.",
-        "properties": {
-          "ruleset_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ruleset Path"
-          },
-          "ruleset_yaml": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ruleset Yaml"
-          },
-          "signature": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Signature"
-          }
-        },
-        "title": "RulesetReloadRequest",
-        "type": "object"
-      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -826,7 +786,7 @@
     },
     "/v1/rules/reload": {
       "post": {
-        "description": "Atomically swap the loaded ruleset with a new (optionally signed) one.\n\nSee design C5 / AC-5.1 / AC-5.4\u20135.6 / AC-5.8.",
+        "description": "Atomically swap the loaded ruleset with a new (optionally signed) one.\n\nRequires the scoped admin token (``FATHOM_ADMIN_TOKEN`` when set, else the\ndata-plane token). Bodies larger than ``FATHOM_MAX_RELOAD_BYTES`` (default\n5 MB) are rejected with 413 before any YAML parsing \u2014 the cap is enforced\non the actual bytes received, not the Content-Length header (chunked\nbodies lie). Rate limiting is host-level (reverse proxy) by design.\n\nSee design C5 / AC-5.1 / AC-5.4\u20135.6 / AC-5.8.",
         "operationId": "reload_rules_v1_rules_reload_post",
         "parameters": [
           {
@@ -850,7 +810,44 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RulesetReloadRequest"
+                "description": "Request body for ``POST /v1/rules/reload``.\n\nExactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.\n``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.",
+                "properties": {
+                  "ruleset_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Ruleset Path"
+                  },
+                  "ruleset_yaml": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Ruleset Yaml"
+                  },
+                  "signature": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Signature"
+                  }
+                },
+                "title": "RulesetReloadRequest",
+                "type": "object"
               }
             }
           },
