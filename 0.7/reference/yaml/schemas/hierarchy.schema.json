@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Ordered classification hierarchy (e.g. clearance levels).",
+  "properties": {
+    "compartments": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Compartments"
+    },
+    "levels": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Levels",
+      "type": "array"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "levels"
+  ],
+  "title": "HierarchyDefinition",
+  "type": "object"
+}
