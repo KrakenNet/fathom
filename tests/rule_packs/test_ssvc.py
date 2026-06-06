@@ -117,7 +117,7 @@ def test_reference_sha256s() -> None:
     """Every archived reference must match its pin, and every file is pinned."""
     pins = _load_pinned_hashes(SHA256SUMS_PATH)
     on_disk = {
-        str(p.relative_to(REFERENCES_DIR)): p
+        p.relative_to(REFERENCES_DIR).as_posix(): p
         for p in sorted(REFERENCES_DIR.rglob("*"))
         if p.is_file() and p.suffix in (".pdf", ".csv")
     }
