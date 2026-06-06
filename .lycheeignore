@@ -14,3 +14,9 @@
 # cache. Ignore this URL so PRs don't break on a third-party indexing
 # delay we don't control.
 ^https://pkg\.go\.dev/github\.com/KrakenNet/fathom-go
+# gomarkdoc emits absolute blob/main links for every exported symbol. On a
+# PR that ADDS a Go source file, the blob/main target only exists after the
+# PR merges — the link checker cannot see the future. Scoped to the Go SDK
+# package (the only gomarkdoc-generated surface) so link checking stays
+# real everywhere else.
+^https://github\.com/KrakenNet/fathom/blob/main/packages/fathom-go/
