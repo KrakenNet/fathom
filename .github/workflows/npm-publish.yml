@@ -1,0 +1,49 @@
+name: npm-publish
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+# id-token: write is required for npm provenance (SLSA-style build
+# attestation), the same OIDC mechanism pypi-publish.yml uses for PyPI.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    defaults:
+      run:
+        working-directory: packages/fathom-ts
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      # registry-url wires NODE_AUTH_TOKEN into ~/.npmrc so `npm publish`
+      # authenticates against the public npm registry.
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      # npm publish (not pnpm publish) so --provenance attaches the GitHub
+      # Actions OIDC build attestation. The version published is whatever is
+      # in packages/fathom-ts/package.json at the tagged commit.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
