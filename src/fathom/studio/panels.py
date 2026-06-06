@@ -34,13 +34,12 @@ import httpx
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from httpx import ASGITransport
 
 from fathom import Engine
 from fathom.integrations.langchain import FathomCallbackHandler, PolicyViolation
-from fathom.integrations.rest import app as rest_app
 from fathom.studio.scenarios import SCENARIOS, get_scenario
 from fathom.studio.scenarios import seed as seed_scenario
+from fathom.studio.sessions import get_sid, post_evaluate
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -130,11 +129,6 @@ async def eval_run(
     ruleset: str = Form(""),
 ) -> HTMLResponse:
     """Evaluate a single fact against the mounted REST app and render the trace."""
-    # Imported lazily (not at module scope) to break the ``panels`` ⇄ ``app``
-    # import cycle, which otherwise fails under ``python -m fathom.studio.app``
-    # where the module is loaded twice (as ``__main__`` and as ``fathom.studio.app``).
-    from fathom.studio.app import get_sid
-
     token = _api_token()
     result: dict[str, Any] | None = None
     error: str | None = None
@@ -313,7 +307,7 @@ async def _evaluate(
     data_json: str,
     ruleset: str,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Call ``POST /api/v1/evaluate`` in-process and return ``(result, error)``."""
+    """Build a single fact from the form and evaluate it via :func:`post_evaluate`."""
     import json
 
     facts: Sequence[dict[str, Any]]
@@ -328,40 +322,14 @@ async def _evaluate(
     else:
         facts = [{"template": template, "data": {}}]
 
-    body = {"facts": list(facts), "ruleset": ruleset, "session_id": sid}
-    transport = ASGITransport(app=rest_app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://studio.internal"
-    ) as client:
-        try:
-            response = await client.post(
-                "/v1/evaluate",
-                json=body,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "X-Session-Id": sid,
-                },
-            )
-        except httpx.HTTPError as exc:  # pragma: no cover - defensive
-            return None, f"Request failed: {exc}"
-
-    if response.status_code != 200:
-        detail = _error_detail(response)
-        return None, f"Evaluate failed ({response.status_code}): {detail}"
-    return response.json(), None
-
-
-def _error_detail(response: httpx.Response) -> str:
-    """Extract a human-readable error message from a non-200 response."""
-    try:
-        payload = response.json()
-    except ValueError:
-        return response.text or response.reason_phrase
-    if isinstance(payload, dict):
-        detail = payload.get("detail") or payload.get("error")
-        if isinstance(detail, str):
-            return detail
-    return response.text or response.reason_phrase
+    return await post_evaluate(
+        sid=sid,
+        token=token,
+        facts=facts,
+        ruleset=ruleset,
+        error_prefix="Evaluate failed",
+        request_error_prefix="Request failed",
+    )
 
 
 # --------------------------------------------------------------------------

@@ -10,89 +10,35 @@ From the browser the REST routes are reached under ``/api`` — e.g. the rules-e
 ``POST /v1/evaluate`` is ``POST /api/v1/evaluate``.
 
 A per-browser session is minted as the ``fathom_sid`` cookie (uuid4) by
-:func:`SessionCookieMiddleware`; panel handlers read it via :func:`get_sid` and
-forward it on REST calls as the ``X-Session-Id`` header.
+:class:`~fathom.studio.sessions.SessionCookieMiddleware`; panel handlers read
+it via :func:`~fathom.studio.sessions.get_sid` and forward it on REST calls as
+the ``X-Session-Id`` header. The session contract lives in
+:mod:`fathom.studio.sessions`.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import uuid
-from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, Request
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import FastAPI
 
 from fathom import __version__ as _fathom_version
 from fathom.integrations.rest import app as rest_app
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from starlette.responses import Response
-
-#: Cookie name carrying the per-browser Studio session id.
-SESSION_COOKIE = "fathom_sid"
-
-#: Request-state attribute where the resolved session id is stashed.
-_SID_STATE_ATTR = "fathom_sid"
+from fathom.studio.panels import router as panels_router
+from fathom.studio.sessions import SessionCookieMiddleware
 
 #: Default port for ``python -m fathom.studio.app``.
 DEFAULT_PORT = 8020
 
 
-def get_sid(request: Request) -> str:
-    """Return the Studio session id for *request*.
-
-    The id is minted by :class:`SessionCookieMiddleware` and stashed on
-    ``request.state`` before the route runs; it falls back to the raw cookie
-    value (then a fresh uuid4) so the helper is usable outside the middleware
-    path (e.g. in tests).
-    """
-    sid = getattr(request.state, _SID_STATE_ATTR, None)
-    if isinstance(sid, str) and sid:
-        return sid
-    cookie = request.cookies.get(SESSION_COOKIE)
-    return cookie if cookie else uuid.uuid4().hex
-
-
-class SessionCookieMiddleware(BaseHTTPMiddleware):
-    """Mint a ``fathom_sid`` cookie per browser and expose it on request state.
-
-    On every request the middleware reads the ``fathom_sid`` cookie, minting a
-    fresh uuid4 when absent, stashes it on ``request.state`` (so :func:`get_sid`
-    can read it without re-parsing), and sets the cookie on the response when it
-    was newly minted.
-    """
-
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        sid = request.cookies.get(SESSION_COOKIE)
-        minted = sid is None
-        if sid is None:
-            sid = uuid.uuid4().hex
-        setattr(request.state, _SID_STATE_ATTR, sid)
-        response = await call_next(request)
-        if minted:
-            response.set_cookie(
-                SESSION_COOKIE,
-                sid,
-                httponly=True,
-                samesite="lax",
-            )
-        return response
-
-
 def create_app() -> FastAPI:
-    """Build the Studio app: session-cookie middleware, health route, mounted REST.
+    """Build the Studio app: session-cookie middleware, panels, mounted REST.
 
     The REST app is mounted at ``/api`` (same process) so it shares the REST
-    module's in-memory ``SessionStore``. Panel routers are registered by later
-    tasks; this is the scaffold.
+    module's in-memory ``SessionStore``. Panel routers and the session
+    middleware are registered here; the session contract lives in
+    :mod:`fathom.studio.sessions`.
     """
     studio = FastAPI(
         title="Fathom Policy Studio",
@@ -106,12 +52,7 @@ def create_app() -> FastAPI:
         """Liveness probe for the Studio process."""
         return {"status": "ok"}
 
-    # Imported here (not at module scope) because ``panels`` imports ``get_sid``
-    # from this module — registering inside the factory avoids a circular import.
-    from fathom.studio.panels import router as panels_router
-
     studio.include_router(panels_router)
-
     studio.mount("/api", rest_app)
     return studio
 

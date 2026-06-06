@@ -28,10 +28,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import httpx
-from httpx import ASGITransport
-
-from fathom.integrations.rest import app as rest_app
+from fathom.studio.sessions import post_evaluate
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -198,41 +195,11 @@ async def seed(
     """
     session_id = sid or f"seed-{scenario.id}-{uuid.uuid4().hex}"
     facts: Sequence[Fact] = scenario.facts()
-    body = {
-        "facts": [{"template": tmpl, "data": data} for tmpl, data in facts],
-        "ruleset": scenario.ruleset,
-        "session_id": session_id,
-    }
-    transport = ASGITransport(app=rest_app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://studio.internal"
-    ) as client:
-        try:
-            response = await client.post(
-                "/v1/evaluate",
-                json=body,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "X-Session-Id": session_id,
-                },
-            )
-        except httpx.HTTPError as exc:  # pragma: no cover - defensive
-            return None, f"Seed request failed: {exc}"
-
-    if response.status_code != 200:
-        return None, _error_detail(response)
-    return response.json(), None
-
-
-def _error_detail(response: httpx.Response) -> str:
-    """Extract a human-readable error message from a non-200 seed response."""
-    prefix = f"Seed failed ({response.status_code}): "
-    try:
-        payload = response.json()
-    except ValueError:
-        return prefix + (response.text or response.reason_phrase)
-    if isinstance(payload, dict):
-        detail = payload.get("detail") or payload.get("error")
-        if isinstance(detail, str):
-            return prefix + detail
-    return prefix + (response.text or response.reason_phrase)
+    return await post_evaluate(
+        sid=session_id,
+        token=token,
+        facts=[{"template": tmpl, "data": data} for tmpl, data in facts],
+        ruleset=scenario.ruleset,
+        error_prefix="Seed failed",
+        request_error_prefix="Seed request failed",
+    )
