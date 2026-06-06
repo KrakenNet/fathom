@@ -108,9 +108,7 @@ async def post_evaluate(
     """
     body = {"facts": list(facts), "ruleset": ruleset, "session_id": sid}
     transport = ASGITransport(app=rest_app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url=_INTERNAL_BASE_URL
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url=_INTERNAL_BASE_URL) as client:
         try:
             response = await client.post(
                 "/v1/evaluate",

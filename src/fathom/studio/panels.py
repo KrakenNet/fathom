@@ -55,9 +55,7 @@ _NON_PACK_DIRS = frozenset({"__pycache__"})
 
 #: Guardrails example whose ruleset drives the simulator (templates +
 #: modules + rules loaded by :func:`_guardrail_engine`).
-_GUARDRAIL_RULESET = (
-    Path(__file__).resolve().parents[3] / "examples" / "05-langchain-guardrails"
-)
+_GUARDRAIL_RULESET = Path(__file__).resolve().parents[3] / "examples" / "05-langchain-guardrails"
 
 #: Canonical local LLM endpoint for the live toggle (Ollama-compatible).
 _DEFAULT_LLM_BASE_URL = "http://localhost:41001"
@@ -358,9 +356,7 @@ def _guardrail_engine() -> Engine:
     engine.load_templates(str(_GUARDRAIL_RULESET / "templates"))
     engine.load_modules(str(_GUARDRAIL_RULESET / "modules"))
     engine.load_rules(str(_GUARDRAIL_RULESET / "rules"))
-    engine.assert_fact(
-        "agent", {"id": _SCRIPTED_AGENT_ID, "trust_tier": _SCRIPTED_TRUST_TIER}
-    )
+    engine.assert_fact("agent", {"id": _SCRIPTED_AGENT_ID, "trust_tier": _SCRIPTED_TRUST_TIER})
     return engine
 
 
