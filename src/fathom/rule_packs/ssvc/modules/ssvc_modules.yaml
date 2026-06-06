@@ -1,5 +1,11 @@
 modules:
-  - name: ssvc
-    description: "CISA SSVC v2.0.3 vulnerability triage rules"
+  - name: ssvc_supplier
+    description: "CERT/CC SSVC supplier patch-development priority tree (decision table 1.0.0)"
+  - name: ssvc_deployer
+    description: "CERT/CC SSVC deployer patch-application priority tree (decision table 1.0.0)"
+  - name: ssvc_cisa
+    description: "CISA SSVC v2.0.3 vulnerability triage tree"
 focus_order:
-  - ssvc
+  - ssvc_supplier
+  - ssvc_deployer
+  - ssvc_cisa

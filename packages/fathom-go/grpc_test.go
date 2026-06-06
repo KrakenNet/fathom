@@ -23,8 +23,8 @@
 package fathom
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -226,5 +226,95 @@ func TestLiveReloadRoundTrip(t *testing.T) {
 	}
 	if resp.GetAttestationToken() == "" {
 		t.Error("attestation_token was empty; expected signed event")
+	}
+}
+
+// startLivePythonServer boots the Python gRPC server subprocess (insecure,
+// bearer "test-token") and returns its ready port. Cleanup is registered on t.
+func startLivePythonServer(t *testing.T, ctx context.Context) int {
+	t.Helper()
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Skip("uv not on PATH; skipping live Python server integration test")
+	}
+
+	cmd := exec.CommandContext(ctx, "uv", "run", "python", "-c", pythonBootstrap)
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	cmd.Dir = wd + "/../.."
+	cmd.Env = append(os.Environ(),
+		"FATHOM_GRPC_ALLOW_INSECURE=1",
+		"FATHOM_API_TOKEN=test-token",
+	)
+
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("stdin pipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start python server: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		if t.Failed() {
+			t.Logf("python server stderr:\n%s", errBuf.String())
+			t.Logf("python server stdout:\n%s", outBuf.String())
+		}
+	})
+
+	deadline := time.Now().Add(20 * time.Second)
+	port, err := waitForListen(&outBuf, &errBuf, deadline)
+	if err != nil {
+		t.Fatalf("wait for LISTEN: %v", err)
+	}
+	if err := dialReady(port, deadline); err != nil {
+		t.Fatalf("dial ready: %v", err)
+	}
+	return port
+}
+
+// TestLiveReloadRoundTrip_Wrapper exercises the GRPCClient wrapper (rather than
+// the raw generated stub) against the live Python server: it dials with
+// WithGRPCBearerToken + WithGRPCInsecure and calls Reload through the wrapper's
+// typed request/response, asserting the same ruleset-hash-swap invariant.
+func TestLiveReloadRoundTrip_Wrapper(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	port := startLivePythonServer(t, ctx)
+
+	c, err := NewGRPCClient(
+		fmt.Sprintf("localhost:%d", port),
+		WithGRPCBearerToken("test-token"),
+		WithGRPCInsecure(),
+	)
+	if err != nil {
+		t.Fatalf("NewGRPCClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+
+	callCtx, callCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer callCancel()
+
+	resp, err := c.Reload(callCtx, &ReloadRequest{RulesetYAML: minimalRulesetYAML})
+	if err != nil {
+		t.Fatalf("wrapper Reload failed: %v", err)
+	}
+	if !strings.HasPrefix(resp.RulesetHashAfter, "sha256:") {
+		t.Errorf("expected sha256: prefix on RulesetHashAfter, got %q", resp.RulesetHashAfter)
+	}
+	if resp.RulesetHashBefore == resp.RulesetHashAfter {
+		t.Errorf("hash_before == hash_after; expected swap (before=%q after=%q)",
+			resp.RulesetHashBefore, resp.RulesetHashAfter)
+	}
+	if resp.AttestationToken == "" {
+		t.Error("AttestationToken was empty; expected signed event")
 	}
 }

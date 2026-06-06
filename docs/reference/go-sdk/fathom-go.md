@@ -10,8 +10,10 @@ Package fathom provides a Go client for the Fathom policy engine REST API.
 
 ## Index
 
+- [Variables](<#variables>)
 - [type AssertFactRequest](<#AssertFactRequest>)
 - [type AssertFactResponse](<#AssertFactResponse>)
+- [type ChangeType](<#ChangeType>)
 - [type Client](<#Client>)
   - [func NewClient\(baseURL string, opts ...ClientOption\) \*Client](<#NewClient>)
   - [func \(c \*Client\) AssertFact\(ctx context.Context, req \*AssertFactRequest\) \(\*AssertFactResponse, error\)](<#Client.AssertFact>)
@@ -23,12 +25,36 @@ Package fathom provides a Go client for the Fathom policy engine REST API.
   - [func WithHTTPClient\(hc \*http.Client\) ClientOption](<#WithHTTPClient>)
 - [type EvaluateRequest](<#EvaluateRequest>)
 - [type EvaluateResponse](<#EvaluateResponse>)
+- [type FactChangeEvent](<#FactChangeEvent>)
 - [type FactInput](<#FactInput>)
+- [type GRPCClient](<#GRPCClient>)
+  - [func NewGRPCClient\(target string, opts ...GRPCOption\) \(\*GRPCClient, error\)](<#NewGRPCClient>)
+  - [func \(c \*GRPCClient\) AssertFact\(ctx context.Context, req \*AssertFactRequest\) \(\*AssertFactResponse, error\)](<#GRPCClient.AssertFact>)
+  - [func \(c \*GRPCClient\) Close\(\) error](<#GRPCClient.Close>)
+  - [func \(c \*GRPCClient\) Evaluate\(ctx context.Context, req \*EvaluateRequest\) \(\*EvaluateResponse, error\)](<#GRPCClient.Evaluate>)
+  - [func \(c \*GRPCClient\) Query\(ctx context.Context, req \*QueryRequest\) \(\*QueryResponse, error\)](<#GRPCClient.Query>)
+  - [func \(c \*GRPCClient\) Reload\(ctx context.Context, req \*ReloadRequest\) \(\*ReloadResponse, error\)](<#GRPCClient.Reload>)
+  - [func \(c \*GRPCClient\) Retract\(ctx context.Context, req \*RetractRequest\) \(\*RetractResponse, error\)](<#GRPCClient.Retract>)
+  - [func \(c \*GRPCClient\) SubscribeChanges\(ctx context.Context, sessionID string, fn func\(FactChangeEvent\) error\) error](<#GRPCClient.SubscribeChanges>)
+- [type GRPCOption](<#GRPCOption>)
+  - [func WithDialOptions\(opts ...grpc.DialOption\) GRPCOption](<#WithDialOptions>)
+  - [func WithGRPCBearerToken\(tok string\) GRPCOption](<#WithGRPCBearerToken>)
+  - [func WithGRPCInsecure\(\) GRPCOption](<#WithGRPCInsecure>)
 - [type QueryRequest](<#QueryRequest>)
 - [type QueryResponse](<#QueryResponse>)
+- [type ReloadRequest](<#ReloadRequest>)
+- [type ReloadResponse](<#ReloadResponse>)
 - [type RetractRequest](<#RetractRequest>)
 - [type RetractResponse](<#RetractResponse>)
 
+
+## Variables
+
+<a name="ErrRulesetReloaded"></a>ErrRulesetReloaded is returned by the SubscribeChanges stream when the server aborts it because the engine's ruleset was hot\-reloaded \(ADR\-0002, option a — cancel on swap\). It is errors.Is\-able: callers should treat it as a normal lifecycle event, re\-subscribe to bind to the new ruleset, then re\-Query to re\-synchronize.
+
+```go
+var ErrRulesetReloaded = errors.New("fathom: ruleset reloaded; re-subscribe to bind to the new ruleset")
+```
 
 <a name="AssertFactRequest"></a>
 ## type [AssertFactRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L83-L87>)
@@ -52,6 +78,25 @@ AssertFactResponse is the response from POST /v1/facts.
 type AssertFactResponse struct {
     Success bool `json:"success"`
 }
+```
+
+<a name="ChangeType"></a>
+## type [ChangeType](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L264>)
+
+ChangeType mirrors the proto's fact\-change kinds.
+
+```go
+type ChangeType int32
+```
+
+<a name="ChangeTypeUnspecified"></a>
+
+```go
+const (
+    ChangeTypeUnspecified ChangeType = iota
+    ChangeTypeAssert
+    ChangeTypeRetract
+)
 ```
 
 <a name="Client"></a>
@@ -170,6 +215,19 @@ type EvaluateResponse struct {
 }
 ```
 
+<a name="FactChangeEvent"></a>
+## type [FactChangeEvent](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L274-L278>)
+
+FactChangeEvent is a single working\-memory change yielded by SubscribeChanges. DataJSON's slot data is decoded into Data for convenience.
+
+```go
+type FactChangeEvent struct {
+    ChangeType ChangeType
+    Template   string
+    Data       map[string]any
+}
+```
+
 <a name="FactInput"></a>
 ## type [FactInput](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L51-L54>)
 
@@ -181,6 +239,147 @@ type FactInput struct {
     Data     map[string]any `json:"data"`
 }
 ```
+
+<a name="GRPCClient"></a>
+## type [GRPCClient](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L30-L34>)
+
+GRPCClient is an idiomatic wrapper around the generated FathomService gRPC stub. It mirrors the REST Client's request/response shapes \(map\[string\]any fact data\) while transparently handling the proto's JSON\-encoded string fields, bearer\-token metadata, and the SubscribeChanges reload contract.
+
+```go
+type GRPCClient struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewGRPCClient"></a>
+### func [NewGRPCClient](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L83>)
+
+```go
+func NewGRPCClient(target string, opts ...GRPCOption) (*GRPCClient, error)
+```
+
+NewGRPCClient dials target and returns a ready\-to\-use GRPCClient. The caller owns the connection and must Close it when done.
+
+Example:
+
+```
+c, err := NewGRPCClient("localhost:50051",
+    WithGRPCBearerToken("secret"), WithGRPCInsecure())
+if err != nil { ... }
+defer c.Close()
+```
+
+<a name="GRPCClient.AssertFact"></a>
+### func \(\*GRPCClient\) [AssertFact](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L164>)
+
+```go
+func (c *GRPCClient) AssertFact(ctx context.Context, req *AssertFactRequest) (*AssertFactResponse, error)
+```
+
+AssertFact asserts a single fact into the session's working memory.
+
+<a name="GRPCClient.Close"></a>
+### func \(\*GRPCClient\) [Close](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L116>)
+
+```go
+func (c *GRPCClient) Close() error
+```
+
+Close releases the underlying gRPC connection.
+
+<a name="GRPCClient.Evaluate"></a>
+### func \(\*GRPCClient\) [Evaluate](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L141>)
+
+```go
+func (c *GRPCClient) Evaluate(ctx context.Context, req *EvaluateRequest) (*EvaluateResponse, error)
+```
+
+Evaluate sends facts to the engine and returns the policy decision. The EvaluateRequest/EvaluateResponse types are the REST client's shapes; fact Data maps are JSON\-encoded into the proto's data\_json fields internally.
+
+Note: unlike the REST EvaluateResponse, the gRPC EvaluateResponse carries no attestation\_token \(the proto omits it\), so that field is always empty here.
+
+<a name="GRPCClient.Query"></a>
+### func \(\*GRPCClient\) [Query](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L181>)
+
+```go
+func (c *GRPCClient) Query(ctx context.Context, req *QueryRequest) (*QueryResponse, error)
+```
+
+Query retrieves facts from the session's working memory.
+
+<a name="GRPCClient.Reload"></a>
+### func \(\*GRPCClient\) [Reload](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L242>)
+
+```go
+func (c *GRPCClient) Reload(ctx context.Context, req *ReloadRequest) (*ReloadResponse, error)
+```
+
+Reload hot\-reloads the engine's ruleset from an inline YAML body or a server\-side path. A successful reload aborts every in\-flight SubscribeChanges stream with ErrRulesetReloaded \(ADR\-0002\).
+
+<a name="GRPCClient.Retract"></a>
+### func \(\*GRPCClient\) [Retract](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L207>)
+
+```go
+func (c *GRPCClient) Retract(ctx context.Context, req *RetractRequest) (*RetractResponse, error)
+```
+
+Retract removes facts matching the request's template \+ optional filter and returns the number of retractions.
+
+<a name="GRPCClient.SubscribeChanges"></a>
+### func \(\*GRPCClient\) [SubscribeChanges](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L291>)
+
+```go
+func (c *GRPCClient) SubscribeChanges(ctx context.Context, sessionID string, fn func(FactChangeEvent) error) error
+```
+
+SubscribeChanges opens a server stream of working\-memory changes for the given session and invokes fn for each event. It blocks until one of:
+
+- fn returns a non\-nil error \(returned as\-is\),
+- the server aborts the stream because the ruleset was reloaded \(returns ErrRulesetReloaded; re\-subscribe \+ re\-Query\),
+- the stream ends cleanly \(server EOF or ctx cancellation; returns nil\),
+- any other gRPC error \(returned wrapped\).
+
+Plain client\-side cancellation \(ctx cancel / deadline\) and a clean server close both return nil — they are not surfaced as ErrRulesetReloaded.
+
+<a name="GRPCOption"></a>
+## type [GRPCOption](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L44>)
+
+GRPCOption configures a GRPCClient during construction.
+
+```go
+type GRPCOption func(*grpcConfig)
+```
+
+<a name="WithDialOptions"></a>
+### func [WithDialOptions](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L70>)
+
+```go
+func WithDialOptions(opts ...grpc.DialOption) GRPCOption
+```
+
+WithDialOptions appends raw grpc.DialOption values, an escape hatch for transport credentials, interceptors, keepalive, etc. These are applied after the wrapper's own defaults, so they win on conflict.
+
+<a name="WithGRPCBearerToken"></a>
+### func [WithGRPCBearerToken](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L53>)
+
+```go
+func WithGRPCBearerToken(tok string) GRPCOption
+```
+
+WithGRPCBearerToken attaches "authorization: Bearer \<tok\>" metadata to every RPC via per\-RPC credentials \(mirroring the server's bearer\-auth contract\).
+
+gRPC refuses to send per\-RPC credentials over an insecure transport unless the caller has explicitly opted in via WithGRPCInsecure \(mirroring the server's FATHOM\_GRPC\_ALLOW\_INSECURE posture\). With a secure transport this restriction does not apply.
+
+<a name="WithGRPCInsecure"></a>
+### func [WithGRPCInsecure](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L63>)
+
+```go
+func WithGRPCInsecure() GRPCOption
+```
+
+WithGRPCInsecure permits an insecure \(plaintext\) transport and allows bearer credentials to be sent over it. This mirrors the server's FATHOM\_GRPC\_ALLOW\_INSECURE=1 escape hatch and should only be used for local development or trusted networks.
+
+When not set, NewGRPCClient defaults to TLS transport credentials.
 
 <a name="QueryRequest"></a>
 ## type [QueryRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/client.go#L104-L108>)
@@ -203,6 +402,32 @@ QueryResponse is the response from POST /v1/query.
 ```go
 type QueryResponse struct {
     Facts []map[string]any `json:"facts"`
+}
+```
+
+<a name="ReloadRequest"></a>
+## type [ReloadRequest](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L226-L230>)
+
+ReloadRequest is the payload for the Reload RPC. Exactly one of RulesetPath or RulesetYAML should be set \(mirroring the proto's oneof source\). Signature is the optional detached signature bytes for the ruleset.
+
+```go
+type ReloadRequest struct {
+    RulesetPath string
+    RulesetYAML string
+    Signature   []byte
+}
+```
+
+<a name="ReloadResponse"></a>
+## type [ReloadResponse](<https://github.com/KrakenNet/fathom/blob/main/packages/fathom-go/grpc_client.go#L233-L237>)
+
+ReloadResponse is the response from the Reload RPC.
+
+```go
+type ReloadResponse struct {
+    RulesetHashBefore string
+    RulesetHashAfter  string
+    AttestationToken  string
 }
 ```
 

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block body %}
+  <h2>Policy Studio</h2>
+  <p class="muted">
+    Interactive UI over the Fathom rules engine. The production REST server is
+    mounted in-process under <code>/api</code>; every panel below drives the same
+    engine and shares a per-browser working-memory session.
+  </p>
+  {% for route, name, blurb in panels %}
+    <div class="card">
+      <h3 style="margin:0 0 0.25rem;"><a href="{{ route }}">{{ name }}</a></h3>
+      <p class="muted" style="margin:0;">{{ blurb }}</p>
+    </div>
+  {% endfor %}
+{% endblock %}

@@ -1,17 +1,28 @@
-"""SSVC v2.0.3 rule pack for coordinator-level vulnerability triage.
+"""SSVC rule pack: supplier, deployer, and CISA vulnerability-triage trees.
 
-Reference implementation of CISA's Stakeholder-Specific Vulnerability
-Categorization (SSVC) v2.0.3 decision tree for coordinator-level
-vulnerability triage.
+Reference implementation of Stakeholder-Specific Vulnerability Categorization
+(SSVC) decision trees, one module per tree:
 
-- Version: 2.0.3
-- Source: CISA PDF (Nov 2021)
-- Source sha256: pinned in `references/SHA256SUMS` (asserted at test time)
-- Branches source: `references/branches.yaml` (enumerated from the CISA PDF)
+- ``ssvc_supplier`` — CERT/CC supplier patch-development priority tree
+  (decision table 1.0.0; 36 branches -> defer/scheduled/out-of-cycle/immediate)
+- ``ssvc_deployer`` — CERT/CC deployer patch-application priority tree
+  (decision table 1.0.0; 72 branches -> defer/scheduled/out-of-cycle/immediate)
+- ``ssvc_cisa`` — CISA SSVC v2.0.3 triage tree
+  (36 branches -> Track/Track*/Attend/Act)
 
-Version-bump rule: a CISA SSVC tree update is a minor version bump on this
-pack. Silent edits to `SSVC_META.version` or `references/SHA256SUMS` are
-forbidden; both must change together. See `README.md`.
+Provenance:
+
+- Primary enumeration source: the sha256-pinned decision-table CSVs in
+  ``references/csv/`` (from the CERT/CC SSVC repository).
+- The CISA tree is additionally page-cited against the archived CISA SSVC
+  Guide (``references/cisa-ssvc-guide-508c.pdf``, Table 9, p.10) — the two
+  agree on all 36 branches.
+- Branch lists: ``references/branches-{supplier,deployer,cisa}.yaml``
+  (generated; see ``scripts/generate_ssvc_rules.py``).
+
+Version-bump rule: an upstream SSVC tree update is a minor version bump on
+this pack. Silent edits to ``SSVC_META`` or ``references/SHA256SUMS`` are
+forbidden; both must change together. See ``README.md``.
 """
 
 from __future__ import annotations
@@ -23,11 +34,15 @@ from fathom.rule_packs._helpers import load_pack_yaml, validate_pack_structure
 
 PACK_DIR = Path(__file__).resolve().parent
 _SHA256SUMS_PATH = PACK_DIR / "references" / "SHA256SUMS"
-_PDF_FILENAME = "cisa-ssvc-v2.0.3.pdf"
+
+#: The reference whose hash anchors ``ssvc_meta`` facts: the archived CISA
+#: SSVC Guide (the only stakeholder-published PDF; CERT/CC trees are pinned
+#: per-file in SHA256SUMS).
+_GUIDE_FILENAME = "cisa-ssvc-guide-508c.pdf"
 
 
 def _read_source_sha256() -> str | None:
-    """Parse the PDF sha256 out of `references/SHA256SUMS` at import time.
+    """Parse the CISA guide sha256 out of `references/SHA256SUMS` at import time.
 
     Tolerates a missing or empty file (returns ``None``) so the pack remains
     importable before the PDF + SHA file are committed. Once present, the
@@ -41,7 +56,7 @@ def _read_source_sha256() -> str | None:
             if not line or line.startswith("#"):
                 continue
             parts = line.split()
-            if len(parts) >= 2 and parts[-1].endswith(_PDF_FILENAME):
+            if len(parts) >= 2 and parts[-1].endswith(_GUIDE_FILENAME):
                 return parts[0]
     except OSError:
         return None
@@ -50,9 +65,9 @@ def _read_source_sha256() -> str | None:
 
 SSVC_META: dict[str, Any] = {
     "version": "2.0.3",
-    "source": "CISA PDF",
+    "source": "CISA SSVC Guide v2.0.3 + CERT/CC SSVC decision tables",
     "source_sha256": _read_source_sha256(),
-    "branches_source": "references/branches.yaml",
+    "branches_source": "references/branches-{supplier,deployer,cisa}.yaml",
 }
 
 

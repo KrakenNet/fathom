@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ scenario.title if scenario else "Scenario" }}{% endblock %}
+{% block body %}
+  <h2>{{ scenario.title if scenario else "Scenario" }}</h2>
+  {% if scenario %}
+    <p class="muted">{{ scenario.description }}</p>
+    <p class="muted">
+      ruleset: <code>{{ scenario.ruleset }}</code> ·
+      <a href="/eval">back to Playground</a>
+    </p>
+  {% endif %}
+
+  {% if error %}
+    <div class="card error"><strong>Error:</strong> {{ error }}</div>
+  {% endif %}
+
+  {% if result %}
+    <div class="card">
+      <p class="decision decision--{{ 'allow' if result.decision == 'allow' else 'deny' }}">
+        decision: {{ result.decision if result.decision is not none else '(none)' }}
+      </p>
+      <table>
+        <tr><th>reason</th><td>{{ result.reason if result.reason is not none else '(none)' }}</td></tr>
+        <tr><th>duration_us</th><td>{{ result.duration_us }}</td></tr>
+      </table>
+      <h4>rule_trace</h4>
+      {% if result.rule_trace %}
+        <pre>{% for r in result.rule_trace %}{{ r }}
+{% endfor %}</pre>
+      {% else %}<p class="muted">(empty)</p>{% endif %}
+      <h4>module_trace</h4>
+      {% if result.module_trace %}
+        <pre>{% for m in result.module_trace %}{{ m }}
+{% endfor %}</pre>
+      {% else %}<p class="muted">(empty)</p>{% endif %}
+    </div>
+  {% endif %}
+{% endblock %}
