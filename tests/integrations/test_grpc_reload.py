@@ -198,3 +198,67 @@ def test_grpc_reload_fail_closed_invalid_signature(
     rejected = [r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"]
     assert len(rejected) == 1, sink.records
     assert rejected[0]["reason"] == "missing_signature"
+
+
+def test_grpc_reload_admin_token_rejects_data_plane(
+    grpc_server: tuple[str, Ed25519PrivateKey, _ListAuditSink],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With FATHOM_ADMIN_TOKEN set, the data-plane token cannot Reload (issue #45).
+
+    ``_AUTH_META`` carries ``Bearer testtok`` (the data-plane FATHOM_API_TOKEN).
+    Once an admin token is configured, that metadata must be rejected with
+    ``UNAUTHENTICATED`` — gRPC parity with REST 401.
+    """
+    target, priv, _sink = grpc_server
+    monkeypatch.setenv("FATHOM_ADMIN_TOKEN", "admintok")
+    yaml_bytes = _ruleset_yaml("rule-scoped", "alice")
+    sig = priv.sign(yaml_bytes)
+
+    with grpc.insecure_channel(target) as channel:
+        stub = fathom_pb2_grpc.FathomServiceStub(channel)
+        req = fathom_pb2.ReloadRequest(ruleset_yaml=yaml_bytes.decode("utf-8"), signature=sig)
+        with pytest.raises(grpc.RpcError) as excinfo:
+            stub.Reload(req, metadata=_AUTH_META, timeout=5.0)
+
+    assert excinfo.value.code() == grpc.StatusCode.UNAUTHENTICATED
+
+
+def test_grpc_reload_admin_token_accepts_admin(
+    grpc_server: tuple[str, Ed25519PrivateKey, _ListAuditSink],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With FATHOM_ADMIN_TOKEN set, the admin token authorises Reload (issue #45)."""
+    target, priv, _sink = grpc_server
+    monkeypatch.setenv("FATHOM_ADMIN_TOKEN", "admintok")
+    yaml_bytes = _ruleset_yaml("rule-admin", "bob")
+    sig = priv.sign(yaml_bytes)
+
+    with grpc.insecure_channel(target) as channel:
+        stub = fathom_pb2_grpc.FathomServiceStub(channel)
+        req = fathom_pb2.ReloadRequest(ruleset_yaml=yaml_bytes.decode("utf-8"), signature=sig)
+        resp = stub.Reload(
+            req,
+            metadata=(("authorization", "Bearer admintok"),),
+            timeout=5.0,
+        )
+
+    assert resp.ruleset_hash_after.startswith("sha256:")
+
+
+def test_grpc_reload_admin_token_unset_data_plane_works(
+    grpc_server: tuple[str, Ed25519PrivateKey, _ListAuditSink],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: no FATHOM_ADMIN_TOKEN → data-plane token Reloads as before (issue #45)."""
+    target, priv, _sink = grpc_server
+    monkeypatch.delenv("FATHOM_ADMIN_TOKEN", raising=False)
+    yaml_bytes = _ruleset_yaml("rule-compat", "carol")
+    sig = priv.sign(yaml_bytes)
+
+    with grpc.insecure_channel(target) as channel:
+        stub = fathom_pb2_grpc.FathomServiceStub(channel)
+        req = fathom_pb2.ReloadRequest(ruleset_yaml=yaml_bytes.decode("utf-8"), signature=sig)
+        resp = stub.Reload(req, metadata=_AUTH_META, timeout=5.0)
+
+    assert resp.ruleset_hash_after.startswith("sha256:")

@@ -29,7 +29,7 @@ except ImportError as _exc:
     ) from _exc
 
 from fathom.errors import CompilationError
-from fathom.integrations.auth import verify_token
+from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.proto import fathom_pb2, fathom_pb2_grpc
 
@@ -40,6 +40,11 @@ if TYPE_CHECKING:
     from fathom.engine import Engine
 
 logger = logging.getLogger(__name__)
+
+# Inbound gRPC message cap. Matches gRPC's built-in 4 MB default; set
+# explicitly so the bound is intentional and stays below the REST reload
+# cap (FATHOM_MAX_RELOAD_BYTES, default 5 MB).
+_GRPC_MAX_RECEIVE_BYTES = 4 * 1024 * 1024
 
 # Identity-compared sentinel enqueued into a SubscribeChanges event
 # queue when the engine's ruleset is reloaded (ADR-0002 cancel-on-swap).
@@ -129,10 +134,22 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         return self._default_engine
 
     def _check_auth(self, context: Any) -> None:
-        """Abort the RPC if the caller did not present a valid bearer token."""
+        """Abort the RPC if the caller did not present a valid data-plane token."""
         md = dict(context.invocation_metadata())
         header = md.get("authorization")
         if not verify_token(header):
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, "unauthorized")
+
+    def _check_admin_auth(self, context: Any) -> None:
+        """Abort the RPC unless the caller presented the scoped reload token.
+
+        When ``FATHOM_ADMIN_TOKEN`` is set, only that token is accepted (the
+        data-plane ``FATHOM_API_TOKEN`` is rejected). When unset, falls back
+        to the data-plane token — backward compatible.
+        """
+        md = dict(context.invocation_metadata())
+        header = md.get("authorization")
+        if not verify_admin_token(header):
             context.abort(grpc.StatusCode.UNAUTHENTICATED, "unauthorized")
 
     def _resolve_ruleset(self, user_path: str, context: Any) -> str:
@@ -382,8 +399,12 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         * Bad signature → ``INVALID_ARGUMENT`` "unsigned_ruleset"
         * Compile error → ``FAILED_PRECONDITION`` with message
         * Not-ready (no engine/attestation) → ``FAILED_PRECONDITION`` "not_ready"
+
+        Auth is admin-scoped: when ``FATHOM_ADMIN_TOKEN`` is set, only that
+        token authorises ``Reload`` (the data-plane token is rejected);
+        when unset, falls back to the data-plane token.
         """
-        self._check_auth(context)
+        self._check_admin_auth(context)
 
         engine = self._default_engine
         attestation = self._attestation
@@ -542,8 +563,14 @@ def serve(
     Returns:
         The running :class:`grpc.Server` instance.
     """
+    # Bound the inbound message size so a hostile ``Reload`` (or any other
+    # RPC) cannot stream an unbounded body into the YAML parser. gRPC's
+    # built-in default is already 4 MB; we set it explicitly so the bound
+    # is intentional and visible, and so it stays below the REST reload cap
+    # (FATHOM_MAX_RELOAD_BYTES, default 5 MB).
     server: grpc.Server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=max_workers),
+        options=[("grpc.max_receive_message_length", _GRPC_MAX_RECEIVE_BYTES)],
     )
     servicer = FathomServicer(default_engine=engine)
     fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)  # type: ignore[no-untyped-call]

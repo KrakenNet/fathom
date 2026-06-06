@@ -33,7 +33,7 @@ from fathom.compiler import Compiler
 from fathom.engine import Engine
 from fathom.errors import CompilationError
 from fathom.errors import ValidationError as FathomValidationError
-from fathom.integrations.auth import verify_token
+from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.models import (
     AssertFactRequest,
@@ -74,9 +74,40 @@ def _make_error_response(
 def _require_auth(
     authorization: str | None = Header(default=None),
 ) -> None:
-    """FastAPI dependency enforcing bearer-token auth."""
+    """FastAPI dependency enforcing data-plane bearer-token auth."""
     if not verify_token(authorization):
         raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _require_admin_auth(
+    authorization: str | None = Header(default=None),
+) -> None:
+    """FastAPI dependency enforcing the scoped reload admin token.
+
+    When ``FATHOM_ADMIN_TOKEN`` is set, only that token is accepted (the
+    data-plane ``FATHOM_API_TOKEN`` is rejected). When it is unset, this
+    falls back to the data-plane token — backward compatible.
+    """
+    if not verify_admin_token(authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+# Maximum accepted request body for POST /v1/rules/reload. A ruleset that
+# large is almost certainly hostile or a misconfiguration; the YAML parser
+# should never see an unbounded body. Overridable via FATHOM_MAX_RELOAD_BYTES.
+_DEFAULT_MAX_RELOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _max_reload_bytes() -> int:
+    """Return the reload body cap in bytes (env-overridable, read per call)."""
+    raw = os.environ.get("FATHOM_MAX_RELOAD_BYTES", "")
+    if not raw:
+        return _DEFAULT_MAX_RELOAD_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_RELOAD_BYTES
+    return value if value > 0 else _DEFAULT_MAX_RELOAD_BYTES
 
 
 def _resolve_user_ruleset(user_path: str) -> str:
@@ -423,15 +454,58 @@ def _write_audit(sink: Any | None, record: dict[str, Any]) -> None:
         logger.exception("audit sink write failed")
 
 
-@app.post("/v1/rules/reload", dependencies=[Depends(_require_auth)])
+@app.post(
+    "/v1/rules/reload",
+    dependencies=[Depends(_require_admin_auth)],
+    # The body is read and validated manually (to enforce the size cap on
+    # real bytes before parsing), so FastAPI no longer infers the request
+    # body schema from a parameter. Re-declare it here so the OpenAPI export
+    # keeps documenting the RulesetReloadRequest shape.
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": RulesetReloadRequest.model_json_schema()}},
+        }
+    },
+)
 async def reload_rules(
-    payload: RulesetReloadRequest,
     request: Request,
 ) -> JSONResponse:
     """Atomically swap the loaded ruleset with a new (optionally signed) one.
 
+    Requires the scoped admin token (``FATHOM_ADMIN_TOKEN`` when set, else the
+    data-plane token). Bodies larger than ``FATHOM_MAX_RELOAD_BYTES`` (default
+    5 MB) are rejected with 413 before any YAML parsing — the cap is enforced
+    on the actual bytes received, not the Content-Length header (chunked
+    bodies lie). Rate limiting is host-level (reverse proxy) by design.
+
     See design C5 / AC-5.1 / AC-5.4–5.6 / AC-5.8.
     """
+    # --- body size cap (enforced on real bytes, not Content-Length) ---
+    # Stream the body in chunks and abort as soon as the running total
+    # exceeds the limit, so a hostile chunked request (which can lie in
+    # its Content-Length header) is rejected without being fully buffered.
+    limit = _max_reload_bytes()
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            return _make_error_response(
+                413,
+                "payload_too_large",
+                f"request body exceeds the {limit}-byte reload limit",
+            )
+        chunks.append(chunk)
+    raw_body = b"".join(chunks)
+
+    try:
+        payload = RulesetReloadRequest.model_validate_json(raw_body)
+    except PydanticValidationError as exc:
+        errs = exc.errors()
+        detail = errs[0].get("msg", "invalid request body") if errs else "invalid request body"
+        return _make_error_response(422, "validation_error", detail)
+
     state = request.app.state
     engine = getattr(state, "engine", None)
     attestation = getattr(state, "attestation", None)
