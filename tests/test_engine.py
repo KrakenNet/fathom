@@ -22,7 +22,7 @@ def test_rule_registry_exposes_loaded_rules(tmp_path: Path) -> None:
     (tmp_path / "rules.yaml").write_text(
         "ruleset: gov\nmodule: gov\nrules:\n"
         "  - name: ok\n    when:\n      - template: agent\n"
-        "        conditions:\n          - slot: id\n            expression: \"equals(alice)\"\n"
+        '        conditions:\n          - slot: id\n            expression: "equals(alice)"\n'
         "    then:\n      action: allow\n      reason: ok\n"
     )
     engine = Engine.from_rules(str(tmp_path))

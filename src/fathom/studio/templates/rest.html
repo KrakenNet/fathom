@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}REST API{% endblock %}
+{% block body %}
+  <h2>REST API explorer</h2>
+  <p class="muted">
+    The production REST server is mounted in-process under <code>/api</code>.
+    Interactive docs live at <a href="/api/docs">/api/docs</a>.
+  </p>
+  <table>
+    <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+    <tbody>
+      {% for method, path, desc in endpoints %}
+        <tr><td><code>{{ method }}</code></td><td><code>{{ path }}</code></td><td>{{ desc }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <h4>Example</h4>
+  <pre>curl -s http://localhost:8020/api/v1/evaluate \
+  -H "Authorization: Bearer $FATHOM_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"facts":[{"template":"request","data":{"action":"read"}}],"ruleset":""}'</pre>
+{% endblock %}

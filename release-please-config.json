@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "python",
+  "include-v-in-tag": true,
+  "include-component-in-tag": false,
+  "skip-changelog": true,
+  "packages": {
+    ".": {
+      "package-name": "fathom-rules",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "src/fathom/__init__.py"
+        }
+      ]
+    }
+  }
+}

@@ -9,7 +9,7 @@ sources:
   - src/fathom/engine.py
   - src/fathom/facts.py
   - src/fathom/integrations/rest.py
-last_verified: 2026-04-15
+last_verified: 2026-06-06
 ---
 
 # Fact
@@ -47,7 +47,7 @@ bypasses it — see each subsection.
 }
 ```
 
-The endpoint (`src/fathom/integrations/rest.py` lines 326–343) requires
+The endpoint (`src/fathom/integrations/rest.py` lines 363–384) requires
 an existing session created via `POST /v1/evaluate`; an unknown
 `session_id` returns **404 session not found**. Companion endpoints
 `POST /v1/query` and `DELETE /v1/facts` accept `session_id`,
@@ -201,7 +201,7 @@ semantics match `query`: a `None`/empty filter retracts **all** facts
 of the template. Matches are collected first, then retracted, to avoid
 mutating the CLIPS fact list during iteration. Returns the retracted
 count. Accessible via `DELETE /v1/facts`
-(`src/fathom/integrations/rest.py` lines 366–384), which takes a
+(`src/fathom/integrations/rest.py` lines 404–420), which takes a
 `RetractFactsRequest` and returns
 `RetractFactsResponse(retracted_count)`.
 

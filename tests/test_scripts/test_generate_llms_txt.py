@@ -44,3 +44,39 @@ def test_generates_index_and_full(tmp_path: Path) -> None:
     assert "Install and hello world." in idx
     assert "# Home" in full
     assert "# Getting Started" in full
+
+
+MKDOCS_MIKE = """\
+site_name: Fathom
+site_url: https://example.com
+docs_dir: docs
+nav:
+  - Home: index.md
+extra:
+  version:
+    provider: mike
+    default: latest
+"""
+
+
+def test_mike_versioned_urls_use_default_alias(tmp_path: Path) -> None:
+    """With mike versioning, pages live under /<alias>/ on the deployed
+    site; unversioned URLs 404 (lychee caught this on the live site)."""
+    (tmp_path / "mkdocs.yml").write_text(MKDOCS_MIKE, encoding="utf-8")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(
+        "---\ntitle: Home\nsummary: Welcome.\n---\n# Home\n", encoding="utf-8"
+    )
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    idx = (docs / "llms.txt").read_text(encoding="utf-8")
+    # index.md renders at the directory root on the deployed site
+    assert "(https://example.com/latest/)" in idx
+    assert "index/" not in idx

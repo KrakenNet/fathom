@@ -154,9 +154,7 @@ class TestFathomToolGuardrail:
 
     def test_deny_raises(self) -> None:
         async def _run() -> None:
-            engine = _make_engine(
-                decision="deny", reason="forbidden", rule_trace=["deny-rule"]
-            )
+            engine = _make_engine(decision="deny", reason="forbidden", rule_trace=["deny-rule"])
             guardrail = fathom_tool_guardrail(engine=engine, agent_id=AGENT_ID)
             with pytest.raises(PolicyViolation) as exc_info:
                 await guardrail(tool_name=TOOL_NAME, arguments=INPUT_JSON)

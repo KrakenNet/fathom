@@ -767,9 +767,7 @@ class TestCompileBind:
                     conditions=[ConditionEntry(slot="id", bind="?sid")],
                 )
             ],
-            then=ThenBlock(
-                asserts=[AssertSpec(template="r", slots={"id": "?sid"})]
-            ),
+            then=ThenBlock(asserts=[AssertSpec(template="r", slots={"id": "?sid"})]),
         )
         result = compiler.compile_rule(rule, "MAIN")
         assert "(source (id ?sid))" in result
@@ -782,9 +780,7 @@ class TestCompileBind:
                 FactPattern(
                     template="agent",
                     conditions=[
-                        ConditionEntry(
-                            slot="level", bind="?lvl", expression="equals(secret)"
-                        )
+                        ConditionEntry(slot="level", bind="?lvl", expression="equals(secret)")
                     ],
                 )
             ],
@@ -803,9 +799,7 @@ class TestCompileBind:
                 FactPattern(
                     template="agent",
                     conditions=[
-                        ConditionEntry(
-                            slot="level", bind="?lvl", expression="not_equals(public)"
-                        )
+                        ConditionEntry(slot="level", bind="?lvl", expression="not_equals(public)")
                     ],
                 )
             ],

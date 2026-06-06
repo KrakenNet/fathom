@@ -4,9 +4,8 @@ summary: The CLIPS features Fathom deliberately omits from its authored surface 
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-06-05
 sources:
-  - design.md
   - src/fathom/compiler.py
   - src/fathom/models.py
 ---
@@ -20,13 +19,13 @@ what's missing and why, so if you come from a CLIPS background and find
 yourself hunting for a feature that isn't there, you can stop hunting.
 
 There are two lists below. The first is the short, canonical list from
-`design.md` — three features that are explicitly deferred. The second is
+the original v1 design — three features that are explicitly deferred. The second is
 longer and less formal: parts of CLIPS that simply aren't plumbed through the
 YAML grammar or the Python API. Those aren't *forbidden* — a determined
 embedder can still hand-build raw CLIPS constructs — but they sit outside the
 Pydantic safety layer that makes authored rules reviewable.
 
-## Explicitly deferred (per `design.md`)
+## Explicitly deferred (per the original v1 design)
 
 These three are called out by name in the design document's
 "Explicitly Not in v1" section.
@@ -51,6 +50,11 @@ know?" — in addition to the forward chaining Fathom uses. Fathom's target
 problems (governance, routing, classification) are natural fits for forward
 chaining: you have a situation, you want to know what decision applies.
 The design note marks backward chaining as a v2 consideration.
+
+`Engine.__init__` accepts an `experimental_backward_chaining` flag, but it
+is **reserved for a future release and currently has no behavioural
+effect** — passing `True` does not enable backward chaining and only emits
+a `FutureWarning`.
 
 What to use instead: frame the question as forward chaining. Assert the
 facts that describe the situation, `evaluate()`, and read the decision.

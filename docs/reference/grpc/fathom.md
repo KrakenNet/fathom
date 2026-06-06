@@ -12,6 +12,8 @@
     - [FactInput](#fathom-v1-FactInput)
     - [QueryRequest](#fathom-v1-QueryRequest)
     - [QueryResponse](#fathom-v1-QueryResponse)
+    - [ReloadRequest](#fathom-v1-ReloadRequest)
+    - [ReloadResponse](#fathom-v1-ReloadResponse)
     - [RetractRequest](#fathom-v1-RetractRequest)
     - [RetractResponse](#fathom-v1-RetractResponse)
     - [SubscribeRequest](#fathom-v1-SubscribeRequest)
@@ -164,6 +166,40 @@
 
 
 
+<a name="fathom-v1-ReloadRequest"></a>
+
+### ReloadRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| ruleset_path | [string](#string) |  |  |
+| ruleset_yaml | [string](#string) |  |  |
+| signature | [bytes](#bytes) |  |  |
+
+
+
+
+
+
+<a name="fathom-v1-ReloadResponse"></a>
+
+### ReloadResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| ruleset_hash_before | [string](#string) |  |  |
+| ruleset_hash_after | [string](#string) |  |  |
+| attestation_token | [string](#string) |  |  |
+
+
+
+
+
+
 <a name="fathom-v1-RetractRequest"></a>
 
 ### RetractRequest
@@ -242,6 +278,7 @@
 | Query | [QueryRequest](#fathom-v1-QueryRequest) | [QueryResponse](#fathom-v1-QueryResponse) | Query working memory for facts matching a template and optional filter. |
 | Retract | [RetractRequest](#fathom-v1-RetractRequest) | [RetractResponse](#fathom-v1-RetractResponse) | Retract facts matching a template and optional filter. |
 | SubscribeChanges | [SubscribeRequest](#fathom-v1-SubscribeRequest) | [FactChange](#fathom-v1-FactChange) stream | Stream working-memory changes as they occur during evaluation. |
+| Reload | [ReloadRequest](#fathom-v1-ReloadRequest) | [ReloadResponse](#fathom-v1-ReloadResponse) | Hot-reload the ruleset from a path or inline YAML. |
 
  
 

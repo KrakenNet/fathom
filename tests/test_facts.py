@@ -995,6 +995,114 @@ class TestFixtureTemplates:
             engine.assert_fact("data_request", {"classification": "secret"})
 
 
+class TestChangeListeners:
+    """Engine.subscribe / FactManager listener wiring."""
+
+    @pytest.fixture
+    def event_engine(self, tmp_path):
+        yaml_str = """\
+templates:
+  - name: event
+    slots:
+      - name: kind
+        type: string
+        required: true
+"""
+        return _engine_with_templates(tmp_path, yaml_str)
+
+    def test_listener_fires_on_assert(self, event_engine):
+        events = []
+        event_engine.subscribe(lambda t, a, d: events.append((t, a, d)))
+        event_engine.assert_fact("event", {"kind": "boot"})
+        assert events == [("event", "assert", {"kind": "boot"})]
+
+    def test_listener_fires_on_retract(self, event_engine):
+        events = []
+        event_engine.assert_fact("event", {"kind": "boot"})
+        event_engine.subscribe(lambda t, a, d: events.append((t, a, d)))
+        count = event_engine.retract("event")
+        assert count == 1
+        assert events == [("event", "retract", {"kind": "boot"})]
+
+    def test_listener_fires_on_bulk_assert(self, event_engine):
+        events = []
+        event_engine.subscribe(lambda t, a, d: events.append((t, a, d)))
+        event_engine.assert_facts(
+            [
+                ("event", {"kind": "a"}),
+                ("event", {"kind": "b"}),
+            ]
+        )
+        assert [e[2]["kind"] for e in events] == ["a", "b"]
+        assert all(e[1] == "assert" for e in events)
+
+    def test_listener_fires_per_retracted_fact(self, event_engine):
+        event_engine.assert_fact("event", {"kind": "a"})
+        event_engine.assert_fact("event", {"kind": "b"})
+        event_engine.assert_fact("event", {"kind": "c"})
+        events = []
+        event_engine.subscribe(lambda t, a, d: events.append((t, a, d)))
+        event_engine.retract("event", {"kind": "b"})
+        assert events == [("event", "retract", {"kind": "b"})]
+
+    def test_unsubscribe_stops_events(self, event_engine):
+        events = []
+        unsubscribe = event_engine.subscribe(lambda t, a, d: events.append((t, a, d)))
+        event_engine.assert_fact("event", {"kind": "first"})
+        unsubscribe()
+        event_engine.assert_fact("event", {"kind": "second"})
+        assert events == [("event", "assert", {"kind": "first"})]
+
+    def test_unsubscribe_idempotent(self, event_engine):
+        unsubscribe = event_engine.subscribe(lambda t, a, d: None)
+        unsubscribe()
+        unsubscribe()  # second call must not raise
+
+    def test_multiple_listeners_all_fire(self, event_engine):
+        a, b = [], []
+        event_engine.subscribe(lambda t, ac, d: a.append(d["kind"]))
+        event_engine.subscribe(lambda t, ac, d: b.append(d["kind"]))
+        event_engine.assert_fact("event", {"kind": "boot"})
+        assert a == ["boot"]
+        assert b == ["boot"]
+
+    def test_listener_exception_does_not_break_assert(self, event_engine):
+        good = []
+
+        def bad(t, a, d):
+            raise RuntimeError("listener intentionally broken")
+
+        event_engine.subscribe(bad)
+        event_engine.subscribe(lambda t, a, d: good.append(d["kind"]))
+        # Must not raise; both listeners attempted.
+        event_engine.assert_fact("event", {"kind": "boot"})
+        assert good == ["boot"]
+        # Working memory still has the fact.
+        assert event_engine.query("event") == [{"kind": "boot"}]
+
+    def test_failed_assert_does_not_fire_listener(self, event_engine):
+        events = []
+        event_engine.subscribe(lambda t, a, d: events.append((t, a, d)))
+        with pytest.raises(ValidationError):
+            event_engine.assert_fact("event", {})  # missing required kind
+        assert events == []
+
+    def test_ttl_expiry_fires_retract_listener(self, event_engine):
+        import time as _time
+
+        events = []
+        event_engine.subscribe(lambda t, a, d: events.append((t, a, d)))
+        event_engine._fact_manager.set_ttl("event", seconds=1)
+        event_engine.assert_fact("event", {"kind": "boot"})
+        # Age the timestamp so cleanup_expired retracts it.
+        for fact_idx in list(event_engine._fact_manager._fact_timestamps):
+            event_engine._fact_manager._fact_timestamps[fact_idx] = _time.time() - 3600
+        event_engine._fact_manager.cleanup_expired()
+        actions = [e[1] for e in events]
+        assert "assert" in actions
+        assert "retract" in actions
+
+
 def test_ttl_timestamps_cleared_on_reset() -> None:
     """After reset, previously-asserted timestamps must not affect new facts."""
     import time

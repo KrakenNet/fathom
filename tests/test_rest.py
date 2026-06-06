@@ -73,9 +73,7 @@ class TestHealth:
 class TestStatelessEvaluate:
     """POST /v1/evaluate without session_id."""
 
-    def test_evaluate_returns_200(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_evaluate_returns_200(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             json={
@@ -278,9 +276,7 @@ class TestStatelessEvaluate:
 class TestValidation:
     """POST /v1/evaluate with invalid inputs."""
 
-    def test_missing_facts_field(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_missing_facts_field(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             json={"ruleset": ""},
@@ -288,9 +284,7 @@ class TestValidation:
         )
         assert response.status_code == 422
 
-    def test_missing_ruleset_field(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_missing_ruleset_field(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             json={"facts": []},
@@ -298,9 +292,7 @@ class TestValidation:
         )
         assert response.status_code == 422
 
-    def test_empty_body(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_empty_body(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             json={},
@@ -308,9 +300,7 @@ class TestValidation:
         )
         assert response.status_code == 422
 
-    def test_invalid_json(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_invalid_json(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             content="not valid json",
@@ -318,9 +308,7 @@ class TestValidation:
         )
         assert response.status_code == 422
 
-    def test_facts_wrong_type(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_facts_wrong_type(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             json={"facts": "not-a-list", "ruleset": ""},
@@ -328,9 +316,7 @@ class TestValidation:
         )
         assert response.status_code == 422
 
-    def test_missing_required_slot(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_missing_required_slot(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         """Agent template requires 'id' slot."""
         response = client.post(
             "/v1/evaluate",
@@ -368,9 +354,7 @@ class TestValidation:
         assert data["error"] == "validation_error"
         assert data["field"] == "clearance"
 
-    def test_unknown_template(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_unknown_template(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             json={
@@ -385,9 +369,7 @@ class TestValidation:
         data = response.json()
         assert "nonexistent" in data["detail"]
 
-    def test_bad_ruleset_path(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_bad_ruleset_path(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         """Absolute paths escape the ruleset jail and are rejected with 400."""
         response = client.post(
             "/v1/evaluate",
@@ -427,9 +409,7 @@ class TestStatefulEvaluate:
         assert response.status_code == 200
         assert "sess-1" in session_store._sessions
 
-    def test_session_reuses_engine(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_session_reuses_engine(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         """Second request with same session_id reuses the Engine."""
         client.post(
             "/v1/evaluate",
@@ -524,9 +504,7 @@ class TestStatefulEvaluate:
         engine_b, _ = session_store._sessions["sess-B"]
         assert engine_a is not engine_b
 
-    def test_stateful_returns_200(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
+    def test_stateful_returns_200(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         response = client.post(
             "/v1/evaluate",
             json={
@@ -667,9 +645,7 @@ class TestResponseSchema:
 # ---------------------------------------------------------------------------
 
 
-def _create_session(
-    client: TestClient, auth_headers: dict[str, str], session_id: str
-) -> None:
+def _create_session(client: TestClient, auth_headers: dict[str, str], session_id: str) -> None:
     """Helper: create a session via POST /v1/evaluate."""
     response = client.post(
         "/v1/evaluate",

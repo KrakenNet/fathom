@@ -1,0 +1,51 @@
+name: ts-ci
+
+# No path filter on pull_request: test is a required status check for branch
+# protection (dependabot auto-merge waits on it). A path-filtered required
+# check never reports on non-matching PRs, which would block merging forever.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "packages/fathom-ts/**"
+      - ".github/workflows/ts-ci.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ts-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/fathom-ts
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      # The pnpm lockfile lives in the package, not a workspace root, so
+      # install from packages/fathom-ts (the working-directory default).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run lint
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm test

@@ -9,17 +9,21 @@ Install via::
 from __future__ import annotations
 
 import enum
+import importlib.resources
 import json
 import statistics
 import time
 from pathlib import Path  # noqa: TC003 - used at runtime by Typer
 from typing import Any
 
+import httpx
 import yaml
 
 from fathom.compiler import Compiler
 from fathom.engine import Engine
 from fathom.errors import CompilationError
+from fathom.release_sig import ReleaseSigError
+from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import validate_document
 
 try:
@@ -45,6 +49,7 @@ from fathom import __version__
 _EXIT_SUCCESS = 0
 _EXIT_ERROR = 1
 _EXIT_NOT_FOUND = 2
+_EXIT_MALFORMED = 3
 
 app = typer.Typer(name="fathom", help="Fathom reasoning runtime CLI.")
 
@@ -510,6 +515,173 @@ def bench(
     except Exception as exc:
         _print_error(f"[fathom.cli] bench failed: {exc}")
         raise typer.Exit(code=_EXIT_ERROR) from exc
+
+
+@app.command("verify-artifact")
+def verify_artifact(
+    artifact: Path = typer.Argument(  # noqa: B008
+        ...,
+        help="Artifact to verify.",
+    ),
+    sig: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--sig",
+        help="Sig path (default: <path>.minisig).",
+    ),
+    pubkey: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--pubkey",
+        help="Pubkey (default: embedded).",
+    ),
+) -> None:
+    """Verify an artifact's detached minisign signature against a pubkey."""
+    sig_path = sig if sig is not None else Path(str(artifact) + ".minisig")
+    if pubkey is not None:
+        pubkey_path = pubkey
+    else:
+        pubkey_path = Path(
+            str(importlib.resources.files("fathom._data") / "release_pubkey.minisign")
+        )
+
+    if not artifact.exists():
+        _print_error(f"[fathom.cli] verify-artifact failed: artifact not found: {artifact}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+    if not sig_path.exists():
+        _print_error(f"[fathom.cli] verify-artifact failed: signature not found: {sig_path}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+    if not pubkey_path.exists():
+        _print_error(f"[fathom.cli] verify-artifact failed: pubkey not found: {pubkey_path}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+
+    try:
+        _verify_artifact(artifact, sig_path, pubkey_path)
+    except FileNotFoundError as exc:
+        _print_error(f"[fathom.cli] verify-artifact failed: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+    except ReleaseSigError as exc:
+        msg = str(exc)
+        malformed_markers = (
+            "malformed",
+            "base64 decode",
+            "unexpected payload length",
+            "unsupported sig algorithm",
+            "key id mismatch",
+        )
+        if any(marker in msg for marker in malformed_markers):
+            _print_error(f"[fathom.cli] verify-artifact failed: {msg}")
+            raise typer.Exit(code=_EXIT_MALFORMED) from exc
+        _print_error(f"[fathom.cli] verify-artifact failed: {msg}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+    except Exception as exc:
+        _print_error(f"[fathom.cli] verify-artifact failed: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+
+    typer.echo("ok: signature valid")
+
+
+@app.command("verify-chain")
+def verify_chain_cmd(
+    log_path: Path = typer.Argument(  # noqa: B008
+        ...,
+        help="Chained attestation log (JSONL) to verify.",
+    ),
+    pubkey: Path = typer.Option(  # noqa: B008
+        ...,
+        "--pubkey",
+        help="Ed25519 public key PEM (exported beside the log as <log>.pub.pem).",
+    ),
+    expected_head: str | None = typer.Option(
+        None,
+        "--expected-head",
+        help="Out-of-band mirrored line hash; fails if absent (tail truncation).",
+    ),
+    anchor_token: str | None = typer.Option(
+        None,
+        "--anchor-token",
+        help="Checkpoint JWS token; its pinned head must appear in the log.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit the verification result as JSON.",
+    ),
+) -> None:
+    """Offline-verify a hash-chained attestation log (chain + signatures)."""
+    from dataclasses import asdict
+
+    from fathom.chained_log import verify_chain
+    from fathom.errors import AttestationError
+
+    if not log_path.exists():
+        _print_error(f"[fathom.cli] verify-chain failed: log not found: {log_path}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+    if not pubkey.exists():
+        _print_error(f"[fathom.cli] verify-chain failed: pubkey not found: {pubkey}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+
+    try:
+        result = verify_chain(
+            log_path, pubkey, expected_head=expected_head, anchor_token=anchor_token
+        )
+    except AttestationError as exc:
+        _print_error(f"[fathom.cli] verify-chain failed: {exc}")
+        raise typer.Exit(code=_EXIT_MALFORMED) from exc
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+    elif result.ok:
+        anchored = " (anchor ok)" if result.anchor_ok else ""
+        _print_success(
+            f"ok: chain valid — {result.count} records, head {result.head_sha256}{anchored}"
+        )
+    else:
+        _print_error(f"[fathom.cli] verify-chain failed: {result.error}")
+
+    if not result.ok:
+        raise typer.Exit(code=_EXIT_ERROR)
+
+
+@app.command()
+def status(
+    server: str = typer.Option(  # noqa: B008
+        ...,
+        "--server",
+        help="Fathom server base URL (e.g., http://127.0.0.1:8080).",
+    ),
+    token: str | None = typer.Option(  # noqa: B008
+        None,
+        "--token",
+        envvar="FATHOM_TOKEN",
+        help="Optional bearer token (defaults to FATHOM_TOKEN env var).",
+    ),
+) -> None:
+    """Query a Fathom server's GET /v1/status endpoint."""
+    url = f"{server.rstrip('/')}/v1/status"
+    headers: dict[str, str] = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        response = httpx.get(url, headers=headers, timeout=5.0)
+    except httpx.HTTPError as exc:
+        _print_error(f"[fathom.cli] status failed: connection error: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+
+    if response.status_code != 200:
+        _print_error(
+            f"[fathom.cli] status failed: HTTP {response.status_code}: {response.text.strip()}"
+        )
+        raise typer.Exit(code=_EXIT_ERROR)
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        _print_error(f"[fathom.cli] status failed: invalid JSON response: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+
+    typer.echo(f"ruleset_hash: {data.get('ruleset_hash')}")
+    typer.echo(f"version:      {data.get('version')}")
+    typer.echo(f"loaded_at:    {data.get('loaded_at')}")
 
 
 def _repl_help() -> None:

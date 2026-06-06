@@ -29,9 +29,7 @@ def auth_headers() -> dict[str, str]:
 
 
 @pytest.fixture
-def seeded_session(
-    _rest_env: Path, auth_headers: dict[str, str]
-) -> tuple[TestClient, str]:
+def seeded_session(_rest_env: Path, auth_headers: dict[str, str]) -> tuple[TestClient, str]:
     """Build a small rule pack, create a session via /v1/evaluate, return id."""
     (_rest_env / "templates.yaml").write_text(
         "templates:\n  - name: agent\n    slots:\n      - name: id\n        type: string\n"
@@ -76,9 +74,7 @@ class TestListTemplatesReal:
         names = {item["name"] for item in r.json()["items"]}
         assert "agent" in names
 
-    def test_404_for_missing_session(
-        self, _rest_env: Path, auth_headers: dict[str, str]
-    ) -> None:
+    def test_404_for_missing_session(self, _rest_env: Path, auth_headers: dict[str, str]) -> None:
         c = TestClient(app)
         r = c.get(
             "/v1/templates",
@@ -123,8 +119,7 @@ class TestCompileYaml:
     ) -> None:
         c = TestClient(app)
         yaml_content = (
-            "templates:\n  - name: sensor\n    slots:\n"
-            "      - name: value\n        type: float\n"
+            "templates:\n  - name: sensor\n    slots:\n      - name: value\n        type: float\n"
         )
         r = c.post("/v1/compile", json={"yaml_content": yaml_content}, headers=auth_headers)
         assert r.status_code == 200

@@ -44,9 +44,7 @@ def test_clean_repo_exits_zero(tmp_path: Path) -> None:
     (tmp_path / "src" / "module.py").write_text("x = 1\n")
     _commit(tmp_path, "src")
     (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "page.md").write_text(
-        PAGE_TEMPLATE.format(verified="2099-01-01")
-    )
+    (tmp_path / "docs" / "page.md").write_text(PAGE_TEMPLATE.format(verified="2099-01-01"))
     _commit(tmp_path, "docs")
     result = _run(tmp_path)
     assert result.returncode == 0, result.stderr + result.stdout
@@ -59,9 +57,7 @@ def test_source_modified_after_verified_fails(tmp_path: Path) -> None:
     src.write_text("x = 1\n")
     _commit(tmp_path, "src v1")
     (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "page.md").write_text(
-        PAGE_TEMPLATE.format(verified="2000-01-01")
-    )
+    (tmp_path / "docs" / "page.md").write_text(PAGE_TEMPLATE.format(verified="2000-01-01"))
     _commit(tmp_path, "docs")
     src.write_text("x = 2\n")
     _commit(tmp_path, "src v2")
@@ -73,9 +69,7 @@ def test_source_modified_after_verified_fails(tmp_path: Path) -> None:
 def test_missing_source_fails(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "page.md").write_text(
-        PAGE_TEMPLATE.format(verified="2099-01-01")
-    )
+    (tmp_path / "docs" / "page.md").write_text(PAGE_TEMPLATE.format(verified="2099-01-01"))
     _commit(tmp_path, "docs")
     result = _run(tmp_path)
     assert result.returncode == 1

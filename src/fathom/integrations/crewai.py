@@ -12,7 +12,7 @@ Requires ``crewai >= 0.80``.  Install via::
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING
 
 try:
     import crewai as _crewai  # noqa: F401
@@ -23,6 +23,8 @@ except ImportError as _exc:
     ) from _exc
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fathom.engine import Engine
 
 

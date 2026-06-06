@@ -1,4 +1,4 @@
-## _index.md
+## index.md
 
 # Fathom
 
@@ -1217,6 +1217,29 @@ Two options tune the run:
 fathom bench examples/04-temporal-anomaly -n 5000 -w 500
 ```
 
+## verify-chain
+
+Offline-verify a hash-chained attestation log: every line's JWS
+signature, the hash link to its predecessor, and the genesis record's
+key fingerprint.
+
+```shell
+fathom verify-chain audit/chain.jsonl --pubkey audit/chain.jsonl.pub.pem
+```
+
+The `--pubkey` option is required and takes the Ed25519 public key PEM
+that the log exports beside itself as `<log>.pub.pem`. Two optional
+checks detect truncation, which a self-contained log cannot reveal:
+
+- `--expected-head` — a line hash mirrored out-of-band; verification
+  fails if it no longer appears in the log.
+- `--anchor-token` — a checkpoint JWS token; the head it pins must
+  appear in the log.
+
+Pass `--json` to emit the verification result as JSON. The command
+exits 0 when the chain is valid, 1 when verification fails, and 2 when
+the log or key file cannot be read.
+
 ## repl
 
 Start an interactive session for asserting facts and evaluating rules
@@ -1262,6 +1285,7 @@ command, see the generated reference pages:
 - [info](../reference/cli/info.md)
 - [test](../reference/cli/test.md)
 - [bench](../reference/cli/bench.md)
+- [verify-chain](../reference/cli/verify-chain.md)
 - [repl](../reference/cli/repl.md)
 
 
@@ -1276,7 +1300,7 @@ rule through the raw-CLIPS `test:` escape hatch on a `ConditionEntry`.
 
 ## Register the function
 
-Call `Engine.register_function(name, callable)`. The callable becomes invokable from
+Call `Engine.register_function(name, callable)`. The callable becomes invocable from
 CLIPS as `(name arg1 arg2 ...)`.
 
 ```python
@@ -2415,13 +2439,15 @@ appears only when `salience != 0`. LHS and RHS rendering are covered below.
 ```
 
 Emitted by `compile_function`. The `type` field is a literal of
-`"classification" | "temporal" | "raw"`. Classification functions come
+`"classification" | "raw"`. Classification functions come
 from a `HierarchyDefinition` as a family of deffunctions (`<hier>-rank`,
 `<hier>-below`, `<hier>-meets-or-exceeds`, `<hier>-within-scope`) plus
 backward-compatible unscoped shims for the first hierarchy loaded.
-Temporal functions are registered as Python externals by a later stage
-and return an empty string here. Raw functions return `defn.body`
-verbatim — the escape hatch for hand-written CLIPS.
+Raw functions return `defn.body` verbatim — the escape hatch for
+hand-written CLIPS. Temporal operators (`changed_within`,
+`count_exceeds`, etc.) are not declared via `FunctionDefinition`; they
+are Engine-registered Python externals under the reserved `fathom-`
+prefix.
 
 ## The LHS: fact patterns and condition entries
 
@@ -2880,13 +2906,13 @@ what's missing and why, so if you come from a CLIPS background and find
 yourself hunting for a feature that isn't there, you can stop hunting.
 
 There are two lists below. The first is the short, canonical list from
-`design.md` — three features that are explicitly deferred. The second is
+the original v1 design — three features that are explicitly deferred. The second is
 longer and less formal: parts of CLIPS that simply aren't plumbed through the
 YAML grammar or the Python API. Those aren't *forbidden* — a determined
 embedder can still hand-build raw CLIPS constructs — but they sit outside the
 Pydantic safety layer that makes authored rules reviewable.
 
-## Explicitly deferred (per `design.md`)
+## Explicitly deferred (per the original v1 design)
 
 These three are called out by name in the design document's
 "Explicitly Not in v1" section.
@@ -2911,6 +2937,11 @@ know?" — in addition to the forward chaining Fathom uses. Fathom's target
 problems (governance, routing, classification) are natural fits for forward
 chaining: you have a situation, you want to know what decision applies.
 The design note marks backward chaining as a v2 consideration.
+
+`Engine.__init__` accepts an `experimental_backward_chaining` flag, but it
+is **reserved for a future release and currently has no behavioural
+effect** — passing `True` does not enable backward chaining and only emits
+a `FutureWarning`.
 
 What to use instead: frame the question as forward chaining. Assert the
 facts that describe the situation, `evaluate()`, and read the decision.
@@ -3797,10 +3828,13 @@ compiled CLIPS `defmodule`:
 
 A **function** exposes a CLIPS `deffunction` that rules may call from
 either the LHS (inside a `test:` escape hatch) or the RHS. Fathom
-recognizes three function subtypes: `classification` (emitted as a
+recognizes two function subtypes: `classification` (emitted as a
 family of rank/below/meets-or-exceeds/within-scope deffunctions driven
-by a `HierarchyDefinition`), `raw` (the author-supplied CLIPS source
-is emitted verbatim), and `temporal` (reserved — currently a stub).
+by a `HierarchyDefinition`) and `raw` (the author-supplied CLIPS
+source is emitted verbatim). Temporal operators (`changed_within`,
+`count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`,
+`sequence_detected`) are served by Engine-registered Python externals
+under the reserved `fathom-` prefix, **not** by `FunctionDefinition`.
 For conceptual context see
 [Five Primitives](../../concepts/five-primitives.md); for exposing
 Python callables instead of authoring CLIPS, see
@@ -3813,9 +3847,9 @@ Python callables instead of authoring CLIPS, see
 | `name`          | `str`                                            | —                  | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$` (validated by `_name_must_be_clips_ident`). For `raw` functions this is authoring metadata only — the emitted CLIPS name comes from `body`. For `classification` the hierarchy name drives the emitted function names (see below). |
 | `description`   | `str`                                            | `""`               | no       | Author-facing prose. Not emitted to CLIPS.                                                                                                                             |
 | `params`        | `list[str]`                                      | —                  | yes      | Parameter names. Used when authoring `raw` bodies; the classification path ignores `params` and generates its own `(?level)` / `(?a ?b)` signatures from the hierarchy. |
-| `hierarchy_ref` | `str \| None`                                    | `None`             | no       | **Required** when `type == "classification"`. Names the hierarchy whose `levels` drive emission. A trailing `.yaml` is stripped: `hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]`. Ignored for `temporal` and `raw`. |
-| `type`          | `Literal["classification", "temporal", "raw"]`   | `"classification"` | no       | Selects the emission strategy. Default is `classification`.                                                                                                            |
-| `body`          | `str \| None`                                    | `None`             | no       | Raw CLIPS source. **Required** when `type == "raw"`. Ignored for `classification` and `temporal`.                                                                      |
+| `hierarchy_ref` | `str \| None`                                    | `None`             | no       | **Required** when `type == "classification"`. Names the hierarchy whose `levels` drive emission. A trailing `.yaml` is stripped: `hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]`. Ignored for `raw`. |
+| `type`          | `Literal["classification", "raw"]`               | `"classification"` | no       | Selects the emission strategy. Default is `classification`.                                                                                                            |
+| `body`          | `str \| None`                                    | `None`             | no       | Raw CLIPS source. **Required** when `type == "raw"`. Ignored for `classification`.                                                                                     |
 
 Emission is dispatched in `compile_function` in
 `src/fathom/compiler.py`. Empty `name`, missing `body` for a `raw`
@@ -3862,17 +3896,15 @@ Compilation failures:
 
 - Missing `body` → `CompilationError`.
 
-### `temporal`
+### Temporal operators (no `FunctionDefinition` needed)
 
-Currently a stub. `compile_function` returns `""` (empty string) for
-`type: temporal` — the YAML surface accepts the subtype, but emission
-is a no-op at this phase of development. Temporal operators in rules
-(`changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`,
-`distinct_count`, `sequence_detected`) are served by Python-side
-external functions the engine registers under the reserved `fathom-`
-prefix, not by compiled CLIPS deffunctions. Authors typically do not
-need to declare a `type: temporal` function for these operators to
-work. See
+Temporal operators (`changed_within`, `count_exceeds`, `rate_exceeds`,
+`last_n`, `distinct_count`, `sequence_detected`) are served by
+Engine-registered Python externals under the reserved `fathom-`
+prefix, not by compiled CLIPS deffunctions. Use them directly in rule
+conditions; **no `FunctionDefinition` declaration is required or
+accepted** — `type: temporal` was removed in 0.4.0 (raises a Pydantic
+validation error if encountered in YAML). See
 [Register a Python function](../../how-to/register-function.md) for
 the external-function path and
 [Not in v1](../../concepts/not-in-v1.md) for the broader roadmap.
@@ -3992,7 +4024,6 @@ prevent collisions with the runtime's own bindings.
 ## What is not emitted
 
 - `description` — author-facing only.
-- `type: temporal` — emits the empty string.
 - `HierarchyDefinition.compartments` — accepted by the model, unused by
   today's classification emission.
 - `FunctionDefinition.name` and `params` — ignored by the
@@ -4047,7 +4078,7 @@ bypasses it — see each subsection.
 }
 ```
 
-The endpoint (`src/fathom/integrations/rest.py` lines 326–343) requires
+The endpoint (`src/fathom/integrations/rest.py` lines 363–384) requires
 an existing session created via `POST /v1/evaluate`; an unknown
 `session_id` returns **404 session not found**. Companion endpoints
 `POST /v1/query` and `DELETE /v1/facts` accept `session_id`,
@@ -4201,7 +4232,7 @@ semantics match `query`: a `None`/empty filter retracts **all** facts
 of the template. Matches are collected first, then retracted, to avoid
 mutating the CLIPS fact list during iteration. Returns the retracted
 count. Accessible via `DELETE /v1/facts`
-(`src/fathom/integrations/rest.py` lines 366–384), which takes a
+(`src/fathom/integrations/rest.py` lines 404–420), which takes a
 `RetractFactsRequest` and returns
 `RetractFactsResponse(retracted_count)`.
 
@@ -4257,8 +4288,11 @@ it explicitly.
 | [`fathom compile`](compile.md) | |
 | [`fathom info`](info.md) | |
 | [`fathom repl`](repl.md) | |
+| [`fathom status`](status.md) | |
 | [`fathom test`](test.md) | |
 | [`fathom validate`](validate.md) | |
+| [`fathom verify-artifact`](verify-artifact.md) | |
+| [`fathom verify-chain`](verify-chain.md) | |
 
 
 ## reference/tooling/vscode/index.md
@@ -4394,8 +4428,8 @@ CMMC Level 2 Cybersecurity Maturity Model Certification rule pack.
 # Planned Integrations
 
 This page catalogs integrations that are **not** production-ready: scaffolded
-SDKs, stub applications, and adapter surfaces named in `design.md` that are
-not implemented. For shipped integrations, see the dedicated reference
+SDKs, stub applications, and adapter surfaces named in the original v1
+design that are not implemented. For shipped integrations, see the dedicated reference
 pages ([Python SDK](./python-sdk/index.md), [REST API](./rest/index.md),
 [gRPC API](./grpc/index.md), [MCP Tools](./mcp/index.md),
 [CLI](./cli/index.md), [VSCode Tooling](./tooling/vscode/index.md),
@@ -4405,16 +4439,18 @@ Each entry declares a **Status** of one of:
 
 - **Shipped** — in-tree, tested, documented, and reachable from a release artifact.
 - **Partial** — in-tree with working code but missing tests, packaging, or CI coverage.
-- **Planned** — named in `design.md` with no implementation in the source tree.
+- **Planned** — named in the original v1 design with no implementation in the source tree.
 
 ## Go SDK — `packages/fathom-go/`
 
 **Status:** Partial.
 
-**Location:** `packages/fathom-go/` — a hand-written REST client. The
-package contents are `client.go` (180 lines), `go.mod`, and a `Makefile`;
-no other Go files exist. `go.mod` declares `module
-github.com/KrakenNet/fathom-go` at `go 1.21`.
+**Location:** `packages/fathom-go/` — a hand-written REST client plus
+generated gRPC bindings. Package contents: `client.go` (180 lines),
+`client_test.go` (818 lines), `grpc_test.go` (230 lines, build-tagged
+`integration`), `tools.go`, `go.mod`, `go.sum`, `Makefile`, and
+`proto/` with `fathom.pb.go` + `fathom_grpc.pb.go`. `go.mod` declares
+`module github.com/KrakenNet/fathom-go` at `go 1.25.0`.
 
 **What works today:**
 
@@ -4427,17 +4463,24 @@ github.com/KrakenNet/fathom-go` at `go 1.21`.
   `Content-Type: application/json`, optional `Authorization: Bearer
   <token>` header, and error surfacing on any non-2xx status with the
   server body embedded in the returned error.
+- Unit tests in `client_test.go` exercise the REST surface against
+  `httptest` servers.
+- Generated gRPC stubs live in `packages/fathom-go/proto/` (built from
+  `protos/fathom.proto`); `grpc_test.go` is a `-tags=integration` test
+  that spawns the Python gRPC server and dials it via those stubs.
 
 **What is missing:**
 
-- **No tests.** A directory listing of `packages/fathom-go/` contains no
-  `*_test.go` files; nothing is exercised by CI.
-- **No gRPC client.** Only REST is wired up. `protos/fathom.proto:12`
-  declares `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`,
-  but no generated bindings are checked in and no `protoc` step runs in
-  the repo.
 - **No released module.** Consumers must vendor the package from a local
-  clone; nothing is published to a Go proxy.
+  clone; nothing is published to a Go proxy. Tracked as issue
+  [#41](https://github.com/KrakenNet/fathom/issues/41).
+
+The Go suite **is** wired into CI:
+`.github/workflows/go-ci.yml` runs `go vet`, `go build`, and
+`go test ./...` on every pull request, with a second `integration` job
+that spins up the Python gRPC server and runs `go test -tags integration
+./...`. A `verify-grpc` step also fails the build if the generated
+bindings drift from `protos/fathom.proto`.
 
 **How to use today:** Clone the monorepo, `go get` against the local path
 (or add a `replace` directive), and point the client at a running REST
@@ -4455,20 +4498,27 @@ at [Go SDK](./go-sdk/fathom-go.md).
 `test/errors.test.ts`.
 
 **What works today:** A hand-written `FathomClient` plus a typed error
-hierarchy. Per `design.md:571`, the package ships at v0.1.0 with 19
-vitest tests passing, and the typedoc reference is generated into
+hierarchy. The package ships at v0.1.0 with 34
+vitest tests passing (15 in `test/client.test.ts`, 19 in
+`test/errors.test.ts`), and the typedoc reference is generated into
 `docs/reference/typescript-sdk/` by the `docs` npm script in
 `package.json:14`.
 
+**What works (additional):** The OpenAPI-generated client has been
+produced and committed. `openapi.json` lives at the repo root, and
+`packages/fathom-ts/src/generated/` contains `core/`, `index.ts`,
+`schemas.gen.ts`, `services.gen.ts`, and `types.gen.ts` — the output of
+the `generate` script at `package.json:12` (which shells out to
+`scripts/generate.sh` calling `npx @hey-api/openapi-ts` against
+`../../openapi.json`).
+
 **What is missing:**
 
-- **No OpenAPI-generated client.** `package.json:12` declares a
-  `generate` script that shells out to `scripts/generate.sh`, which
-  invokes `npx @hey-api/openapi-ts` against `../../openapi.json` and
-  writes into `src/generated/`. Neither `openapi.json` nor `src/generated/`
-  is in the tree — the generator has never been run and committed.
 - **No published npm release.** `repository.url` in `package.json` points
-  at the monorepo; no `dist/` is published.
+  at the monorepo; no `dist/` is published. Tracked as issue
+  [#40](https://github.com/KrakenNet/fathom/issues/40).
+- **No CI for the TS suite.** Vitest suites pass locally only. Tracked as
+  issue [#39](https://github.com/KrakenNet/fathom/issues/39).
 
 **How to use today:** Clone the monorepo, `pnpm install` in
 `packages/fathom-ts/`, and import from the local workspace path. The
@@ -4481,7 +4531,7 @@ generated API reference lives at
 
 **Location:** `packages/fathom-editor/` — package identity `@fathom/editor`
 at `0.1.0` with `"private": true` set in `package.json:4`. Dependencies:
-React `^19.1.0`, Vite `^7.1.0`; dev toolchain TypeScript `^5.9.0`.
+React `^19.2.7`, Vite `^8.0.16`; dev toolchain TypeScript `^6.0.3`.
 
 **What exists:** Component stubs under `src/components/`: `RuleTree.tsx`,
 `ConditionBuilder.tsx`, `TemplateBrowser.tsx`, `ClipsPreview.tsx`,
@@ -4492,11 +4542,13 @@ at `src/main.tsx`, and an `src/api/` directory for backend glue.
 
 - **No tests.** `package.json` declares no `test` script and no test
   runner is installed.
-- **No backend wiring.** Per `design.md:572`, "components exist but not
-  production-ready." The stubs do not round-trip against a live Fathom
+- **No backend wiring.** The original v1 design described the editor as
+  "components exist but not production-ready." The stubs do not round-trip against a live Fathom
   REST server.
 - **Not publishable.** The package is marked `private: true` and has no
-  build artifact consumers.
+  build artifact consumers. Building this stub out into a working visual
+  rule editor is tracked as issue
+  [#43](https://github.com/KrakenNet/fathom/issues/43).
 
 **How to use today:** `pnpm install && pnpm dev` inside
 `packages/fathom-editor/` runs the Vite dev server. This is a development
@@ -4504,7 +4556,7 @@ scaffold, not a supported end-user artifact.
 
 ## Framework adapters
 
-`design.md:490-495` lists four framework adapters. All four are now shipped.
+The original v1 design listed four framework adapters. All four are now shipped.
 
 | Adapter                    | Status | Location |
 |----------------------------|--------------------|-----------------|
@@ -4527,13 +4579,16 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   have broken `protoc` output). Resolved at HEAD:
   `protos/fathom.proto:12` now declares
   `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
-  `packages/fathom-go/go.mod:1`. Generated bindings still need to be
-  produced via `protoc` and checked into `packages/fathom-go/proto/`
-  before a gRPC client can be built.
-- **No CI for the Go, TypeScript, or editor packages.** The Python test
-  suite (1361 tests per `design.md:544`) is the only suite wired into CI;
-  every "works today" claim above reduces to "works when run locally
-  against a developer's machine."
+  `packages/fathom-go/go.mod:1`. Generated bindings now live in
+  `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
+- **No CI for the TypeScript or editor packages.** The Python test suite
+  (1551 tests, `.github/workflows/ci.yml`) and the Go suite
+  (`.github/workflows/go-ci.yml`, unit + `-tags integration`) both run on
+  every pull request. The TypeScript vitest suite (tracked as issue
+  [#39](https://github.com/KrakenNet/fathom/issues/39)) and the editor
+  (issue [#43](https://github.com/KrakenNet/fathom/issues/43)) remain
+  uncovered, so every "works today" claim for those two packages reduces
+  to "works when run locally against a developer's machine."
 
 ## See also
 

@@ -1,0 +1,43 @@
+# SSVC decision-point templates, shared across the three trees:
+#
+#   supplier tree: exploitation, utility, technical_impact, public_safety_impact
+#   deployer tree: exploitation, exposure, automatable, human_impact
+#   cisa tree:     exploitation, automatable, technical_impact, mission_wellbeing
+#
+# Allowed symbols mirror the pinned decision-table CSVs in references/csv/
+# ("public poc" -> poc, "super effective" -> super_effective,
+#  "very high" -> very_high; see scripts/generate_ssvc_rules.py).
+templates:
+  - name: exploitation
+    slots:
+      - { name: value, type: symbol, allowed_symbols: [none, poc, active], required: true }
+  - name: utility
+    slots:
+      - { name: value, type: symbol,
+          allowed_symbols: [laborious, efficient, super_effective],
+          required: true }
+  - name: technical_impact
+    slots:
+      - { name: value, type: symbol, allowed_symbols: [partial, total], required: true }
+  - name: public_safety_impact
+    slots:
+      - { name: value, type: symbol, allowed_symbols: [minimal, significant], required: true }
+  - name: exposure
+    slots:
+      - { name: value, type: symbol, allowed_symbols: [small, controlled, open], required: true }
+  - name: automatable
+    slots:
+      - { name: value, type: symbol, allowed_symbols: ["yes", "no"], required: true }
+  - name: human_impact
+    slots:
+      - { name: value, type: symbol,
+          allowed_symbols: [low, medium, high, very_high],
+          required: true }
+  - name: mission_wellbeing
+    slots:
+      - { name: value, type: symbol, allowed_symbols: [low, medium, high], required: true }
+  - name: ssvc_meta
+    slots:
+      - { name: version, type: string, required: true }
+      - { name: source, type: string, required: true }
+      - { name: source_sha256, type: string, required: true }

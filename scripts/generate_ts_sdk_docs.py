@@ -104,8 +104,12 @@ def main(out_dir: Path) -> int:
     tool_name = Path(tool).stem.lower()
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # --frozen-lockfile: install exactly what pnpm-lock.yaml pins.
+    # Generated output is format-sensitive to the typedoc /
+    # typedoc-plugin-markdown versions; a floating resolution drifts the
+    # docs and fails CI's drift gate.
     install_args = (
-        ["install", "--ignore-scripts"]
+        ["install", "--ignore-scripts", "--frozen-lockfile"]
         if tool_name == "pnpm"
         else ["install", "--no-audit", "--ignore-scripts"]
     )
@@ -129,8 +133,29 @@ def main(out_dir: Path) -> int:
         # ``--readme none`` skips the project README page (typedoc would
         # otherwise pull in the repo-root README.md and copy every
         # linked Markdown file into an ``_media/`` sibling directory).
+        # Invoke the locally installed binary directly. ``pnpm exec`` /
+        # ``npm exec`` fall back to fetching the *latest* published
+        # typedoc when the binary is missing locally, which silently
+        # generates output in a newer format and trips the drift gate.
+        typedoc_bin = (
+            TS_PKG
+            / "node_modules"
+            / ".bin"
+            / ("typedoc.cmd" if sys.platform == "win32" else "typedoc")
+        )
+        if not typedoc_bin.exists():
+            print(f"fail: {typedoc_bin} missing after install", file=sys.stderr)
+            return 1
+        typedoc_version = subprocess.run(
+            [str(typedoc_bin.resolve()), "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        print(f"typedoc: {typedoc_version.stdout.strip()}", file=sys.stderr)
         typedoc_cmd = [
-            "typedoc",
+            str(typedoc_bin.resolve()),
             "--plugin",
             "typedoc-plugin-markdown",
             "--readme",
@@ -140,12 +165,17 @@ def main(out_dir: Path) -> int:
             # current HEAD SHA, which would fail the drift gate).
             "--gitRevision",
             "master",
+            # Inherited Error internals (stackTraceLimit, ...) come from
+            # @types/node, and typedoc emits its *versioned* pnpm store
+            # path as their source — every @types/node bump would drift
+            # the docs. They're noise in SDK reference anyway.
+            "--excludeExternals",
             "--out",
             str(staging_path.resolve()),
             "src/index.ts",
         ]
         result = subprocess.run(
-            [tool, "exec", "--", *typedoc_cmd],
+            typedoc_cmd,
             cwd=TS_PKG,
             capture_output=True,
             text=True,

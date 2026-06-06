@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import logging
 import os
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -28,7 +33,7 @@ from fathom.compiler import Compiler
 from fathom.engine import Engine
 from fathom.errors import CompilationError
 from fathom.errors import ValidationError as FathomValidationError
-from fathom.integrations.auth import verify_token
+from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.models import (
     AssertFactRequest,
@@ -45,6 +50,8 @@ from fathom.models import (
     RulesetDefinition,
     TemplateDefinition,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _make_list_response(items: Sequence[Any]) -> dict[str, Any]:
@@ -67,9 +74,40 @@ def _make_error_response(
 def _require_auth(
     authorization: str | None = Header(default=None),
 ) -> None:
-    """FastAPI dependency enforcing bearer-token auth."""
+    """FastAPI dependency enforcing data-plane bearer-token auth."""
     if not verify_token(authorization):
         raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _require_admin_auth(
+    authorization: str | None = Header(default=None),
+) -> None:
+    """FastAPI dependency enforcing the scoped reload admin token.
+
+    When ``FATHOM_ADMIN_TOKEN`` is set, only that token is accepted (the
+    data-plane ``FATHOM_API_TOKEN`` is rejected). When it is unset, this
+    falls back to the data-plane token — backward compatible.
+    """
+    if not verify_admin_token(authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+# Maximum accepted request body for POST /v1/rules/reload. A ruleset that
+# large is almost certainly hostile or a misconfiguration; the YAML parser
+# should never see an unbounded body. Overridable via FATHOM_MAX_RELOAD_BYTES.
+_DEFAULT_MAX_RELOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _max_reload_bytes() -> int:
+    """Return the reload body cap in bytes (env-overridable, read per call)."""
+    raw = os.environ.get("FATHOM_MAX_RELOAD_BYTES", "")
+    if not raw:
+        return _DEFAULT_MAX_RELOAD_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_RELOAD_BYTES
+    return value if value > 0 else _DEFAULT_MAX_RELOAD_BYTES
 
 
 def _resolve_user_ruleset(user_path: str) -> str:
@@ -382,3 +420,308 @@ async def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
     count = engine.retract(request.template, request.filter)
     session_store._sessions[request.session_id] = (engine, time.time())
     return RetractFactsResponse(retracted_count=count)
+
+
+class RulesetReloadRequest(BaseModel):
+    """Request body for ``POST /v1/rules/reload``.
+
+    Exactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.
+    ``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.
+    """
+
+    ruleset_path: str | None = None
+    ruleset_yaml: str | None = None
+    signature: str | None = None
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _write_audit(sink: Any | None, record: dict[str, Any]) -> None:
+    """Write ``record`` to ``sink`` if configured; swallow sink errors.
+
+    Sink is duck-typed: any object with a ``write(record)`` method.
+    The hot-reload audit shape (``event_type`` + 4 fields) does not match
+    the eval-shaped ``AuditRecord`` model, so the record is passed as a
+    plain dict.
+    """
+    if sink is None:
+        return
+    try:
+        sink.write(record)
+    except Exception:  # pragma: no cover - audit failure must not crash reload
+        logger.exception("audit sink write failed")
+
+
+@app.post(
+    "/v1/rules/reload",
+    dependencies=[Depends(_require_admin_auth)],
+    # The body is read and validated manually (to enforce the size cap on
+    # real bytes before parsing), so FastAPI no longer infers the request
+    # body schema from a parameter. Re-declare it here so the OpenAPI export
+    # keeps documenting the RulesetReloadRequest shape.
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": RulesetReloadRequest.model_json_schema()}},
+        }
+    },
+)
+async def reload_rules(
+    request: Request,
+) -> JSONResponse:
+    """Atomically swap the loaded ruleset with a new (optionally signed) one.
+
+    Requires the scoped admin token (``FATHOM_ADMIN_TOKEN`` when set, else the
+    data-plane token). Bodies larger than ``FATHOM_MAX_RELOAD_BYTES`` (default
+    5 MB) are rejected with 413 before any YAML parsing — the cap is enforced
+    on the actual bytes received, not the Content-Length header (chunked
+    bodies lie). Rate limiting is host-level (reverse proxy) by design.
+
+    See design C5 / AC-5.1 / AC-5.4–5.6 / AC-5.8.
+    """
+    # --- body size cap (enforced on real bytes, not Content-Length) ---
+    # Stream the body in chunks and abort as soon as the running total
+    # exceeds the limit, so a hostile chunked request (which can lie in
+    # its Content-Length header) is rejected without being fully buffered.
+    limit = _max_reload_bytes()
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            return _make_error_response(
+                413,
+                "payload_too_large",
+                f"request body exceeds the {limit}-byte reload limit",
+            )
+        chunks.append(chunk)
+    raw_body = b"".join(chunks)
+
+    try:
+        payload = RulesetReloadRequest.model_validate_json(raw_body)
+    except PydanticValidationError as exc:
+        errs = exc.errors()
+        detail = errs[0].get("msg", "invalid request body") if errs else "invalid request body"
+        return _make_error_response(422, "validation_error", detail)
+
+    state = request.app.state
+    engine = getattr(state, "engine", None)
+    attestation = getattr(state, "attestation", None)
+    audit_sink = getattr(state, "audit_sink", None)
+    pubkey = getattr(state, "ruleset_pubkey", None)
+    require_signature = getattr(state, "require_signature", True)
+
+    if engine is None or attestation is None:
+        return _make_error_response(
+            503,
+            "not_ready",
+            "engine or attestation not configured",
+        )
+
+    # --- exactly-one-of ruleset_path / ruleset_yaml ---
+    has_path = payload.ruleset_path is not None
+    has_yaml = payload.ruleset_yaml is not None
+    if has_path == has_yaml:
+        return _make_error_response(
+            400,
+            "invalid_request",
+            "exactly one of ruleset_path or ruleset_yaml must be provided",
+        )
+
+    # --- materialise raw YAML bytes ---
+    if has_yaml:
+        assert payload.ruleset_yaml is not None
+        raw_yaml_bytes = payload.ruleset_yaml.encode("utf-8")
+    else:
+        assert payload.ruleset_path is not None
+        resolved = _resolve_user_ruleset(payload.ruleset_path)
+        try:
+            with open(resolved, "rb") as f:
+                raw_yaml_bytes = f.read()
+        except OSError as exc:
+            return _make_error_response(
+                400,
+                "invalid_request",
+                f"unable to read ruleset_path: {exc}",
+            )
+
+    # --- decode signature (base64 string → bytes) ---
+    sig_bytes: bytes | None = None
+    if payload.signature is not None:
+        try:
+            sig_bytes = base64.b64decode(payload.signature, validate=True)
+        except (binascii.Error, ValueError):
+            return _make_error_response(
+                400,
+                "invalid_request",
+                "signature must be valid base64",
+            )
+
+    # --- signature verification (fail-closed when required) ---
+    hash_before = engine.ruleset_hash
+    if require_signature:
+        if pubkey is None:
+            # Should have failed at build_app; defensive 500.
+            return _make_error_response(
+                500,
+                "server_misconfigured",
+                "require_signature=true but ruleset pubkey is not loaded",
+            )
+        if sig_bytes is None:
+            # Missing signature is a signature-rejection, not a request shape
+            # error — emit audit "ruleset_reload_rejected" per AC-5.5.
+            _write_audit(
+                audit_sink,
+                {
+                    "event_type": "ruleset_reload_rejected",
+                    "reason": "missing_signature",
+                    "ruleset_hash_before": hash_before,
+                    "timestamp": _now_iso(),
+                    "actor": "bearer-token",
+                },
+            )
+            return _make_error_response(
+                400,
+                "unsigned_ruleset",
+                "signature is required but was not provided",
+            )
+        try:
+            from fathom.integrations.ruleset_sig import (
+                RulesetSignatureError,
+                verify_ruleset_signature,
+            )
+
+            verify_ruleset_signature(raw_yaml_bytes, sig_bytes, pubkey)
+        except RulesetSignatureError as exc:
+            _write_audit(
+                audit_sink,
+                {
+                    "event_type": "ruleset_reload_rejected",
+                    "reason": str(exc),
+                    "ruleset_hash_before": hash_before,
+                    "timestamp": _now_iso(),
+                    "actor": "bearer-token",
+                },
+            )
+            return _make_error_response(
+                400,
+                "unsigned_ruleset",
+                "ruleset signature verification failed",
+            )
+
+    # --- happy path: atomic-swap reload ---
+    try:
+        hash_before, hash_after = engine.reload_rules(
+            raw_yaml_bytes,
+            sig_bytes if require_signature else None,
+            pubkey if require_signature else None,
+        )
+    except CompilationError as exc:
+        return _make_error_response(
+            400,
+            "invalid_ruleset",
+            str(exc).split("\n", 1)[0],
+        )
+
+    timestamp = _now_iso()
+    attestation_token = attestation.sign_event(
+        {
+            "ruleset_hash_before": hash_before,
+            "ruleset_hash_after": hash_after,
+            "actor": "bearer-token",
+            "timestamp": timestamp,
+        }
+    )
+
+    _write_audit(
+        audit_sink,
+        {
+            "event_type": "ruleset_reloaded",
+            "ruleset_hash_before": hash_before,
+            "ruleset_hash_after": hash_after,
+            "actor": "bearer-token",
+            "timestamp": timestamp,
+        },
+    )
+
+    # Track last reload time for GET /v1/status (T-2.8).
+    state.last_reload_iso = timestamp
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "hash_before": hash_before,
+            "hash_after": hash_after,
+            "attestation_token": attestation_token,
+        },
+    )
+
+
+@app.get("/v1/status")
+async def status(request: Request) -> dict[str, str | None]:
+    """Report engine liveness info: loaded ruleset hash, version, last-load time.
+
+    Unauthenticated (matches ``/health``): status is a liveness/info endpoint
+    used by orchestrators and operators to confirm which ruleset is live.
+    """
+    state = request.app.state
+    engine = getattr(state, "engine", None)
+    ruleset_hash = engine.ruleset_hash if engine is not None else None
+    loaded_at = getattr(state, "last_reload_iso", None) or getattr(state, "boot_time_iso", None)
+    return {
+        "ruleset_hash": ruleset_hash,
+        "version": _fathom_version,
+        "loaded_at": loaded_at,
+    }
+
+
+_RULESET_PUBKEY_ERROR = (
+    "ruleset pubkey unreadable or missing; set FATHOM_RULESET_PUBKEY_PATH or enable dev escape"
+)
+
+
+def build_app(*, require_signature: bool = True) -> FastAPI:
+    """Return the REST app with ruleset pubkey bootstrapped onto ``app.state``.
+
+    Fail-closed by default: when ``require_signature=True``, the pubkey at
+    ``FATHOM_RULESET_PUBKEY_PATH`` must exist and be readable. The dev escape
+    (skip pubkey load, allow unsigned reload) requires BOTH
+    ``require_signature=False`` AND ``FATHOM_ALLOW_UNSIGNED_RULESETS=1``.
+
+    Also seeds ``app.state`` with injectable defaults for engine,
+    attestation, and audit sink — callers (server entrypoint, tests)
+    overwrite these post-build.
+    """
+    pubkey_path = os.environ.get("FATHOM_RULESET_PUBKEY_PATH")
+    allow_unsigned = os.environ.get("FATHOM_ALLOW_UNSIGNED_RULESETS") == "1"
+
+    # Default state slots used by POST /v1/rules/reload. Callers inject
+    # real instances after build_app() returns.
+    app.state.engine = None
+    app.state.attestation = None
+    app.state.audit_sink = None
+    app.state.require_signature = require_signature
+    app.state.last_reload_iso = None
+    app.state.boot_time_iso = _now_iso()
+
+    if not require_signature and allow_unsigned:
+        logger.warning(
+            "ruleset signature verification disabled "
+            "(require_signature=false + FATHOM_ALLOW_UNSIGNED_RULESETS=1); "
+            "hot-reload will accept unsigned rulesets"
+        )
+        app.state.ruleset_pubkey = None
+        return app
+
+    if not pubkey_path:
+        raise RuntimeError(_RULESET_PUBKEY_ERROR)
+
+    try:
+        with open(pubkey_path, "rb") as f:
+            app.state.ruleset_pubkey = f.read()
+    except OSError as exc:
+        raise RuntimeError(_RULESET_PUBKEY_ERROR) from exc
+
+    return app

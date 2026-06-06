@@ -27,9 +27,7 @@ class _FakeContext:
 
 
 class TestGrpcAuth:
-    def test_rejects_missing_token(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_rejects_missing_token(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
         monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
         svc = FathomServicer()
@@ -39,9 +37,7 @@ class TestGrpcAuth:
             svc.Evaluate(req, ctx)
         assert ctx.aborted is not None
 
-    def test_rejects_wrong_token(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_rejects_wrong_token(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
         monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
         svc = FathomServicer()
@@ -51,9 +47,7 @@ class TestGrpcAuth:
         with pytest.raises(RuntimeError, match="aborted"):
             svc.Evaluate(req, ctx)
 
-    def test_accepts_valid_token(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_accepts_valid_token(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
         monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
         svc = FathomServicer()
@@ -61,7 +55,9 @@ class TestGrpcAuth:
         ctx.metadata = (("authorization", "Bearer testtok"),)
         req = SimpleNamespace(session_id="", ruleset="", facts=[])
         result = svc.Evaluate(req, ctx)
-        assert "decision" in result
+        # EvaluateResponse proto: ``decision`` is the empty string when
+        # no rule fired (no rules loaded in this servicer fixture).
+        assert hasattr(result, "decision")
 
     def test_path_jail_parent_traversal(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -86,9 +82,7 @@ class TestGrpcAuth:
         with pytest.raises(RuntimeError, match="aborted"):
             svc.AssertFact(req, ctx)
 
-    def test_auth_required_on_query(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_auth_required_on_query(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
         monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
         svc = FathomServicer()

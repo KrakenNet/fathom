@@ -67,9 +67,10 @@ def _build_tool_request_facts(
     """
     resolved_name = tool_name if tool_name else "unknown"
 
-    # Parse arguments -- input may be JSON or plain text
+    # Parse arguments -- input may be JSON or plain text (or None)
+    parsed: object
     try:
-        parsed = json.loads(arguments)
+        parsed = json.loads(arguments) if arguments else arguments
     except (json.JSONDecodeError, TypeError):
         parsed = arguments
 

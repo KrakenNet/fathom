@@ -4,7 +4,7 @@ summary: One-line purpose + worked example for every fathom CLI command.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-06-05
 sources:
   - src/fathom/cli.py
 ---
@@ -122,6 +122,29 @@ Two options tune the run:
 fathom bench examples/04-temporal-anomaly -n 5000 -w 500
 ```
 
+## verify-chain
+
+Offline-verify a hash-chained attestation log: every line's JWS
+signature, the hash link to its predecessor, and the genesis record's
+key fingerprint.
+
+```shell
+fathom verify-chain audit/chain.jsonl --pubkey audit/chain.jsonl.pub.pem
+```
+
+The `--pubkey` option is required and takes the Ed25519 public key PEM
+that the log exports beside itself as `<log>.pub.pem`. Two optional
+checks detect truncation, which a self-contained log cannot reveal:
+
+- `--expected-head` — a line hash mirrored out-of-band; verification
+  fails if it no longer appears in the log.
+- `--anchor-token` — a checkpoint JWS token; the head it pins must
+  appear in the log.
+
+Pass `--json` to emit the verification result as JSON. The command
+exits 0 when the chain is valid, 1 when verification fails, and 2 when
+the log or key file cannot be read.
+
 ## repl
 
 Start an interactive session for asserting facts and evaluating rules
@@ -167,4 +190,5 @@ command, see the generated reference pages:
 - [info](../reference/cli/info.md)
 - [test](../reference/cli/test.md)
 - [bench](../reference/cli/bench.md)
+- [verify-chain](../reference/cli/verify-chain.md)
 - [repl](../reference/cli/repl.md)

@@ -4,7 +4,7 @@ summary: How authored YAML becomes CLIPS source — parse, validate, compile —
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-06-05
 sources:
   - src/fathom/compiler.py
   - src/fathom/models.py
@@ -131,13 +131,15 @@ appears only when `salience != 0`. LHS and RHS rendering are covered below.
 ```
 
 Emitted by `compile_function`. The `type` field is a literal of
-`"classification" | "temporal" | "raw"`. Classification functions come
+`"classification" | "raw"`. Classification functions come
 from a `HierarchyDefinition` as a family of deffunctions (`<hier>-rank`,
 `<hier>-below`, `<hier>-meets-or-exceeds`, `<hier>-within-scope`) plus
 backward-compatible unscoped shims for the first hierarchy loaded.
-Temporal functions are registered as Python externals by a later stage
-and return an empty string here. Raw functions return `defn.body`
-verbatim — the escape hatch for hand-written CLIPS.
+Raw functions return `defn.body` verbatim — the escape hatch for
+hand-written CLIPS. Temporal operators (`changed_within`,
+`count_exceeds`, etc.) are not declared via `FunctionDefinition`; they
+are Engine-registered Python externals under the reserved `fathom-`
+prefix.
 
 ## The LHS: fact patterns and condition entries
 

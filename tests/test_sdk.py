@@ -54,9 +54,17 @@ class TestPackageMeta:
     """Verify package metadata exports."""
 
     def test_version_format(self) -> None:
+        import re
+
         import fathom
 
-        assert fathom.__version__ == "0.3.0"
+        # Format-only check; the version sync gate (scripts/check_version_sync.py)
+        # is the source of truth for the literal value across pyproject.toml and
+        # ``__init__.py``. Asserting a literal here just creates a third
+        # update site that breaks every minor bump.
+        assert re.fullmatch(r"\d+\.\d+\.\d+(?:[.-].+)?", fathom.__version__), (
+            f"version {fathom.__version__!r} is not a valid semver"
+        )
 
     def test_all_contains_expected_names(self) -> None:
         import fathom
@@ -152,7 +160,6 @@ class TestPublicMethods:
         from fathom import Engine
 
         assert isinstance(Engine.__dict__["from_rules"], classmethod)
-
 
 
 # ---------------------------------------------------------------------------
@@ -414,8 +421,7 @@ class TestRegisterFunction:
         # purpose is to prove the registered Python callable is invokable from
         # a fired rule, which is compiler-independent.
         e._env.build(
-            "(deftemplate MAIN::number "
-            "(slot n (type INTEGER)) (slot result (type INTEGER)))"
+            "(deftemplate MAIN::number (slot n (type INTEGER)) (slot result (type INTEGER)))"
         )
         e._env.build(
             "(defrule MAIN::apply-double "
@@ -426,9 +432,7 @@ class TestRegisterFunction:
         e._env.assert_string("(number (n 5) (result 0))")
         e.evaluate()
 
-        results = sorted(
-            int(f["result"]) for f in e._env.find_template("MAIN::number").facts()
-        )
+        results = sorted(int(f["result"]) for f in e._env.find_template("MAIN::number").facts())
         # Input fact has result=0; rule fires once and asserts result=10.
         assert 10 in results
 
@@ -521,8 +525,15 @@ class TestPublicSurface:
         assert fact.template == "routing_decision"
         assert fact.slots == {"source_id": "alpha"}
 
-    def test_version_bumped_to_0_3_0(self) -> None:
-        """`fathom.__version__` is bumped to 0.3.0 for this release."""
+    def test_version_at_least_0_3_0(self) -> None:
+        """``fathom.__version__`` is at or past the 0.3.0 milestone.
+
+        The original ``test_version_bumped_to_0_3_0`` test pinned a literal,
+        which broke on every patch bump. Replaced with a forward-compatible
+        check; the version-sync gate enforces coherence between pyproject.toml
+        and ``__init__.py``.
+        """
         import fathom
 
-        assert fathom.__version__ == "0.3.0"
+        major, minor, *_ = fathom.__version__.split(".")
+        assert (int(major), int(minor)) >= (0, 3)

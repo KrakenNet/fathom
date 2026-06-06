@@ -903,9 +903,7 @@ class TestAssertAction:
             "(deftemplate MAIN::intent (multislot data_types (type SYMBOL)))"
         )
         engine.load_clips_function(
-            "(deftemplate MAIN::source "
-            "(slot id (type SYMBOL)) "
-            "(multislot provides (type SYMBOL)))"
+            "(deftemplate MAIN::source (slot id (type SYMBOL)) (multislot provides (type SYMBOL)))"
         )
 
         # Register ``overlaps`` as a Python external function. clipspy
@@ -1019,8 +1017,7 @@ class TestAssertAction:
         # Rule fired iff (double 5) == 10, which it does.
         facts = engine.query("routing_decision")
         assert len(facts) == 1, (
-            f"expected rule to fire exactly once, got {len(facts)} "
-            f"routing_decision facts: {facts}"
+            f"expected rule to fire exactly once, got {len(facts)} routing_decision facts: {facts}"
         )
         assert facts[0]["source_id"] == "matched"
         assert facts[0]["reason"] == "match"
@@ -1093,7 +1090,7 @@ class TestConditionEntryTestField:
     MODULES = (
         "modules:\n"
         "  - name: test_ce\n"
-        "    description: \"test CE integration\"\n"
+        '    description: "test CE integration"\n'
         "focus_order:\n"
         "  - test_ce\n"
     )
@@ -1108,11 +1105,11 @@ class TestConditionEntryTestField:
         "      - template: trigger\n"
         "        conditions:\n"
         "          - slot: n\n"
-        "            bind: \"?n\"\n"
-        "          - test: \"(= (double ?n) 10)\"\n"
+        '            bind: "?n"\n'
+        '          - test: "(= (double ?n) 10)"\n'
         "    then:\n"
         "      action: allow\n"
-        "      reason: \"test CE matched\"\n"
+        '      reason: "test CE matched"\n'
         "      assert:\n"
         "        - template: routing_decision\n"
         "          slots:\n"

@@ -22,6 +22,7 @@ PACK_ID = {
     "nist_800_53": "nist-800-53",
     "hipaa": "hipaa",
     "cmmc": "cmmc",
+    "ssvc": "ssvc",
 }
 
 

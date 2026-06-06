@@ -1,10 +1,12 @@
-[**@fathom-rules/sdk**](../index.md) • **Docs**
+[**@fathom-rules/sdk**](../index.md)
 
 ***
 
 [@fathom-rules/sdk](../index.md) / FathomClient
 
 # Class: FathomClient
+
+Defined in: [client.ts:145](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L145)
 
 Promise-based client for the Fathom policy engine.
 
@@ -24,21 +26,21 @@ console.log(result.decision); // "allow" | "deny" | "escalate" | null
 
 ## Constructors
 
-### new FathomClient()
+### Constructor
 
-> **new FathomClient**(`options`): [`FathomClient`](FathomClient.md)
+> **new FathomClient**(`options`): `FathomClient`
+
+Defined in: [client.ts:149](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L149)
 
 #### Parameters
 
-• **options**: [`FathomClientOptions`](../interfaces/FathomClientOptions.md)
+##### options
+
+[`FathomClientOptions`](../interfaces/FathomClientOptions.md)
 
 #### Returns
 
-[`FathomClient`](FathomClient.md)
-
-#### Defined in
-
-[src/client.ts:149](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L149)
+`FathomClient`
 
 ## Methods
 
@@ -46,19 +48,19 @@ console.log(result.decision); // "allow" | "deny" | "escalate" | null
 
 > **assertFact**(`req`): `Promise`\<[`AssertFactResponse`](../interfaces/AssertFactResponse.md)\>
 
+Defined in: [client.ts:171](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L171)
+
 Assert a single fact into the session's working memory.
 
 #### Parameters
 
-• **req**: [`AssertFactRequest`](../interfaces/AssertFactRequest.md)
+##### req
+
+[`AssertFactRequest`](../interfaces/AssertFactRequest.md)
 
 #### Returns
 
 `Promise`\<[`AssertFactResponse`](../interfaces/AssertFactResponse.md)\>
-
-#### Defined in
-
-[src/client.ts:171](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L171)
 
 ***
 
@@ -66,19 +68,19 @@ Assert a single fact into the session's working memory.
 
 > **evaluate**(`req`): `Promise`\<[`EvaluateResponse`](../interfaces/EvaluateResponse.md)\>
 
+Defined in: [client.ts:166](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L166)
+
 Send facts to the engine and return the policy decision.
 
 #### Parameters
 
-• **req**: [`EvaluateRequest`](../interfaces/EvaluateRequest.md)
+##### req
+
+[`EvaluateRequest`](../interfaces/EvaluateRequest.md)
 
 #### Returns
 
 `Promise`\<[`EvaluateResponse`](../interfaces/EvaluateResponse.md)\>
-
-#### Defined in
-
-[src/client.ts:166](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L166)
 
 ***
 
@@ -86,19 +88,19 @@ Send facts to the engine and return the policy decision.
 
 > **query**(`req`): `Promise`\<[`QueryResponse`](../interfaces/QueryResponse.md)\>
 
+Defined in: [client.ts:176](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L176)
+
 Retrieve facts from the session's working memory.
 
 #### Parameters
 
-• **req**: [`QueryRequest`](../interfaces/QueryRequest.md)
+##### req
+
+[`QueryRequest`](../interfaces/QueryRequest.md)
 
 #### Returns
 
 `Promise`\<[`QueryResponse`](../interfaces/QueryResponse.md)\>
-
-#### Defined in
-
-[src/client.ts:176](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L176)
 
 ***
 
@@ -106,17 +108,17 @@ Retrieve facts from the session's working memory.
 
 > **retract**(`req`): `Promise`\<[`RetractResponse`](../interfaces/RetractResponse.md)\>
 
+Defined in: [client.ts:184](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L184)
+
 Retract facts matching the request's template + optional filter from
 the session's working memory. Returns the number of facts removed.
 
 #### Parameters
 
-• **req**: [`RetractRequest`](../interfaces/RetractRequest.md)
+##### req
+
+[`RetractRequest`](../interfaces/RetractRequest.md)
 
 #### Returns
 
 `Promise`\<[`RetractResponse`](../interfaces/RetractResponse.md)\>
-
-#### Defined in
-
-[src/client.ts:184](https://github.com/se-jo-ma/fathom/blob/master/packages/fathom-ts/src/client.ts#L184)

@@ -5,6 +5,25 @@ All notable changes to `fathom-rules` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- gRPC `SubscribeChanges` RPC now emits real fact-change events. `Engine`
+  exposes `subscribe(callback) -> unsubscribe`; `FactManager` fires listeners
+  on every successful assert/retract, and the gRPC servicer pushes
+  `FactChange` protos until the client disconnects. The previous
+  no-op `iter([])` stub is gone.
+
+### Removed (breaking)
+- `FunctionDefinition.type = "temporal"` — vestigial. Temporal operators
+  (`changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`,
+  `distinct_count`, `sequence_detected`) have always been Engine-registered
+  Python externals; the YAML `type: temporal` declaration was a no-op
+  emitting `""`. Any rule pack still declaring `type: temporal` will fail
+  Pydantic validation with a clear error. Migration: delete the redundant
+  `FunctionDefinition` entries — temporal operators continue to work in
+  rule conditions without any function declaration.
+
 ## [0.3.0] - 2026-04-14
 
 ### Added

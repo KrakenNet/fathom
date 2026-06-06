@@ -37,9 +37,7 @@ def test_rule_metadata_preserved_as_dict() -> None:
     )
 
     # Register a module we can attach the rule to.
-    engine._module_registry["gov"] = ModuleDefinition(
-        name="gov", description="test", priority=100
-    )
+    engine._module_registry["gov"] = ModuleDefinition(name="gov", description="test", priority=100)
     engine._focus_order = ["gov"]
     engine._evaluator._focus_order = ["gov"]
     engine._safe_build("(defmodule gov (import MAIN ?ALL))", context="gov")

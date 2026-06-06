@@ -11,9 +11,13 @@ Requires ``grpcio >= 1.60``.  Install via::
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
+import queue
 from concurrent import futures
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 try:
@@ -24,13 +28,29 @@ except ImportError as _exc:
         "Install it with: pip install fathom-rules[grpc]"
     ) from _exc
 
-from fathom.integrations.auth import verify_token
+from fathom.errors import CompilationError
+from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
+from fathom.proto import fathom_pb2, fathom_pb2_grpc
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from fathom.attestation import AttestationService
     from fathom.engine import Engine
+
+logger = logging.getLogger(__name__)
+
+# Inbound gRPC message cap. Matches gRPC's built-in 4 MB default; set
+# explicitly so the bound is intentional and stays below the REST reload
+# cap (FATHOM_MAX_RELOAD_BYTES, default 5 MB).
+_GRPC_MAX_RECEIVE_BYTES = 4 * 1024 * 1024
+
+# Identity-compared sentinel enqueued into a SubscribeChanges event
+# queue when the engine's ruleset is reloaded (ADR-0002 cancel-on-swap).
+# Typed as an event tuple so the queue annotation stays narrow; never
+# yielded to clients.
+_RELOAD_SENTINEL: tuple[str, str, dict[str, Any]] = ("__ruleset_reloaded__", "", {})
 
 
 class SessionStore:
@@ -59,25 +79,53 @@ class SessionStore:
         return engine
 
 
-class FathomServicer:
+class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     """gRPC servicer delegating RPCs to :class:`~fathom.engine.Engine`.
 
     Each method receives a protobuf request, extracts parameters, calls
     the appropriate Engine method, and returns a protobuf response.
 
-    This is a structural stub — it implements the delegation pattern
-    without depending on generated protobuf classes.  In production the
-    servicer would inherit from a generated base class.
+    All RPCs return real protobuf messages and serialize cleanly over
+    a real ``grpc.server``: ``Evaluate`` →
+    :class:`fathom_pb2.EvaluateResponse`, ``AssertFact`` →
+    :class:`fathom_pb2.AssertFactResponse`, ``Query`` →
+    :class:`fathom_pb2.QueryResponse`, ``Retract`` →
+    :class:`fathom_pb2.RetractResponse`, ``Reload`` →
+    :class:`fathom_pb2.ReloadResponse`, ``SubscribeChanges`` → stream
+    of :class:`fathom_pb2.FactChange`.
 
     Args:
         default_engine: Engine instance used for session-less requests.
+        attestation: Optional attestation service used by :meth:`Reload`
+            to sign ``ruleset_reloaded`` audit events. Required when
+            ``Reload`` is invoked; absent at construction is tolerated so
+            existing read-only RPCs remain callable without it.
+        audit_sink: Optional duck-typed sink with a ``write(record)``
+            method; receives ``ruleset_reloaded`` / ``ruleset_reload_rejected``
+            dicts. Failures are logged and swallowed (matches REST).
+        ruleset_pubkey: Optional PEM-encoded Ed25519 public key used to
+            verify detached ruleset signatures during :meth:`Reload`.
+        require_signature: Fail-closed flag — when True, :meth:`Reload`
+            rejects unsigned or badly-signed payloads with
+            ``INVALID_ARGUMENT`` and "unsigned_ruleset".
     """
 
-    def __init__(self, default_engine: Engine | None = None) -> None:
+    def __init__(
+        self,
+        default_engine: Engine | None = None,
+        attestation: AttestationService | None = None,
+        audit_sink: Any | None = None,
+        ruleset_pubkey: bytes | None = None,
+        require_signature: bool = True,
+    ) -> None:
         from fathom.engine import Engine
 
         self._default_engine = default_engine or Engine()
         self._session_store = SessionStore()
+        self._attestation = attestation
+        self._audit_sink = audit_sink
+        self._ruleset_pubkey = ruleset_pubkey
+        self._require_signature = require_signature
 
     def _engine_for(self, session_id: str, ruleset: str = "") -> Engine:
         """Resolve engine: session-scoped or default."""
@@ -86,10 +134,22 @@ class FathomServicer:
         return self._default_engine
 
     def _check_auth(self, context: Any) -> None:
-        """Abort the RPC if the caller did not present a valid bearer token."""
+        """Abort the RPC if the caller did not present a valid data-plane token."""
         md = dict(context.invocation_metadata())
         header = md.get("authorization")
         if not verify_token(header):
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, "unauthorized")
+
+    def _check_admin_auth(self, context: Any) -> None:
+        """Abort the RPC unless the caller presented the scoped reload token.
+
+        When ``FATHOM_ADMIN_TOKEN`` is set, only that token is accepted (the
+        data-plane ``FATHOM_API_TOKEN`` is rejected). When unset, falls back
+        to the data-plane token — backward compatible.
+        """
+        md = dict(context.invocation_metadata())
+        header = md.get("authorization")
+        if not verify_admin_token(header):
             context.abort(grpc.StatusCode.UNAUTHENTICATED, "unauthorized")
 
     def _resolve_ruleset(self, user_path: str, context: Any) -> str:
@@ -114,7 +174,7 @@ class FathomServicer:
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.EvaluateResponse:
         """Evaluate facts against loaded rules.
 
         Asserts each fact from the request into working memory, runs
@@ -133,31 +193,31 @@ class FathomServicer:
 
         result = engine.evaluate()
 
-        return {
-            "decision": result.decision or "",
-            "reason": result.reason or "",
-            "rule_trace": list(result.rule_trace),
-            "module_trace": list(result.module_trace),
-            "duration_us": result.duration_us,
-        }
+        return fathom_pb2.EvaluateResponse(
+            decision=result.decision or "",
+            reason=result.reason or "",
+            rule_trace=list(result.rule_trace),
+            module_trace=list(result.module_trace),
+            duration_us=result.duration_us,
+        )
 
     def AssertFact(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.AssertFactResponse:
         """Assert a single fact into working memory."""
         self._check_auth(context)
         engine = self._engine_for(request.session_id)
         data = json.loads(request.data_json)
         engine.assert_fact(request.template, data)
-        return {"success": True}
+        return fathom_pb2.AssertFactResponse(success=True)
 
     def Query(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.QueryResponse:
         """Query working memory for matching facts."""
         self._check_auth(context)
         engine = self._engine_for(request.session_id)
@@ -167,13 +227,13 @@ class FathomServicer:
             fact_filter = json.loads(request.filter_json)
 
         facts = engine.query(request.template, fact_filter)
-        return {"facts_json": [json.dumps(f) for f in facts]}
+        return fathom_pb2.QueryResponse(facts_json=[json.dumps(f) for f in facts])
 
     def Retract(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> dict[str, Any]:
+    ) -> fathom_pb2.RetractResponse:
         """Retract facts matching template and optional filter."""
         self._check_auth(context)
         engine = self._engine_for(request.session_id)
@@ -183,21 +243,302 @@ class FathomServicer:
             fact_filter = json.loads(request.filter_json)
 
         count = engine.retract(request.template, fact_filter)
-        return {"retracted_count": count}
+        return fathom_pb2.RetractResponse(retracted_count=count)
 
     def SubscribeChanges(  # noqa: N802 — gRPC convention
         self,
         request: Any,
         context: Any,
-    ) -> Iterator[dict[str, Any]]:
-        """Stream working-memory changes (stub).
+    ) -> Iterator[Any]:
+        """Stream working-memory changes for ``request.session_id``.
 
-        Full implementation requires an event bus wired into the Engine's
-        fact assertion and retraction paths.  This stub yields nothing
-        and returns immediately.
+        Subscribes to the session-scoped :class:`Engine` and yields one
+        :class:`fathom_pb2.FactChange` per ``assert_fact`` / ``retract``
+        on that engine. The stream lives until the client disconnects
+        (``context`` cancellation) or the servicer is shut down.
+
+        Backpressure: events are buffered in a bounded thread-safe
+        queue. If the queue fills (slow client), oldest events are
+        dropped and a warning is logged. Use :meth:`Query` to
+        re-synchronize after a drop.
+
+        Reload semantics (ADR-0002, option a — cancel on swap): when
+        the engine's ruleset is atomically swapped by
+        :meth:`Engine.reload_rules` (via the :meth:`Reload` RPC or an
+        in-process call), this stream terminates with ``ABORTED`` and
+        details ``"ruleset_reloaded"``. Clients should re-subscribe to
+        bind to the new ruleset, then :meth:`Query` to re-synchronize.
+
+        Note: only events fired on the same ``session_id`` (resolved
+        via :meth:`_engine_for`) are observed. Events asserted via the
+        REST server, a different gRPC session, or a separate process
+        will not appear here -- :class:`Engine` is in-process state.
         """
         self._check_auth(context)
-        return iter([])
+        engine = self._engine_for(request.session_id)
+
+        # 1024 events ~= a few hundred KB of buffer. Generous for
+        # interactive subscribers; truncates rather than OOMs the
+        # server when a client stalls.
+        events: queue.Queue[tuple[str, str, dict[str, Any]] | None] = queue.Queue(maxsize=1024)
+
+        def listener(template: str, action: str, data: dict[str, Any]) -> None:
+            try:
+                events.put_nowait((template, action, data))
+            except queue.Full:
+                # Drop oldest event to make room. Logged so operators
+                # can spot subscribers that have wedged.
+                with contextlib.suppress(queue.Empty):  # pragma: no cover - racy fallback
+                    events.get_nowait()
+                with contextlib.suppress(queue.Full):  # pragma: no cover - extremely racy fallback
+                    events.put_nowait((template, action, data))
+                logger.warning(
+                    "SubscribeChanges queue overflow; dropping oldest event "
+                    "(session_id=%s, template=%s)",
+                    request.session_id,
+                    template,
+                )
+
+        unsubscribe = engine.subscribe(listener)
+
+        # ADR-0002 option (a): cancel on swap. A ruleset reload
+        # invalidates the env this stream was bound to; enqueue the
+        # sentinel so the stream terminates with ABORTED and the
+        # client re-subscribes against the new ruleset.
+        def on_reload() -> None:
+            try:
+                events.put_nowait(_RELOAD_SENTINEL)
+            except queue.Full:
+                # Queued events are stale once the env is swapped; drop
+                # one so the sentinel always lands without blocking the
+                # reload thread.
+                with contextlib.suppress(queue.Empty):  # pragma: no cover - racy fallback
+                    events.get_nowait()
+                with contextlib.suppress(queue.Full):  # pragma: no cover - extremely racy fallback
+                    events.put_nowait(_RELOAD_SENTINEL)
+
+        unsubscribe_reload = engine.subscribe_reload(on_reload)
+
+        # Wake the consumer loop when the gRPC context is cancelled so
+        # this generator returns promptly instead of waiting on the
+        # next event. ``add_callback`` is part of grpc.ServicerContext;
+        # missing in some unit-test stubs, so we guard with getattr.
+        add_callback = getattr(context, "add_callback", None)
+        if callable(add_callback):
+            add_callback(lambda: events.put(None))
+
+        def abort_reloaded() -> None:
+            # ``abort`` raises to unwind the generator; missing in some
+            # unit-test stubs, so we guard with getattr and fall back
+            # to a plain return (stream ends without a status).
+            abort = getattr(context, "abort", None)
+            if callable(abort):
+                abort(
+                    grpc.StatusCode.ABORTED,
+                    "ruleset_reloaded: re-subscribe to bind to the new ruleset",
+                )
+
+        try:
+            while True:
+                # Short poll so we still notice context cancellation
+                # even if no callback is wired (test harnesses).
+                try:
+                    item = events.get(timeout=0.5)
+                except queue.Empty:
+                    is_active = getattr(context, "is_active", None)
+                    if callable(is_active) and not is_active():
+                        return
+                    continue
+                if item is _RELOAD_SENTINEL:
+                    abort_reloaded()
+                    return
+                if item is None:
+                    return
+                template, action, data = item
+                change_type = (
+                    fathom_pb2.ChangeType.ASSERT
+                    if action == "assert"
+                    else fathom_pb2.ChangeType.RETRACT
+                )
+                yield fathom_pb2.FactChange(
+                    change_type=change_type,
+                    template=template,
+                    data_json=json.dumps(data, default=str),
+                )
+        finally:
+            unsubscribe_reload()
+            unsubscribe()
+
+    def _write_audit(self, record: dict[str, Any]) -> None:
+        """Forward ``record`` to the audit sink; swallow sink errors.
+
+        Mirrors the REST implementation — audit writes are fire-and-forget
+        so a wedged sink never blocks a reload. Sink is duck-typed: any
+        object exposing ``write(record)``.
+        """
+        if self._audit_sink is None:
+            return
+        try:
+            self._audit_sink.write(record)
+        except Exception:  # pragma: no cover - audit failure must not crash reload
+            logger.exception("audit sink write failed")
+
+    def Reload(  # noqa: N802 — gRPC convention
+        self,
+        request: Any,
+        context: Any,
+    ) -> fathom_pb2.ReloadResponse:
+        """Atomically swap the loaded ruleset with a new (optionally signed) one.
+
+        gRPC parity with ``POST /v1/rules/reload`` (design C5 / D3). Error
+        mapping:
+
+        * Exactly-one-of violation → ``INVALID_ARGUMENT`` "invalid_request"
+        * Unreadable ``ruleset_path`` → ``INVALID_ARGUMENT`` "invalid_request"
+        * Missing signature (fail-closed) → ``INVALID_ARGUMENT`` "unsigned_ruleset"
+        * Bad signature → ``INVALID_ARGUMENT`` "unsigned_ruleset"
+        * Compile error → ``FAILED_PRECONDITION`` with message
+        * Not-ready (no engine/attestation) → ``FAILED_PRECONDITION`` "not_ready"
+
+        Auth is admin-scoped: when ``FATHOM_ADMIN_TOKEN`` is set, only that
+        token authorises ``Reload`` (the data-plane token is rejected);
+        when unset, falls back to the data-plane token.
+        """
+        self._check_admin_auth(context)
+
+        engine = self._default_engine
+        attestation = self._attestation
+        if engine is None or attestation is None:
+            context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                "not_ready: engine or attestation not configured",
+            )
+        assert engine is not None  # noqa: S101 - narrowed by abort above
+        assert attestation is not None  # noqa: S101 - narrowed by abort above
+
+        # --- exactly-one-of ruleset_path / ruleset_yaml ---
+        # Proto oneof auto-enforces one-or-none; WhichOneof returns None
+        # when neither field was set by the caller.
+        which = request.WhichOneof("source") if hasattr(request, "WhichOneof") else None
+        if which is None:
+            # Fall back to structural inspection for non-proto test doubles.
+            has_path = bool(getattr(request, "ruleset_path", ""))
+            has_yaml = bool(getattr(request, "ruleset_yaml", ""))
+            if has_path == has_yaml:
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    "invalid_request: exactly one of ruleset_path or "
+                    "ruleset_yaml must be provided",
+                )
+            which = "ruleset_path" if has_path else "ruleset_yaml"
+
+        # --- materialise raw YAML bytes ---
+        if which == "ruleset_yaml":
+            raw_yaml_bytes = request.ruleset_yaml.encode("utf-8")
+        else:
+            resolved = self._resolve_ruleset(request.ruleset_path, context)
+            try:
+                with open(resolved, "rb") as f:
+                    raw_yaml_bytes = f.read()
+            except OSError as exc:
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    f"invalid_request: unable to read ruleset_path: {exc}",
+                )
+
+        sig_bytes: bytes | None = request.signature or None
+        hash_before = engine.ruleset_hash
+        actor = "grpc-anon"
+        timestamp = datetime.now(UTC).isoformat()
+
+        # --- signature verification (fail-closed when required) ---
+        if self._require_signature:
+            if self._ruleset_pubkey is None:
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "server_misconfigured: require_signature=true but "
+                    "ruleset pubkey is not loaded",
+                )
+            assert self._ruleset_pubkey is not None  # noqa: S101 - narrowed
+            if sig_bytes is None:
+                self._write_audit(
+                    {
+                        "event_type": "ruleset_reload_rejected",
+                        "reason": "missing_signature",
+                        "ruleset_hash_before": hash_before,
+                        "timestamp": timestamp,
+                        "actor": actor,
+                    },
+                )
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    "unsigned_ruleset: signature is required but was not provided",
+                )
+            assert sig_bytes is not None  # noqa: S101 - narrowed by abort above
+            try:
+                from fathom.integrations.ruleset_sig import (
+                    RulesetSignatureError,
+                    verify_ruleset_signature,
+                )
+
+                verify_ruleset_signature(
+                    raw_yaml_bytes,
+                    sig_bytes,
+                    self._ruleset_pubkey,
+                )
+            except RulesetSignatureError as exc:
+                self._write_audit(
+                    {
+                        "event_type": "ruleset_reload_rejected",
+                        "reason": str(exc),
+                        "ruleset_hash_before": hash_before,
+                        "timestamp": timestamp,
+                        "actor": actor,
+                    },
+                )
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    "unsigned_ruleset: ruleset signature verification failed",
+                )
+
+        # --- happy path: atomic-swap reload ---
+        try:
+            hash_before, hash_after = engine.reload_rules(
+                raw_yaml_bytes,
+                sig_bytes if self._require_signature else None,
+                self._ruleset_pubkey if self._require_signature else None,
+            )
+        except CompilationError as exc:
+            context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                f"invalid_ruleset: {str(exc).split(chr(10), 1)[0]}",
+            )
+
+        timestamp = datetime.now(UTC).isoformat()
+        attestation_token = attestation.sign_event(
+            {
+                "ruleset_hash_before": hash_before,
+                "ruleset_hash_after": hash_after,
+                "actor": actor,
+                "timestamp": timestamp,
+            }
+        )
+
+        self._write_audit(
+            {
+                "event_type": "ruleset_reloaded",
+                "ruleset_hash_before": hash_before,
+                "ruleset_hash_after": hash_after,
+                "actor": actor,
+                "timestamp": timestamp,
+            },
+        )
+
+        return fathom_pb2.ReloadResponse(
+            ruleset_hash_before=hash_before,
+            ruleset_hash_after=hash_after,
+            attestation_token=attestation_token,
+        )
 
 
 def serve(
@@ -222,13 +563,17 @@ def serve(
     Returns:
         The running :class:`grpc.Server` instance.
     """
+    # Bound the inbound message size so a hostile ``Reload`` (or any other
+    # RPC) cannot stream an unbounded body into the YAML parser. gRPC's
+    # built-in default is already 4 MB; we set it explicitly so the bound
+    # is intentional and visible, and so it stays below the REST reload cap
+    # (FATHOM_MAX_RELOAD_BYTES, default 5 MB).
     server: grpc.Server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=max_workers),
+        options=[("grpc.max_receive_message_length", _GRPC_MAX_RECEIVE_BYTES)],
     )
-    _servicer = FathomServicer(default_engine=engine)
-
-    # In production, register with generated add_FathomServiceServicer_to_server().
-    # For now, the servicer is available for manual wiring or testing.
+    servicer = FathomServicer(default_engine=engine)
+    fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)  # type: ignore[no-untyped-call]
 
     cert_path = os.environ.get("FATHOM_GRPC_TLS_CERT", "")
     key_path = os.environ.get("FATHOM_GRPC_TLS_KEY", "")

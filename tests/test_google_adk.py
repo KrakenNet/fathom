@@ -164,9 +164,7 @@ class TestBeforeToolCallback:
         engine.evaluate.assert_called_once()
 
     def test_deny_returns_error_dict(self) -> None:
-        engine = _make_engine(
-            decision="deny", reason="forbidden", rule_trace=["deny-rule"]
-        )
+        engine = _make_engine(decision="deny", reason="forbidden", rule_trace=["deny-rule"])
         callback = fathom_before_tool_callback(engine, AGENT_ID)
         tool = _make_tool()
         result = callback(tool, ARGS_DICT, MagicMock())
