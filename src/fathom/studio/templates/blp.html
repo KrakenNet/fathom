@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}BLP gallery{% endblock %}
+{% block body %}
+  <h2>Bell-LaPadula gallery</h2>
+  <p class="muted">
+    Classification lattice (UNCLASSIFIED &lt; CONFIDENTIAL &lt; SECRET &lt;
+    TOP SECRET) with the <code>dominates()</code> relation: no read up, no write
+    down. Worked scenarios are seeded into this panel by the scenario task.
+  </p>
+  {% if scenario %}
+    <div class="card">
+      <h3>{{ scenario.title }}</h3>
+      <p class="muted">{{ scenario.description }}</p>
+      <form method="post" action="/scenarios/{{ scenario.id }}/seed">
+        <button type="submit">Seed BLP scenario</button>
+      </form>
+    </div>
+  {% else %}
+    <div class="card notice">Example 03 ruleset is unavailable.</div>
+  {% endif %}
+{% endblock %}

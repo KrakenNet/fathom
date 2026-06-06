@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Rule packs{% endblock %}
+{% block body %}
+  <h2>Rule-pack explorer</h2>
+  <p class="muted">
+    Built-in compliance rule packs shipped under
+    <code>fathom/src/fathom/rule_packs/</code>. Each pack bundles
+    <code>templates/</code>, <code>rules/</code>, and <code>modules/</code>.
+  </p>
+  {% if packs_list %}
+    <ul class="packs">
+      {% for pack in packs_list %}
+        <li>{{ pack }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="card notice">No rule packs found on disk.</div>
+  {% endif %}
+{% endblock %}

@@ -4,9 +4,11 @@ summary: Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed
 audience: [operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-06-06
 sources:
   - src/fathom/integrations/rest.py
+  - src/fathom/integrations/grpc_server.py
+  - src/fathom/integrations/auth.py
   - src/fathom/engine.py
   - src/fathom/cli.py
   - src/fathom/integrations/ruleset_sig.py
@@ -79,11 +81,43 @@ Error codes:
 - `400 unsigned_ruleset` — `require_signature=true` (the default) and
   either `signature` is missing or Ed25519 verification failed. Also
   emits `ruleset_reload_rejected` to the audit sink.
+- `413 payload_too_large` — the request body exceeds the reload size
+  cap (see below). Enforced before any YAML parsing.
 - `500 server_misconfigured` — `require_signature=true` but the
   pubkey never loaded (should have failed at boot; treated as
   defence-in-depth).
 - `503 not_ready` — engine or attestation service not yet configured
   on `app.state`.
+
+## Admin token, body size cap, and rate limiting
+
+`POST /v1/rules/reload` (REST) and the gRPC `Reload` RPC are
+admin-scoped, defence-in-depth controls on top of signature
+verification:
+
+- **Scoped admin token.** Set `FATHOM_ADMIN_TOKEN` to require a
+  dedicated token for reload. When it is set, the reload surface
+  accepts **only** that token — the data-plane `FATHOM_API_TOKEN`
+  (used by `/v1/evaluate`, `/v1/facts`, …) no longer grants reload,
+  so a leaked data-plane token cannot replace the ruleset. When
+  `FATHOM_ADMIN_TOKEN` is **unset**, reload falls back to
+  `FATHOM_API_TOKEN` exactly as before (backward compatible). A
+  rejected token returns `401 unauthorized`.
+- **Body size cap.** Reload bodies are capped at 5 MB by default,
+  overridable via `FATHOM_MAX_RELOAD_BYTES`. The cap is enforced on
+  the **actual bytes received** (the body is streamed and aborted once
+  the running total exceeds the limit), not the `Content-Length`
+  header — a chunked request that under-reports its length is still
+  rejected with `413 payload_too_large` before the YAML parser sees
+  anything. The gRPC server inherits gRPC's default 4 MB
+  `max_receive_message_length`, which already bounds `Reload` payloads
+  below the REST cap.
+- **Rate limiting is host-level by design.** Fathom does not implement
+  per-client request throttling in-process. Run reload behind a
+  reverse proxy (nginx `limit_req`, Envoy, an API gateway, …) and rate
+  limit there. Keeping rate limiting at the host layer avoids
+  duplicating shared infrastructure inside the engine and keeps the
+  admin surface a thin, auditable control.
 
 ## Signing a ruleset
 

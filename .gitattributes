@@ -1,0 +1,3 @@
+# SSVC reference archives are sha256-pinned byte-exact (references/SHA256SUMS,
+# enforced by tests/rule_packs/test_ssvc.py) — never CRLF-convert them.
+src/fathom/rule_packs/ssvc/references/** -text

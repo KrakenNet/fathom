@@ -1134,7 +1134,7 @@
                       "raw": "{\n  \"ruleset_path\": \"string\",\n  \"ruleset_yaml\": \"string\",\n  \"signature\": \"string\"\n}"
                     },
                     "description": {
-                      "content": "Atomically swap the loaded ruleset with a new (optionally signed) one.\n\nSee design C5 / AC-5.1 / AC-5.4\u20135.6 / AC-5.8.",
+                      "content": "Atomically swap the loaded ruleset with a new (optionally signed) one.\n\nRequires the scoped admin token (``FATHOM_ADMIN_TOKEN`` when set, else the\ndata-plane token). Bodies larger than ``FATHOM_MAX_RELOAD_BYTES`` (default\n5 MB) are rejected with 413 before any YAML parsing \u2014 the cap is enforced\non the actual bytes received, not the Content-Length header (chunked\nbodies lie). Rate limiting is host-level (reverse proxy) by design.\n\nSee design C5 / AC-5.1 / AC-5.4\u20135.6 / AC-5.8.",
                       "type": "text/plain"
                     },
                     "header": [
