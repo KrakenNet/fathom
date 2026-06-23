@@ -31,6 +31,16 @@ All of these run automatically in CI on every pull request.
 
 ## How to Contribute
 
+### Finding something to work on
+
+Browse open issues by label:
+
+- **`good first issue`** — start here; scoped tasks that need no deep codebase knowledge.
+- **`help wanted`** — issues where we'd welcome a contributor.
+- **`needs-decision` / `needs-design`** — approach isn't settled yet; please don't open a PR. Comment with your thoughts instead.
+
+For anything non-trivial, comment on the issue to claim it before you start, so we don't duplicate effort.
+
 ### Bug Reports
 
 Use the [bug report template](https://github.com/KrakenNet/fathom/issues/new?template=bug_report.yml). Include:

@@ -1,6 +1,11 @@
 # Fathom docs orchestration
 
-.PHONY: docs-gen docs-gen-foreign docs-build docs-serve docs-lint docs-clean docs-check
+.PHONY: init docs-gen docs-gen-foreign docs-build docs-serve docs-lint docs-clean docs-check
+
+# One-command dev setup: install deps + pre-commit hooks.
+init:
+	uv sync
+	uv run pre-commit install
 
 # Generators - native Python, run in every environment.
 docs-gen:
