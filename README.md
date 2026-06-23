@@ -8,6 +8,11 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml/badge.svg)](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-fathom.krakn.ai-blue)](https://krakennet.github.io/fathom)
+[![Downloads](https://img.shields.io/pypi/dm/fathom-rules.svg)](https://pypi.org/project/fathom-rules/)
+[![codecov](https://codecov.io/gh/KrakenNet/fathom/branch/main/graph/badge.svg)](https://codecov.io/gh/KrakenNet/fathom)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/E6Cf8WFDf)
+
+> **Part of the [Kraken](https://github.com/KrakenNet) stack:** [**Fathom**](https://github.com/KrakenNet/fathom) (reasoning engine) · [Nautilus](https://github.com/KrakenNet/nautilus) (policy data broker) · [Stargraph](https://github.com/KrakenNet/stargraph) (agent-graph framework).
 
 **Current version:** 0.3.3
 
@@ -207,6 +212,12 @@ uv run uvicorn fathom.integrations.rest:app --reload
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines and [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Star History
+
+<a href="https://star-history.com/#KrakenNet/fathom&Date">
+  <img src="https://api.star-history.com/svg?repos=KrakenNet/fathom&type=Date" alt="Star History Chart" width="600">
+</a>
 
 ## License
 

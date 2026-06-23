@@ -4,7 +4,7 @@ sources:
   - pyproject.toml
   - src/fathom/__init__.py
   - README.md
-last_verified: 2026-06-06
+last_verified: 2026-06-23
 ---
 
 # Fathom
@@ -13,7 +13,7 @@ Fathom is a deterministic reasoning runtime for AI agents, built on CLIPS via
 clipspy. Rules are authored in YAML, compiled to CLIPS constructs, and
 evaluated in microseconds with auditable traces.
 
-Current release: `fathom-rules` 0.3.0 (requires Python 3.14+).
+Current release: `fathom-rules` 0.7.0 (requires Python 3.12+).
 
 ## Start here
 
