@@ -13,8 +13,10 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 ```bash
 git clone https://github.com/KrakenNet/fathom.git
 cd fathom
-uv sync
+uv sync --all-extras
 ```
+
+`--all-extras` is required: the full test suite and type-check import the optional integration dependencies (FastAPI, MCP, cryptography, Prometheus, etc.). A plain `uv sync` installs only the dev group, and `uv run pytest` then fails to collect those tests.
 
 ## Running Checks
 
@@ -67,8 +69,11 @@ Use the [feature request template](https://github.com/KrakenNet/fathom/issues/ne
 ```
 src/fathom/              Core library
 src/fathom/integrations/ FastAPI, gRPC, MCP, LangChain, CrewAI, etc.
-src/fathom/rule_packs/   OWASP, NIST 800-53, HIPAA, CMMC compliance packs
-tests/                   pytest test suite (1361+ tests)
+src/fathom/rule_packs/   OWASP, NIST 800-53, HIPAA, CMMC, SSVC compliance packs
+src/fathom/studio/       Policy Studio (FastAPI + HTMX UI)
+protos/                  gRPC protocol definitions (fathom.proto)
+scripts/                 Doc generators, schema/OpenAPI exporters, release tooling
+tests/                   pytest test suite (1695 tests)
 docs/                    MkDocs Material documentation
 examples/                Progressive example projects (01-05)
 packages/                Go, TypeScript SDKs, React editor

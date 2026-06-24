@@ -7,14 +7,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml/badge.svg)](https://github.com/KrakenNet/fathom/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-fathom.krakn.ai-blue)](https://krakennet.github.io/fathom)
 [![Downloads](https://img.shields.io/pypi/dm/fathom-rules.svg)](https://pypi.org/project/fathom-rules/)
 [![codecov](https://codecov.io/gh/KrakenNet/fathom/branch/main/graph/badge.svg)](https://codecov.io/gh/KrakenNet/fathom)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/E6Cf8WFDf)
 
 > **Part of the [Kraken](https://github.com/KrakenNet) stack:** [**Fathom**](https://github.com/KrakenNet/fathom) (reasoning engine) · [Nautilus](https://github.com/KrakenNet/nautilus) (policy data broker) · [Stargraph](https://github.com/KrakenNet/stargraph) (agent-graph framework).
 
-**Current version:** 0.3.3
+**Current version:** 0.7.0
 
 **License:** MIT
 
@@ -50,9 +49,8 @@ uv add fathom-rules
 ```python
 from fathom import Engine
 
-engine = Engine()
-engine.load_templates("templates/")
-engine.load_rules("rules/")
+# Loads templates/, modules/, functions/, and rules/ from a project directory
+engine = Engine.from_rules("policy/")
 
 engine.assert_fact("agent", {
     "id": "agent-alpha",
@@ -70,8 +68,8 @@ engine.assert_fact("data_request", {
 
 result = engine.evaluate()
 print(result.decision)       # "deny"
-print(result.reason)         # "Agent clearance 'secret' insufficient for 'top-secret' data"
-print(result.duration_us)    # 47
+print(result.reason)         # "Agent clearance is below the data classification (no read up)"
+print(result.duration_us)    # ~90 (microseconds; varies by machine)
 ```
 
 See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
@@ -96,9 +94,10 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - **gRPC server** with bearer-token auth (see `protos/fathom.proto`)
 - **MCP tool server** (`FathomMCPServer`) for agent discovery
 - **LangChain adapter** callback handler
-- **CLI** — `fathom validate`, `fathom test`, `fathom bench`, `fathom info`, `fathom repl`
+- **CLI** — `fathom validate`, `fathom compile`, `fathom test`, `fathom bench`, `fathom info`, `fathom status`, `fathom verify-artifact`, `fathom verify-chain`, `fathom repl`
 - **Docker sidecar** (Debian slim + uv)
 - **Prometheus metrics** export (`/metrics` endpoint)
+- **Policy Studio** — FastAPI + HTMX UI that mounts the REST engine in-process under `/api` (`python -m fathom.studio.app`)
 
 **Rule packs**
 
@@ -188,17 +187,18 @@ Entry points:
 
 ## Related Projects
 
-- **Bosun** — Agent governance built on Fathom (fleet analysis, compliance attestation)
-- **Nautilus** — Intelligent data broker built on Fathom (multi-source routing, classification-aware scoping)
+- **[Bosun](https://github.com/krakenNet/bosun):** Agent governance built on Fathom (fleet analysis, compliance attestation)
+- **[Nautilus](https://github.com/krakenNet/nautilus):** Intelligent data broker built on Fathom (multi-source routing, classification-aware scoping)
+- **[Stargraph](https://github.com/KrakenNet/stargraph):** Workgraph, AI orchestration framework built on Fathom
 
 ## Development
 
 ```bash
 git clone https://github.com/KrakenNet/fathom.git
 cd fathom
-uv sync
+uv sync --all-extras            # --all-extras is required for the full test suite
 
-uv run pytest                   # 1361 tests
+uv run pytest                   # 1695 tests
 uv run ruff check src/ tests/   # lint
 uv run mypy src/                # type check
 uv run pytest --cov=fathom      # coverage report

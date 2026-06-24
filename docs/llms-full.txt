@@ -76,13 +76,13 @@ Fathom is a deterministic reasoning runtime built on CLIPS via clipspy. Define r
 
 ## Installation
 
-Requires Python 3.14 or later.
+Requires Python 3.12 or later.
 
 ```bash
 uv add fathom-rules
 ```
 
-The only core dependency is `clipspy`. No other external packages are required.
+The core dependencies are `clipspy`, `pyyaml`, and `pydantic` -- they install automatically with the package. No other external packages are required.
 
 ## Create Your First Template
 
@@ -127,13 +127,39 @@ templates:
 
 Each slot has a `type` (`string`, `symbol`, `float`) and optional constraints (`required`, `allowed_values`, `default`). Fathom validates facts against these schemas at assertion time.
 
+## Register a Classification Hierarchy
+
+To compare clearance against data classification we need an ordered set of levels. Declare it in `hierarchies/clearance.yaml`:
+
+```yaml
+name: clearance
+levels:
+  - unclassified
+  - cui
+  - confidential
+  - secret
+  - top-secret
+```
+
+Then tie the hierarchy to the rule operators with a classification function in `functions/clearance.yaml`:
+
+```yaml
+functions:
+  - name: clearance
+    type: classification
+    params: [a, b]
+    hierarchy_ref: clearance.yaml
+```
+
+Loading this function registers the `below(...)`, `meets_or_exceeds(...)`, and `within_scope(...)` operators so rules can compare levels.
+
 ## Write Your First Rule
 
 Rules define pattern-matching logic that fires when facts match conditions. Create `rules/access-control.yaml`:
 
 ```yaml
 ruleset: access-control
-version: 1.0
+version: "1.0"
 module: governance
 
 rules:
@@ -141,36 +167,40 @@ rules:
     description: "Deny access when agent clearance is below data classification"
     salience: 10
     when:
-      agent:
-        clearance: below($data.classification)
-      data_request:
-        as: $data
+      - template: data_request
+        alias: $data
+        conditions:
+          - slot: classification
+            expression: "meets_or_exceeds(unclassified)"
+      - template: agent
+        conditions:
+          - slot: id
+            expression: "equals($data.agent_id)"
+          - slot: clearance
+            expression: "below($data.classification)"
     then:
       action: deny
-      reason: "Agent clearance '{agent.clearance}' insufficient for '{$data.classification}' data"
+      reason: "Agent clearance is below the data classification (no read up)"
       log: full
 ```
+
+`when` is a **list** of fact patterns. Each pattern names a `template`, an optional `alias` (used for cross-fact references like `$data.classification`), and a list of `conditions`. Each condition pairs a `slot` with an `expression` -- a literal operator like `equals(...)` / `in([...])`, or a classification operator like `below(...)` / `meets_or_exceeds(...)`. **Pattern ordering matters**: the pattern that binds an alias must appear before any pattern that references it, so `data_request` (alias `$data`) is listed before the `agent` pattern that uses `$data.classification`.
 
 `salience` controls firing priority -- higher values fire first. The evaluator uses last-write-wins on `__fathom_decision` facts, so the rule firing LAST wins. Deny rules should have LOWER salience than allow rules so they fire last and override any prior allow, enforcing fail-closed behavior.
 
 ## Set Up Modules
 
-Modules namespace rules into isolated groups with controlled execution order. Create `modules.yaml`:
+Modules namespace rules into isolated groups with controlled execution order. Create `modules/modules.yaml`:
 
 ```yaml
 modules:
-  - name: classification
-    description: "Classification and clearance evaluation"
-    priority: 1
-
   - name: governance
     description: "Action-level governance rules"
-    priority: 2
 
-focus_order: [classification, governance]
+focus_order: [governance]
 ```
 
-The `focus_order` list determines evaluation sequence. Rules in `classification` fire before rules in `governance`. Each rule file declares which module it belongs to via the `module` field.
+The `focus_order` list determines evaluation sequence -- when you add more modules, rules in earlier modules fire before rules in later ones. Each rule file declares which module it belongs to via the `module` field.
 
 ## Run Your First Evaluation
 
@@ -179,7 +209,8 @@ from fathom import Engine
 
 engine = Engine()
 engine.load_templates("templates/")
-engine.load_modules("modules.yaml")
+engine.load_modules("modules/")
+engine.load_functions("functions/")
 engine.load_rules("rules/access-control.yaml")
 
 engine.assert_fact("agent", {
@@ -199,11 +230,23 @@ engine.assert_fact("data_request", {
 result = engine.evaluate()
 
 print(result.decision)     # "deny"
-print(result.reason)       # "Agent clearance 'secret' insufficient for 'top-secret' data"
-print(result.rule_trace)   # ["classification::resolve-levels", "governance::deny-insufficient-clearance"]
-print(result.module_trace) # ["classification", "governance"]
-print(result.duration_us)  # 47
+print(result.reason)       # "Agent clearance is below the data classification (no read up)"
+print(result.rule_trace)   # ["governance::deny-insufficient-clearance"]
+print(result.module_trace) # ["governance"]
+print(result.duration_us)  # ~90 (microseconds; varies by machine)
 ```
+
+`load_functions` must run before `load_rules`, because the rules reference the `below(...)` operator the classification function registers. The full project layout is:
+
+```
+templates/agent.yaml          agent + data_request schemas
+hierarchies/clearance.yaml     ordered classification levels
+functions/clearance.yaml       registers below(...) / meets_or_exceeds(...)
+modules/modules.yaml           single 'governance' module
+rules/access-control.yaml      the deny rule
+```
+
+The agent's `secret` clearance is below the request's `top-secret` classification, so the deny rule fires. If the agent's clearance instead met or exceeded the classification, no deny rule would match and the engine would fall through to its fail-closed default (`decision = "deny"`, `reason = "default decision (no rules fired)"`). To grant access you would add an explicit allow rule with higher salience -- see [example 03](https://github.com/KrakenNet/fathom/tree/main/examples/03-classification-blp) for the full read/write Bell-LaPadula pattern.
 
 The result object contains five fields:
 
