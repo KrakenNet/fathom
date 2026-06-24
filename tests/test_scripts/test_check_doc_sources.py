@@ -19,9 +19,7 @@ def _init_repo(root: Path) -> None:
     subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)
 
 
-def _commit(
-    root: Path, msg: str, author: str | None = None, when: str | None = None
-) -> None:
+def _commit(root: Path, msg: str, author: str | None = None, when: str | None = None) -> None:
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     cmd = ["git", "commit", "-q", "-m", msg]
     if author is not None:
