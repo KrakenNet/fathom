@@ -18,13 +18,17 @@ docs-gen:
 	uv run python scripts/generate_llms_txt.py
 	uv run python scripts/generate_python_sdk_docs.py
 
-# Generators that require foreign toolchains (Go, Node, protoc). Run in CI
-# unconditionally; locally they skip cleanly if the toolchain is missing.
+# Generators that require foreign toolchains (Go, Node, protoc). Each line
+# skips ONLY when its toolchain is genuinely absent; when the toolchain IS
+# present, a generator failure propagates (nonzero exit) instead of being
+# swallowed as a "skip". The old `... || echo skip` masked real failures,
+# so a dev could commit stale docs that CI (with the toolchain) then
+# regenerates differently — a false drift-gate failure on an unrelated PR.
 docs-gen-foreign:
-	uv run python scripts/generate_postman_collection.py || echo "skip: postman (npx missing)"
-	uv run python scripts/generate_grpc_docs.py || echo "skip: grpc (protoc missing)"
-	uv run python scripts/generate_go_sdk_docs.py || echo "skip: go-sdk (go missing)"
-	uv run python scripts/generate_ts_sdk_docs.py || echo "skip: ts-sdk (pnpm/npm missing)"
+	@if command -v npx >/dev/null 2>&1; then uv run python scripts/generate_postman_collection.py; else echo "skip: postman (npx missing)"; fi
+	@if command -v protoc >/dev/null 2>&1 && command -v protoc-gen-doc >/dev/null 2>&1; then uv run python scripts/generate_grpc_docs.py; else echo "skip: grpc (protoc/protoc-gen-doc missing)"; fi
+	@if command -v go >/dev/null 2>&1; then uv run python scripts/generate_go_sdk_docs.py; else echo "skip: go-sdk (go missing)"; fi
+	@if command -v pnpm >/dev/null 2>&1 || command -v npm >/dev/null 2>&1; then uv run python scripts/generate_ts_sdk_docs.py; else echo "skip: ts-sdk (pnpm/npm missing)"; fi
 
 # Strict build (fails on any warning)
 docs-build: docs-gen docs-gen-foreign

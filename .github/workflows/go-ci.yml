@@ -40,8 +40,12 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install protoc Go plugins
+        # Pin both plugins to the exact versions recorded in the committed
+        # *.pb.go headers (protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.1)
+        # so `verify-grpc` regenerates byte-identical output. `@latest`
+        # silently drifts and breaks the drift gate on unrelated PRs.
         run: |
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
