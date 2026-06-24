@@ -1,8 +1,9 @@
 name: ts-ci
 
-# No path filter on pull_request: test is a required status check for branch
-# protection (dependabot auto-merge waits on it). A path-filtered required
-# check never reports on non-matching PRs, which would block merging forever.
+# No path filter on pull_request: ts-test is a required status check for
+# branch protection (dependabot auto-merge waits on it). A path-filtered
+# required check never reports on non-matching PRs, which would block
+# merging forever.
 on:
   pull_request:
   push:
@@ -18,6 +19,7 @@ concurrency:
 
 jobs:
   test:
+    name: ts-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

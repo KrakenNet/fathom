@@ -1,6 +1,6 @@
 name: go-ci
 
-# No path filter on pull_request: test/integration are required status
+# No path filter on pull_request: go-test/integration are required status
 # checks for branch protection (dependabot auto-merge waits on them). A
 # path-filtered required check never reports on non-matching PRs, which
 # would block merging forever.
@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   test:
+    name: go-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
