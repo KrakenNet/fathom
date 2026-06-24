@@ -506,6 +506,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#register-a-classification-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register a Classification Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#write-your-first-rule" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2363,6 +2374,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#register-a-classification-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register a Classification Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#write-your-first-rule" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2440,10 +2462,10 @@
 <h1 id="fathom-getting-started">Fathom -- Getting Started<a class="headerlink" href="#fathom-getting-started" title="Permanent link">&para;</a></h1>
 <p>Fathom is a deterministic reasoning runtime built on CLIPS via clipspy. Define rules in YAML, evaluate in microseconds, get auditable results with zero hallucinations.</p>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<p>Requires Python 3.14 or later.</p>
+<p>Requires Python 3.12 or later.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>add<span class="w"> </span>fathom-rules
 </code></pre></div>
-<p>The only core dependency is <code>clipspy</code>. No other external packages are required.</p>
+<p>The core dependencies are <code>clipspy</code>, <code>pyyaml</code>, and <code>pydantic</code> -- they install automatically with the package. No other external packages are required.</p>
 <h2 id="create-your-first-template">Create Your First Template<a class="headerlink" href="#create-your-first-template" title="Permanent link">&para;</a></h2>
 <p>Templates define the shape of facts. Create a file <code>templates/agent.yaml</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">templates</span><span class="p">:</span>
@@ -2482,71 +2504,101 @@
 <a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a><span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
 </code></pre></div>
 <p>Each slot has a <code>type</code> (<code>string</code>, <code>symbol</code>, <code>float</code>) and optional constraints (<code>required</code>, <code>allowed_values</code>, <code>default</code>). Fathom validates facts against these schemas at assertion time.</p>
+<h2 id="register-a-classification-hierarchy">Register a Classification Hierarchy<a class="headerlink" href="#register-a-classification-hierarchy" title="Permanent link">&para;</a></h2>
+<p>To compare clearance against data classification we need an ordered set of levels. Declare it in <code>hierarchies/clearance.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">clearance</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">levels</span><span class="p">:</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unclassified</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cui</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">confidential</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">top-secret</span>
+</code></pre></div>
+<p>Then tie the hierarchy to the rule operators with a classification function in <code>functions/clearance.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">functions</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">clearance</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">classification</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">params</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">a</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">b</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">hierarchy_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">clearance.yaml</span>
+</code></pre></div>
+<p>Loading this function registers the <code>below(...)</code>, <code>meets_or_exceeds(...)</code>, and <code>within_scope(...)</code> operators so rules can compare levels.</p>
 <h2 id="write-your-first-rule">Write Your First Rule<a class="headerlink" href="#write-your-first-rule" title="Permanent link">&para;</a></h2>
 <p>Rules define pattern-matching logic that fires when facts match conditions. Create <code>rules/access-control.yaml</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">ruleset</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">access-control</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">governance</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deny-insufficient-clearance</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Deny</span><span class="nv"> </span><span class="s">access</span><span class="nv"> </span><span class="s">when</span><span class="nv"> </span><span class="s">agent</span><span class="nv"> </span><span class="s">clearance</span><span class="nv"> </span><span class="s">is</span><span class="nv"> </span><span class="s">below</span><span class="nv"> </span><span class="s">data</span><span class="nv"> </span><span class="s">classification&quot;</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">salience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">when</span><span class="p">:</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">      </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">        </span><span class="nt">clearance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">below($data.classification)</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">      </span><span class="nt">data_request</span><span class="p">:</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">        </span><span class="nt">as</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$data</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="nt">then</span><span class="p">:</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">      </span><span class="nt">action</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deny</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">      </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Agent</span><span class="nv"> </span><span class="s">clearance</span><span class="nv"> </span><span class="s">&#39;{agent.clearance}&#39;</span><span class="nv"> </span><span class="s">insufficient</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">&#39;{$data.classification}&#39;</span><span class="nv"> </span><span class="s">data&quot;</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">      </span><span class="nt">log</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">full</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">ruleset</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">access-control</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1.0&quot;</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">governance</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deny-insufficient-clearance</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Deny</span><span class="nv"> </span><span class="s">access</span><span class="nv"> </span><span class="s">when</span><span class="nv"> </span><span class="s">agent</span><span class="nv"> </span><span class="s">clearance</span><span class="nv"> </span><span class="s">is</span><span class="nv"> </span><span class="s">below</span><span class="nv"> </span><span class="s">data</span><span class="nv"> </span><span class="s">classification&quot;</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">salience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">when</span><span class="p">:</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data_request</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">        </span><span class="nt">alias</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$data</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">        </span><span class="nt">conditions</span><span class="p">:</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">slot</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">classification</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">            </span><span class="nt">expression</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;meets_or_exceeds(unclassified)&quot;</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">agent</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">        </span><span class="nt">conditions</span><span class="p">:</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">slot</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">id</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">            </span><span class="nt">expression</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;equals($data.agent_id)&quot;</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">slot</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">clearance</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">            </span><span class="nt">expression</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;below($data.classification)&quot;</span>
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">    </span><span class="nt">then</span><span class="p">:</span>
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">      </span><span class="nt">action</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deny</span>
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="w">      </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Agent</span><span class="nv"> </span><span class="s">clearance</span><span class="nv"> </span><span class="s">is</span><span class="nv"> </span><span class="s">below</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">data</span><span class="nv"> </span><span class="s">classification</span><span class="nv"> </span><span class="s">(no</span><span class="nv"> </span><span class="s">read</span><span class="nv"> </span><span class="s">up)&quot;</span>
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="w">      </span><span class="nt">log</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">full</span>
 </code></pre></div>
+<p><code>when</code> is a <strong>list</strong> of fact patterns. Each pattern names a <code>template</code>, an optional <code>alias</code> (used for cross-fact references like <code>$data.classification</code>), and a list of <code>conditions</code>. Each condition pairs a <code>slot</code> with an <code>expression</code> -- a literal operator like <code>equals(...)</code> / <code>in([...])</code>, or a classification operator like <code>below(...)</code> / <code>meets_or_exceeds(...)</code>. <strong>Pattern ordering matters</strong>: the pattern that binds an alias must appear before any pattern that references it, so <code>data_request</code> (alias <code>$data</code>) is listed before the <code>agent</code> pattern that uses <code>$data.classification</code>.</p>
 <p><code>salience</code> controls firing priority -- higher values fire first. The evaluator uses last-write-wins on <code>__fathom_decision</code> facts, so the rule firing LAST wins. Deny rules should have LOWER salience than allow rules so they fire last and override any prior allow, enforcing fail-closed behavior.</p>
 <h2 id="set-up-modules">Set Up Modules<a class="headerlink" href="#set-up-modules" title="Permanent link">&para;</a></h2>
-<p>Modules namespace rules into isolated groups with controlled execution order. Create <code>modules.yaml</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">modules</span><span class="p">:</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">classification</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Classification</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">clearance</span><span class="nv"> </span><span class="s">evaluation&quot;</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">governance</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Action-level</span><span class="nv"> </span><span class="s">governance</span><span class="nv"> </span><span class="s">rules&quot;</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="nt">focus_order</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">classification</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">governance</span><span class="p p-Indicator">]</span>
+<p>Modules namespace rules into isolated groups with controlled execution order. Create <code>modules/modules.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">modules</span><span class="p">:</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">governance</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Action-level</span><span class="nv"> </span><span class="s">governance</span><span class="nv"> </span><span class="s">rules&quot;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="nt">focus_order</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">governance</span><span class="p p-Indicator">]</span>
 </code></pre></div>
-<p>The <code>focus_order</code> list determines evaluation sequence. Rules in <code>classification</code> fire before rules in <code>governance</code>. Each rule file declares which module it belongs to via the <code>module</code> field.</p>
+<p>The <code>focus_order</code> list determines evaluation sequence -- when you add more modules, rules in earlier modules fire before rules in later ones. Each rule file declares which module it belongs to via the <code>module</code> field.</p>
 <h2 id="run-your-first-evaluation">Run Your First Evaluation<a class="headerlink" href="#run-your-first-evaluation" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fathom</span><span class="w"> </span><span class="kn">import</span> <span class="n">Engine</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_templates</span><span class="p">(</span><span class="s2">&quot;templates/&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_modules</span><span class="p">(</span><span class="s2">&quot;modules.yaml&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_rules</span><span class="p">(</span><span class="s2">&quot;rules/access-control.yaml&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">engine</span><span class="o">.</span><span class="n">assert_fact</span><span class="p">(</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span> <span class="p">{</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;agent-alpha&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="s2">&quot;clearance&quot;</span><span class="p">:</span> <span class="s2">&quot;secret&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="s2">&quot;purpose&quot;</span><span class="p">:</span> <span class="s2">&quot;threat-analysis&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>    <span class="s2">&quot;session_id&quot;</span><span class="p">:</span> <span class="s2">&quot;sess-001&quot;</span>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="p">})</span>
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>
-<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="n">engine</span><span class="o">.</span><span class="n">assert_fact</span><span class="p">(</span><span class="s2">&quot;data_request&quot;</span><span class="p">,</span> <span class="p">{</span>
-<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>    <span class="s2">&quot;agent_id&quot;</span><span class="p">:</span> <span class="s2">&quot;agent-alpha&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>    <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="s2">&quot;hr_records&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>    <span class="s2">&quot;classification&quot;</span><span class="p">:</span> <span class="s2">&quot;top-secret&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>    <span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="s2">&quot;read&quot;</span>
-<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="p">})</span>
-<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>
-<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
-<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>
-<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">decision</span><span class="p">)</span>     <span class="c1"># &quot;deny&quot;</span>
-<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">reason</span><span class="p">)</span>       <span class="c1"># &quot;Agent clearance &#39;secret&#39; insufficient for &#39;top-secret&#39; data&quot;</span>
-<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">rule_trace</span><span class="p">)</span>   <span class="c1"># [&quot;classification::resolve-levels&quot;, &quot;governance::deny-insufficient-clearance&quot;]</span>
-<a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_trace</span><span class="p">)</span> <span class="c1"># [&quot;classification&quot;, &quot;governance&quot;]</span>
-<a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">duration_us</span><span class="p">)</span>  <span class="c1"># 47</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fathom</span><span class="w"> </span><span class="kn">import</span> <span class="n">Engine</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_templates</span><span class="p">(</span><span class="s2">&quot;templates/&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_modules</span><span class="p">(</span><span class="s2">&quot;modules/&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_functions</span><span class="p">(</span><span class="s2">&quot;functions/&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_rules</span><span class="p">(</span><span class="s2">&quot;rules/access-control.yaml&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">engine</span><span class="o">.</span><span class="n">assert_fact</span><span class="p">(</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span> <span class="p">{</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;agent-alpha&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    <span class="s2">&quot;clearance&quot;</span><span class="p">:</span> <span class="s2">&quot;secret&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>    <span class="s2">&quot;purpose&quot;</span><span class="p">:</span> <span class="s2">&quot;threat-analysis&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>    <span class="s2">&quot;session_id&quot;</span><span class="p">:</span> <span class="s2">&quot;sess-001&quot;</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="p">})</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="n">engine</span><span class="o">.</span><span class="n">assert_fact</span><span class="p">(</span><span class="s2">&quot;data_request&quot;</span><span class="p">,</span> <span class="p">{</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>    <span class="s2">&quot;agent_id&quot;</span><span class="p">:</span> <span class="s2">&quot;agent-alpha&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>    <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="s2">&quot;hr_records&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>    <span class="s2">&quot;classification&quot;</span><span class="p">:</span> <span class="s2">&quot;top-secret&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>    <span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="s2">&quot;read&quot;</span>
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a><span class="p">})</span>
+<a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>
+<a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a><span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
+<a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>
+<a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">decision</span><span class="p">)</span>     <span class="c1"># &quot;deny&quot;</span>
+<a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">reason</span><span class="p">)</span>       <span class="c1"># &quot;Agent clearance is below the data classification (no read up)&quot;</span>
+<a id="__codelineno-6-27" name="__codelineno-6-27" href="#__codelineno-6-27"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">rule_trace</span><span class="p">)</span>   <span class="c1"># [&quot;governance::deny-insufficient-clearance&quot;]</span>
+<a id="__codelineno-6-28" name="__codelineno-6-28" href="#__codelineno-6-28"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_trace</span><span class="p">)</span> <span class="c1"># [&quot;governance&quot;]</span>
+<a id="__codelineno-6-29" name="__codelineno-6-29" href="#__codelineno-6-29"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">duration_us</span><span class="p">)</span>  <span class="c1"># ~90 (microseconds; varies by machine)</span>
 </code></pre></div>
+<p><code>load_functions</code> must run before <code>load_rules</code>, because the rules reference the <code>below(...)</code> operator the classification function registers. The full project layout is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>templates/agent.yaml          agent + data_request schemas
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>hierarchies/clearance.yaml     ordered classification levels
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>functions/clearance.yaml       registers below(...) / meets_or_exceeds(...)
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>modules/modules.yaml           single &#39;governance&#39; module
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>rules/access-control.yaml      the deny rule
+</code></pre></div>
+<p>The agent's <code>secret</code> clearance is below the request's <code>top-secret</code> classification, so the deny rule fires. If the agent's clearance instead met or exceeded the classification, no deny rule would match and the engine would fall through to its fail-closed default (<code>decision = "deny"</code>, <code>reason = "default decision (no rules fired)"</code>). To grant access you would add an explicit allow rule with higher salience -- see <a href="https://github.com/KrakenNet/fathom/tree/main/examples/03-classification-blp">example 03</a> for the full read/write Bell-LaPadula pattern.</p>
 <p>The result object contains five fields:</p>
 <ul>
 <li><code>decision</code> -- the action taken (<code>allow</code>, <code>deny</code>, <code>escalate</code>, etc.)</li>
