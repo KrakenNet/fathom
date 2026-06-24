@@ -6,10 +6,18 @@ Honors `.git-blame-ignore-revs` (the standard git convention used by
 or otherwise non-content commits don't trip the gate. Add a SHA to
 that file to declare a commit irrelevant for source-doc drift.
 
+Mechanical dependency bumps are also ignored automatically: commits
+authored by Dependabot or whose subject is a conventional
+`build(deps)` / `chore(deps)` change don't count as content changes,
+so routine version bumps to a cited manifest or workflow file no
+longer re-trip the gate on every PR. The most recent *meaningful*
+commit to a cited source is what's compared against last_verified.
+
 Exit codes: 0 clean; 1 drift or missing source; 2 misconfig.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from datetime import date, datetime
@@ -17,6 +25,17 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Conventional-commit subjects for mechanical dependency bumps, e.g.
+# "build(deps): bump actions/checkout from 6 to 7" or
+# "chore(deps-dev): bump typescript". These touch cited manifest and
+# workflow files without changing the documented behavior.
+_DEP_BUMP_SUBJECT = re.compile(r"^(build|chore)\(deps(-dev)?\)", re.IGNORECASE)
+
+
+def _is_mechanical(author: str, subject: str) -> bool:
+    """True if a commit is a bot dependency bump, not a content change."""
+    return "dependabot[bot]" in author or bool(_DEP_BUMP_SUBJECT.match(subject))
 
 
 def _read_frontmatter(path: Path) -> dict[str, Any]:
@@ -48,24 +67,42 @@ def _read_ignore_revs(repo: Path) -> set[str]:
     return revs
 
 
-def _last_commit_date(source: Path, repo: Path, ignore: set[str]) -> date | None:
+def _last_commit_date(
+    source: Path, repo: Path, ignore: set[str]
+) -> tuple[date | None, bool]:
+    """Return (date of last meaningful commit, was-the-source-tracked).
+
+    Commits listed in `.git-blame-ignore-revs` and mechanical dependency
+    bumps (see `_is_mechanical`) are skipped. The date is None when the
+    source has no commits at all (untracked) or when every commit was
+    skipped; `tracked` disambiguates the two for the caller.
+    """
+    sep = "\x1f"
     result = subprocess.run(
-        ["git", "log", "--format=%H %cI", "--", str(source.relative_to(repo))],
+        ["git", "log", f"--format=%H{sep}%cI{sep}%an{sep}%s",
+         "--", str(source.relative_to(repo))],
         cwd=repo,
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode != 0:
-        return None
+        return None, False
+    saw_commit = False
     for raw in result.stdout.splitlines():
-        sha, _, iso = raw.partition(" ")
-        if not sha or sha in ignore:
+        parts = raw.split(sep)
+        if len(parts) != 4:
+            continue
+        sha, iso, author, subject = parts
+        if not sha:
+            continue
+        saw_commit = True
+        if sha in ignore or _is_mechanical(author, subject):
             continue
         if not iso.strip():
-            return None
-        return datetime.fromisoformat(iso.strip()).date()
-    return None
+            return None, True
+        return datetime.fromisoformat(iso.strip()).date(), True
+    return None, saw_commit
 
 
 def _check_page(page: Path, repo: Path, ignore: set[str]) -> list[str]:
@@ -87,9 +124,12 @@ def _check_page(page: Path, repo: Path, ignore: set[str]) -> list[str]:
         if not src_path.exists():
             errors.append(f"{page}: cited source {src!r} does not exist")
             continue
-        last = _last_commit_date(src_path, repo, ignore)
+        last, tracked = _last_commit_date(src_path, repo, ignore)
         if last is None:
-            errors.append(f"{page}: {src!r} is not tracked by git")
+            if not tracked:
+                errors.append(f"{page}: {src!r} is not tracked by git")
+            # else: every commit was a skipped/mechanical change — no
+            # meaningful modification to compare against last_verified.
             continue
         if last > verified:
             errors.append(
