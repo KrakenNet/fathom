@@ -23,4 +23,4 @@ jobs:
         run: |
           uvx ruff@0.11.9 check --fix-only src/ tests/
           uvx ruff@0.11.9 format src/ tests/
-      - uses: autofix-ci/action@v1.3.2
+      - uses: autofix-ci/action@v1.3.4
