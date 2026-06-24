@@ -15,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-06-06
+last_verified: 2026-06-24
 ---
 
 # Planned Integrations
