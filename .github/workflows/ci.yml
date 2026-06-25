@@ -10,7 +10,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            # True when the PR changes anything that isn't pure documentation.
+            # Negation-only failure mode is safe: if dorny ignored the ``!`` patterns,
+            # ``**`` matches everything → ``code`` stays true → jobs run anyway. They
+            # only skip when every changed file is docs/markdown. ``docs`` (docs.yml)
+            # is intentionally NOT gated — it must run on docs-only PRs.
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!mkdocs.yml'
+              - '!LICENSE'
+
   test:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -127,6 +152,8 @@ jobs:
           fail_ci_if_error: false
 
   lint:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

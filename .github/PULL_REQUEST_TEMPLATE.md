@@ -17,6 +17,7 @@
 - [ ] `uv run mypy src/` passes
 - [ ] New tests added for new functionality
 - [ ] Documentation updated (if applicable)
+- [ ] All commits are signed off (DCO) — committed with `git commit -s`. If the `DCO` check fails, follow the remediation command it comments (no rebase needed).
 
 ## Related Issues
 
