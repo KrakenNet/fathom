@@ -20,4 +20,5 @@ repos:
     rev: v2.4.1
     hooks:
       - id: codespell
-        args: [--skip, "docs/reference/*,docs/llms*.txt,docs/changelog.json,docs/superpowers/*,uv.lock"]
+        # thirdParty is a required dcoapp config key (.github/dco.yml), not a typo.
+        args: [--skip, "docs/reference/*,docs/llms*.txt,docs/changelog.json,docs/superpowers/*,uv.lock", -L, thirdparty]

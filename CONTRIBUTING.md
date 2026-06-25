@@ -64,6 +64,16 @@ Use the [feature request template](https://github.com/KrakenNet/fathom/issues/ne
 4. Update documentation if you're changing public API
 5. Open a pull request
 
+### Sign-off (DCO)
+
+Every commit must be signed off, certifying you wrote the change (or have the right to submit it) under the project license. Add the sign-off line by committing with `-s`:
+
+```bash
+git commit -s -m "your message"
+```
+
+Forgot to sign off? You don't need to rewrite history — when the `DCO` check fails it comments the exact one-line command to push a remediation commit; just run it and push. (`git rebase --signoff origin/main` also works.)
+
 ## Project Structure
 
 ```
