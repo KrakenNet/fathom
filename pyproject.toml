@@ -79,7 +79,7 @@ openai-agents = [
     "openai-agents>=0.1",
 ]
 google-adk = [
-    "google-adk>=1.0",
+    "google-adk>=1.28.1",
 ]
 cli = [
     "typer[all]>=0.12",
