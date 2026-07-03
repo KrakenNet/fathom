@@ -1530,10 +1530,11 @@ full of YAML. After `pip install`, any process with Fathom installed can call
 
 ### Packs shipped with Fathom
 
-Fathom currently ships four first-party rule packs, registered under the same
+Fathom currently ships five first-party rule packs, registered under the same
 entry-point group in its own `pyproject.toml`:
 
 - `owasp-agentic`
+- `ssvc`
 - `nist-800-53`
 - `hipaa`
 - `cmmc`
