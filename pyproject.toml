@@ -48,8 +48,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://krakennet.github.io/fathom"
-Documentation = "https://krakennet.github.io/fathom"
+Homepage = "https://krakn.ai"
+Documentation = "https://fathom.krakn.ai"
 Repository = "https://github.com/KrakenNet/fathom"
 Changelog = "https://github.com/KrakenNet/fathom/blob/main/CHANGELOG.md"
 Issues = "https://github.com/KrakenNet/fathom/issues"
