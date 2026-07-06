@@ -20,3 +20,7 @@
 # package (the only gomarkdoc-generated surface) so link checking stays
 # real everywhere else.
 ^https://github\.com/KrakenNet/fathom/blob/main/packages/fathom-go/
+# docs/robots.txt cites the docs site's own sitemap at the custom subdomain,
+# which only resolves after the krakn.ai DNS + GitHub Pages custom domain go
+# live. The link checker cannot see the future; ignore the subdomain until then.
+^https://fathom\.krakn\.ai/
