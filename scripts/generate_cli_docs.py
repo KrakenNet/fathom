@@ -128,10 +128,10 @@ def main(out_dir: Path) -> int:
     from fathom.cli import app
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Typer stores the explicit name on CommandInfo.name; when registered via a
-    # bare @app.command() decorator, that is None and the CLI name is derived
-    # from the callback's __name__. Our six commands are single-word functions,
-    # so __name__ matches the Typer-rendered command name.
+    # Typer stores explicit command names, such as verify-artifact and
+    # verify-chain, on CommandInfo.name. Commands registered with a bare
+    # @app.command() decorator fall back to the callback __name__, which matches
+    # the rendered name for single-word commands.
     commands = sorted(
         (cmd.name or (cmd.callback.__name__ if cmd.callback else ""))
         for cmd in app.registered_commands

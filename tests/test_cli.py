@@ -1,6 +1,7 @@
 """Unit tests for the Fathom CLI commands.
 
-Tests all 6 subcommands: validate, compile, info, test, bench, repl.
+Covers the --version flag and the validate, compile, info, test, bench, and
+repl subcommands.
 Uses typer.testing.CliRunner for subprocess-free invocation.
 
 Some commands (info, test, bench) use Engine.from_rules which hits pre-existing
