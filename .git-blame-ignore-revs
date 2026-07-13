@@ -31,4 +31,4 @@ b05d303374472c0e1223b13f48240b3694d1ef29
 # Bump version from 0.3.0 to 0.3.1 — single-line pyproject.toml edit.
 1755745056ea0e81f9c69655794cafc12bbcb91a
 
-ca6d8a20f9089d9260050aa0fbf8cfbbc5dcacef  # chore(seo): pyproject [project.urls] krakn.ai/docs backlinks — metadata only, no behavior change
+4ee6c4cfdb1b5b8f259682417c5fa747b77ae5db  # chore(seo): pyproject [project.urls] krakn.ai/docs backlinks (#173) — metadata only, no behavior change (post-squash SHA)
