@@ -2,10 +2,12 @@
 
 .PHONY: init docs-gen docs-gen-foreign docs-build docs-serve docs-lint docs-clean docs-check
 
-# One-command dev setup: install deps + pre-commit hooks.
+# One-command dev setup: install deps + pre-commit hooks (incl. the
+# prepare-commit-msg stage that auto-adds the DCO sign-off).
 init:
 	uv sync
-	uv run pre-commit install
+	uv run pre-commit install --hook-type pre-commit --hook-type prepare-commit-msg
+	chmod +x scripts/dco_signoff.sh
 
 # Generators - native Python, run in every environment.
 docs-gen:
