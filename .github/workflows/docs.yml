@@ -130,9 +130,12 @@ jobs:
         continue-on-error: true
         run: uv run python scripts/check_doc_sources.py
 
-      - name: Markdown lint (advisory)
-        continue-on-error: true
-        uses: DavidAnson/markdownlint-cli2-action@v23
+      - name: Tutorial snippet verification
+        run: uv run python scripts/verify_tutorial_snippets.py docs/tutorials
+        if: hashFiles('docs/tutorials/*.md') != ''
+
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v24.0.0
         with:
           globs: |
             docs/**/*.md
