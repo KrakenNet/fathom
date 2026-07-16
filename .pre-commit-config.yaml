@@ -22,3 +22,14 @@ repos:
       - id: codespell
         # thirdParty is a required dcoapp config key (.github/dco.yml), not a typo.
         args: [--skip, "docs/reference/*,docs/llms*.txt,docs/changelog.json,docs/superpowers/*,uv.lock", -L, thirdparty]
+
+  - repo: local
+    hooks:
+      # Auto-append a DCO Signed-off-by trailer so commits never trip the DCO
+      # check. Installed by `make init` (needs the prepare-commit-msg stage).
+      - id: dco-signoff
+        name: DCO Signed-off-by
+        entry: scripts/dco_signoff.sh
+        language: script
+        stages: [prepare-commit-msg]
+        always_run: true

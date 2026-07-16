@@ -1,0 +1,35 @@
+name: dependabot-auto-approve
+
+# Auto-approves dependabot patch/minor PRs so they satisfy main's "1
+# approving review" branch-protection rule, letting dependabot-auto-merge.yml
+# complete without a manual click.
+#
+# This ONLY ever approves dependabot[bot]'s own PRs. Human PRs — including
+# those from write-collaborators — still require a real review, so required
+# reviews stay in force as a governance gate. Majors are left for manual
+# review. github-actions[bot] approving dependabot[bot]'s PR is a distinct
+# identity, so the approval counts (repo setting
+# "Allow GitHub Actions to create and approve pull requests" is enabled).
+
+on: pull_request
+
+permissions:
+  pull-requests: write
+
+jobs:
+  auto-approve:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Fetch dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve patch/minor
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

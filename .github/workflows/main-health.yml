@@ -1,0 +1,45 @@
+name: main-health
+
+# Opens (or updates) a tracking issue when a required workflow fails on
+# main, so a red main can't sit unnoticed and silently poison every open PR
+# (it once stayed red for 6 days). Uses workflow_run so it fires after the
+# real CI workflows finish on a push to main.
+on:
+  workflow_run:
+    workflows: [CI, docs, go-ci, ts-ci]
+    types: [completed]
+
+permissions:
+  issues: write
+
+jobs:
+  alert:
+    # Only main pushes, only failures.
+    if: >
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          WF: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          title="main is red: ${WF} failed"
+          # Idempotent label (create once, ignore if present).
+          gh label create main-health --color b60205 \
+            --description "main branch is failing CI" 2>/dev/null || true
+          existing="$(gh issue list --state open --label main-health \
+            --search "in:title ${WF} failed" --json number,title \
+            --jq ".[] | select(.title == \"${title}\") | .number" | head -1)"
+          note="Workflow **${WF}** failed on \`main\` at ${SHA} — ${RUN_URL}"$'\n\n'"A red main blocks and poisons every open PR. Fix forward or revert."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still failing: ${RUN_URL} (${SHA})"
+          else
+            gh issue create --title "$title" --label main-health --body "$note"
+          fi
