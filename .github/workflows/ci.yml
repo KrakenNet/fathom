@@ -129,7 +129,7 @@ jobs:
 
       - name: Install Node (test_ts_sdk_docs.py, test_postman.py)
         if: runner.os == 'Linux'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
 
