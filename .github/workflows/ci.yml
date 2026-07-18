@@ -81,7 +81,7 @@ jobs:
 
       - name: Set up Go (test_go_sdk_docs.py)
         if: runner.os == 'Linux'
-        uses: actions/setup-go@v6.5.0
+        uses: actions/setup-go@v7
         with:
           go-version-file: packages/fathom-go/go.mod
 
