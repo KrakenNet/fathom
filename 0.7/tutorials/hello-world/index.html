@@ -628,10 +628,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-define-a-rule" class="md-nav__link">
+  <a href="#3-define-a-module" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Define a rule
+        3. Define a module
       
     </span>
   </a>
@@ -639,10 +639,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-load-and-evaluate" class="md-nav__link">
+  <a href="#4-define-a-rule" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Load and evaluate
+        4. Define a rule
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-load-and-evaluate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Load and evaluate
       
     </span>
   </a>
@@ -2340,10 +2351,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-define-a-rule" class="md-nav__link">
+  <a href="#3-define-a-module" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Define a rule
+        3. Define a module
       
     </span>
   </a>
@@ -2351,10 +2362,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-load-and-evaluate" class="md-nav__link">
+  <a href="#4-define-a-rule" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Load and evaluate
+        4. Define a rule
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-load-and-evaluate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Load and evaluate
       
     </span>
   </a>
@@ -2424,32 +2446,46 @@ pip install fathom-rules
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        required: true
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        allowed_values: [public, confidential, secret]
 </code></pre></div></p>
-<h2 id="3-define-a-rule">3. Define a rule<a class="headerlink" href="#3-define-a-rule" title="Permanent link">&para;</a></h2>
+<h2 id="3-define-a-module">3. Define a module<a class="headerlink" href="#3-define-a-module" title="Permanent link">&para;</a></h2>
+<p>Rules in Fathom must belong to a named module so that the engine knows how to prioritize them.
+<code>Compiler.compile_module</code> (in <code>src/fathom/compiler.py</code>) emits the CLIPS <code>defmodule</code> construct; modules are
+loaded into the engine with <code>Engine.load_modules</code>.</p>
+<p>Save as <code>modules.yaml</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">modules</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">governance</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Access-control governance layer</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">focus_order</span><span class="p">:</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">governance</span>
+</code></pre></div></p>
+<h2 id="4-define-a-rule">4. Define a rule<a class="headerlink" href="#4-define-a-rule" title="Permanent link">&para;</a></h2>
 <p>Save this as <code>rules.yaml</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">ruleset</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1.0&quot;</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MAIN</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-public</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">when</span><span class="p">:</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">agent</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">        </span><span class="nt">conditions</span><span class="p">:</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">slot</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">clearance</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">            </span><span class="nt">expression</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;==</span><span class="nv"> </span><span class="s">public&quot;</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">then</span><span class="p">:</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">      </span><span class="nt">action</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">ruleset</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1.0&quot;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">governance</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-public</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">when</span><span class="p">:</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">agent</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">        </span><span class="nt">conditions</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">slot</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">clearance</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">            </span><span class="nt">expression</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;equals(public)&quot;</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">then</span><span class="p">:</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">      </span><span class="nt">action</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow</span>
 </code></pre></div>
-<h2 id="4-load-and-evaluate">4. Load and evaluate<a class="headerlink" href="#4-load-and-evaluate" title="Permanent link">&para;</a></h2>
-<p>```python no-verify
-from fathom.engine import Engine</p>
-<p>engine = Engine()
-engine.load_templates("agent.yaml")
-engine.load_rules("rules.yaml")</p>
-<p>engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
-result = engine.evaluate()</p>
-<p>print(result.decision)      # -&gt; "allow"
-print(result.rule_trace)    # -&gt; ["allow-public"]
-```</p>
+<h2 id="5-load-and-evaluate">5. Load and evaluate<a class="headerlink" href="#5-load-and-evaluate" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fathom.engine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Engine</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_templates</span><span class="p">(</span><span class="s2">&quot;agent.yaml&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_modules</span><span class="p">(</span><span class="s2">&quot;modules.yaml&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">engine</span><span class="o">.</span><span class="n">load_rules</span><span class="p">(</span><span class="s2">&quot;rules.yaml&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">engine</span><span class="o">.</span><span class="n">assert_fact</span><span class="p">(</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;a-1&quot;</span><span class="p">,</span> <span class="s2">&quot;clearance&quot;</span><span class="p">:</span> <span class="s2">&quot;public&quot;</span><span class="p">})</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">decision</span><span class="p">)</span>      <span class="c1"># -&gt; &quot;allow&quot;</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">rule_trace</span><span class="p">)</span>    <span class="c1"># -&gt; [governance::&quot;allow-public&quot;]</span>
+</code></pre></div>
 <p>The <code>no-verify</code> tag skips snippet execution because the install step and file paths aren't part of the test harness. The engine calls themselves are verified in <a href="../working-memory/">working memory</a>, which builds on this example with a real in-memory path.</p>
 <h2 id="what-just-happened">What just happened?<a class="headerlink" href="#what-just-happened" title="Permanent link">&para;</a></h2>
 <ul>
