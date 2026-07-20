@@ -38,39 +38,56 @@ templates:
         allowed_values: [public, confidential, secret]
 ```
 
-## 3. Define a rule
+## 3. Define a module
+
+
+Rules in Fathom must belong to a named module so that the engine knows how to prioritize them.
+`Compiler.compile_module` (in `src/fathom/compiler.py`) emits the CLIPS `defmodule` construct; modules are
+loaded into the engine with `Engine.load_modules`.
+
+Save as `modules.yaml`:
+```yaml
+modules:
+  - name: governance
+    description: Access-control governance layer
+focus_order:
+  - governance
+```
+
+## 4. Define a rule
 
 Save this as `rules.yaml`:
 
 ```yaml
 ruleset: demo
 version: "1.0"
-module: MAIN
+module: governance
 rules:
   - name: allow-public
     when:
       - template: agent
         conditions:
           - slot: clearance
-            expression: "== public"
+            expression: "equals(public)"
     then:
       action: allow
 ```
 
-## 4. Load and evaluate
+## 5. Load and evaluate
 
-```python no-verify
+```python
 from fathom.engine import Engine
 
 engine = Engine()
 engine.load_templates("agent.yaml")
+engine.load_modules("modules.yaml")
 engine.load_rules("rules.yaml")
 
 engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
 result = engine.evaluate()
 
 print(result.decision)      # -> "allow"
-print(result.rule_trace)    # -> ["allow-public"]
+print(result.rule_trace)    # -> [governance::"allow-public"]
 ```
 
 The `no-verify` tag skips snippet execution because the install step and file paths aren't part of the test harness. The engine calls themselves are verified in [working memory](working-memory.md), which builds on this example with a real in-memory path.
