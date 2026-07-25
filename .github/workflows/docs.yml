@@ -135,7 +135,7 @@ jobs:
         if: hashFiles('docs/tutorials/*.md') != ''
 
       - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@v24.0.0
+        uses: DavidAnson/markdownlint-cli2-action@v24.1.0
         with:
           globs: |
             docs/**/*.md
