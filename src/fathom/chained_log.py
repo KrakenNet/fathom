@@ -182,8 +182,12 @@ def _scan(
                 obj = json.loads(line)
             except ValueError:
                 return _fail(f"malformed line {lineno}: invalid JSON (torn write?)", lineno)
-            if not isinstance(obj, dict) or not _LINE_FIELDS.issubset(obj):
-                return _fail(f"malformed line {lineno}: missing chain fields", lineno)
+            if not isinstance(obj, dict) or set(obj) != _LINE_FIELDS:
+                return _fail(
+                    f"malformed line {lineno}: line fields must be exactly "
+                    f"{sorted(_LINE_FIELDS)}",
+                    lineno,
+                )
             if obj["v"] != FORMAT_VERSION:
                 return _fail(
                     f"unsupported format version {obj['v']!r} at line {lineno} "
@@ -552,6 +556,21 @@ def verify_chain(
             error_line=state.error_line,
             anchor_ok=None,
             log_id=state.log_id,
+        )
+
+    if state.count == 0:
+        # A nonempty log always opens with a mandatory genesis record, so
+        # zero lines means the log is missing or was wiped — never a valid
+        # chain. Reporting ok=True here would green-light a deleted log.
+        return ChainVerification(
+            ok=False,
+            count=0,
+            head_seq=None,
+            head_sha256=None,
+            error="log is empty or missing: no genesis record",
+            error_line=None,
+            anchor_ok=None,
+            log_id=None,
         )
 
     anchor_supplied = anchor_token is not None or expected_head is not None
