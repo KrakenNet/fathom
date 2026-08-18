@@ -7,6 +7,7 @@ remain descendants of the root.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -41,7 +42,8 @@ def resolve_ruleset(root: str, user_path: str) -> Path:
 
     try:
         resolved = (root_path / candidate).resolve(strict=False)
-        resolved.relative_to(root_path)
+        if os.path.commonpath([str(root_path), str(resolved)]) != str(root_path):
+            raise PathJailError("invalid ruleset path")
     except (ValueError, OSError):
         raise PathJailError("invalid ruleset path") from None
     return resolved

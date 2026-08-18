@@ -22,6 +22,7 @@ Studio is closed: an unconfigured deployment exposes nothing.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from fastapi import Header, HTTPException, Request
@@ -63,10 +64,14 @@ def require_auth(
 def grant_cookie(response: Response, token: str) -> bool:
     """Set :data:`TOKEN_COOKIE` on *response* when *token* is the real token.
 
-    Returns whether the grant was made. The cookie value is the token itself —
-    no new secret is minted — so it is ``HttpOnly`` and ``SameSite=strict``.
+    Returns whether the grant was made. The cookie value is the configured
+    ``FATHOM_API_TOKEN`` (trusted server-side state), so it is ``HttpOnly`` and
+    ``SameSite=strict``.
     """
     if not verify_token(f"Bearer {token}"):
         return False
-    response.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="strict")
+    configured_token = os.environ.get("FATHOM_API_TOKEN", "")
+    if not configured_token:
+        return False
+    response.set_cookie(TOKEN_COOKIE, configured_token, httponly=True, samesite="strict")
     return True

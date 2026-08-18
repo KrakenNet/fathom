@@ -349,8 +349,8 @@ async def audit_verify(body: _VerifyIn) -> dict[str, Any]:
         return {"verified": False, "error": "attestation extra not installed"}
     try:
         claims = verify_token(body.signature, _attestation().public_key)
-    except AttestationError as exc:
-        return {"verified": False, "error": str(exc)}
+    except AttestationError:
+        return {"verified": False, "error": "signature verification failed"}
     return {"verified": True, "claims": claims}
 
 

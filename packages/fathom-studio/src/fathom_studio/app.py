@@ -109,7 +109,7 @@ def main() -> None:
     args = parser.parse_args()
     token = os.environ.get("FATHOM_API_TOKEN", "")
     if token:
-        print(f"Studio ready: http://{args.host}:{args.port}/?{TOKEN_QUERY_PARAM}={token}")
+        print(f"Studio ready: http://{args.host}:{args.port}/?{TOKEN_QUERY_PARAM}=<redacted>")
     else:
         print("FATHOM_API_TOKEN is not set; the Studio will refuse every gated route.")
     uvicorn.run(app, host=args.host, port=args.port)
