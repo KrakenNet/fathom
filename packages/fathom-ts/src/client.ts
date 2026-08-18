@@ -147,8 +147,14 @@ export class FathomClient {
   private readonly headers: Record<string, string>;
 
   constructor(options: FathomClientOptions) {
-    // Strip trailing slash for consistent URL construction.
-    this.baseURL = options.baseURL.replace(/\/+$/, "");
+    // Strip trailing slashes for consistent URL construction. Done with a
+    // loop, not /\/+$/: an anchored `+` backtracks polynomially, so a baseURL
+    // ending in many slashes turns construction into a stall (js/polynomial-redos).
+    let base = options.baseURL;
+    while (base.endsWith("/")) {
+      base = base.slice(0, -1);
+    }
+    this.baseURL = base;
     this.headers = {
       "Content-Type": "application/json",
       ...options.headers,
