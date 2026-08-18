@@ -30,20 +30,20 @@ restart, via `POST /v1/rules/reload`. Each reload:
   `ruleset_reload_rejected` on failure) carrying the
   `ruleset_hash_before`/`ruleset_hash_after` pair.
 
-!!! warning "A reload discards all working memory"
+## Warning: a reload discards all working memory
 
-    The new ruleset is compiled into a **fresh** CLIPS environment, and that
-    environment starts empty. Every fact in working memory at the moment of
-    the swap is gone — session facts, fleet facts synced from the shared
-    store, and any long-lived facts the caller asserted at startup. Fact TTL
-    timestamps are cleared with them.
+The new ruleset is compiled into a **fresh** CLIPS environment, and that
+environment starts empty. Every fact in working memory at the moment of the
+swap is gone — session facts, fleet facts synced from the shared store, and any
+long-lived facts the caller asserted at startup. Fact TTL timestamps are
+cleared with them.
 
-    A failed reload changes nothing: the old environment keeps serving, so
-    working memory survives. Only a *successful* swap wipes it.
+A failed reload changes nothing: the old environment keeps serving, so working
+memory survives. Only a *successful* swap wipes it.
 
-    Plan for this. Re-assert startup facts from a reload listener, re-run
-    `FleetEngine.sync_fleet_facts` for fleet-scoped state, and expect
-    session callers to re-seed anything they asserted before the reload.
+Plan for this. Re-assert startup facts from a reload listener, re-run
+`FleetEngine.sync_fleet_facts` for fleet-scoped state, and expect session
+callers to re-seed anything they asserted before the reload.
 
 This how-to covers how to sign a ruleset, wire up the deployment
 config, use the dev escape during development, monitor the live
