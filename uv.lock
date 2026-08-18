@@ -9,6 +9,10 @@ resolution-markers = [
 ]
 
 [manifest]
+members = [
+    "fathom-rules",
+    "fathom-studio",
+]
 overrides = [{ name = "json-repair", specifier = ">=0.60.1" }]
 
 [[package]]
@@ -931,6 +935,7 @@ server = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fathom-studio" },
     { name = "httpx" },
     { name = "hypothesis" },
     { name = "mkdocs-material" },
@@ -992,6 +997,7 @@ provides-extras = ["server", "mcp", "attestation", "langchain", "crewai", "opena
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fathom-studio", editable = "packages/fathom-studio" },
     { name = "httpx", specifier = ">=0.24" },
     { name = "hypothesis", specifier = ">=6.0" },
     { name = "mkdocs-material", specifier = ">=9.5" },
@@ -1006,6 +1012,32 @@ dev = [
     { name = "typer", extras = ["all"], specifier = ">=0.12" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260408" },
 ]
+
+[[package]]
+name = "fathom-studio"
+version = "0.1.0"
+source = { editable = "packages/fathom-studio" }
+dependencies = [
+    { name = "fathom-rules", extra = ["attestation", "server"] },
+    { name = "httpx" },
+    { name = "jinja2" },
+    { name = "python-multipart" },
+]
+
+[package.optional-dependencies]
+langchain = [
+    { name = "fathom-rules", extra = ["langchain"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fathom-rules", extras = ["langchain"], marker = "extra == 'langchain'", editable = "." },
+    { name = "fathom-rules", extras = ["server", "attestation"], editable = "." },
+    { name = "httpx", specifier = ">=0.24" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+]
+provides-extras = ["langchain"]
 
 [[package]]
 name = "filelock"

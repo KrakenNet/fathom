@@ -23,10 +23,9 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from fathom.integrations.rest import app as rest_app
 from httpx import ASGITransport
 from starlette.middleware.base import BaseHTTPMiddleware
-
-from fathom.integrations.rest import app as rest_app
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence

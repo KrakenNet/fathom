@@ -1,0 +1,6 @@
+modules:
+  - name: blp
+    description: "Bell-LaPadula multi-level security with compartments"
+
+focus_order:
+  - blp

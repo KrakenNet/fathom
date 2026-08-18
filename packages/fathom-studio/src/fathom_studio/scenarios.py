@@ -28,7 +28,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from fathom.studio.sessions import post_evaluate
+from fathom_studio.sessions import post_evaluate
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -72,7 +72,9 @@ def _now_logins(
     ]
 
 
-#: The five seedable scenarios, one per ``examples/0N-*`` directory.
+#: The seedable scenarios across the five ``examples/0N-*`` rulesets: a deny
+#: demo per directory, plus allow-path companions for 01/02/03/05 so the Bench
+#: and Live Wire exercise both outcomes against the real engine.
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         id="01-hello-allow-deny",
@@ -90,6 +92,26 @@ SCENARIOS: tuple[Scenario, ...] = (
                     "agent_id": "carol",
                     "classification": "secret",
                     "resource": "hr_records",
+                },
+            ),
+        ],
+    ),
+    Scenario(
+        id="01-allow-top-secret",
+        title="01 · Top-secret read (allow)",
+        description=(
+            "Clearance dominates classification: a top-secret agent reading "
+            "secret data is allowed (allow-top-secret-reads-anything)."
+        ),
+        ruleset="01-hello-allow-deny",
+        facts=lambda: [
+            ("agent", {"id": "dana", "clearance": "top-secret"}),
+            (
+                "data_request",
+                {
+                    "agent_id": "dana",
+                    "classification": "secret",
+                    "resource": "intel_brief",
                 },
             ),
         ],
@@ -116,6 +138,27 @@ SCENARIOS: tuple[Scenario, ...] = (
         ],
     ),
     Scenario(
+        id="02-allow-admin",
+        title="02 · Admin override (allow)",
+        description=(
+            "Role grant beats sensitivity: an admin reading a confidential "
+            "resource is allowed (admin role permits any action)."
+        ),
+        ruleset="02-rbac-modules",
+        facts=lambda: [
+            ("user", {"id": "frank", "role": "admin"}),
+            (
+                "action",
+                {
+                    "user_id": "frank",
+                    "verb": "read",
+                    "resource": "salary_sheet",
+                    "sensitivity": "confidential",
+                },
+            ),
+        ],
+    ),
+    Scenario(
         id="03-classification-blp",
         title="03 · Bell-LaPadula",
         description=(
@@ -132,6 +175,26 @@ SCENARIOS: tuple[Scenario, ...] = (
             (
                 "access_request",
                 {"subject_id": "bob", "object_id": "intel-01", "mode": "read"},
+            ),
+        ],
+    ),
+    Scenario(
+        id="03-allow-read-down",
+        title="03 · Read-down (allow)",
+        description=(
+            "No write-down concern on read: a secret subject reading a "
+            "confidential object is allowed (clearance dominates)."
+        ),
+        ruleset="03-classification-blp",
+        facts=lambda: [
+            ("subject", {"id": "sue", "clearance": "secret", "compartments": ""}),
+            (
+                "resource",
+                {"id": "memo-07", "classification": "confidential", "compartments": ""},
+            ),
+            (
+                "access_request",
+                {"subject_id": "sue", "object_id": "memo-07", "mode": "read"},
             ),
         ],
     ),
@@ -161,6 +224,26 @@ SCENARIOS: tuple[Scenario, ...] = (
                     "agent_id": "agent-admin",
                     "tool_name": "shell_exec",
                     "arguments": "rm -rf /",
+                },
+            ),
+        ],
+    ),
+    Scenario(
+        id="05-allow-readonly",
+        title="05 · Read-only tool (allow)",
+        description=(
+            "Guardrail allow path: a basic-tier agent invoking a read-only "
+            "web_search tool is permitted (allow-readonly-tools)."
+        ),
+        ruleset="05-langchain-guardrails",
+        facts=lambda: [
+            ("agent", {"id": "agent-basic", "trust_tier": "basic"}),
+            (
+                "tool_request",
+                {
+                    "agent_id": "agent-basic",
+                    "tool_name": "web_search",
+                    "arguments": "latest CVE advisories",
                 },
             ),
         ],

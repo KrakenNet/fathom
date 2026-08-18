@@ -1,0 +1,30 @@
+templates:
+  # TTL: events older than 60s are auto-retracted by cleanup_expired().
+  - name: login_attempt
+    ttl: 60
+    slots:
+      - name: user
+        type: string
+        required: true
+      - name: ip
+        type: string
+        required: true
+      - name: outcome
+        type: symbol
+        allowed_values: [success, failure]
+        required: true
+      - name: ts
+        type: float
+        required: true
+
+  - name: session
+    slots:
+      - name: user
+        type: string
+        required: true
+      - name: action
+        type: symbol
+        required: true
+      - name: ts
+        type: float
+        required: true

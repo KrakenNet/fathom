@@ -1,0 +1,6 @@
+modules:
+  - name: guardrails
+    description: "Tool-call guardrails for LangChain agents"
+
+focus_order:
+  - guardrails

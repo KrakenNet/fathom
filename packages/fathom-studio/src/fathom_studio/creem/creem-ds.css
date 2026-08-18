@@ -1,0 +1,175 @@
+/* ============================================================================
+   Fathom × creem — design system  (corrected: playful soft-brutalism)
+   Near-white canvas · solid black outlines + HARD offset shadows (no blur) ·
+   chunky tight display type · hand-drawn scribble · rounded-rect buttons.
+   Green is the one accent (restrained); black is the structural color.
+   Class prefix: .ds-*   ·   theme via [data-theme="light|dark"] on <html>
+   ============================================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --ds-font:'Hanken Grotesk', system-ui, sans-serif;
+  --ds-display:'Bricolage Grotesque', system-ui, sans-serif;
+  --ds-mono:'JetBrains Mono', ui-monospace, monospace;
+
+  /* radii — cards round, BUTTONS are rounded-rect (not pills); pills for tags */
+  --ds-r-xs:8px; --ds-r-sm:11px; --ds-r:15px; --ds-r-lg:20px; --ds-r-xl:26px; --ds-pill:999px;
+
+  --ds-accent:#1F8A5B;      /* green — the one accent */
+  --ds-allow:#1F8A5B;
+  --ds-deny:#E0503F;
+  --ds-escalate:#E8943A;
+  /* creem's playful blocks — used sparingly (styleguide / decorative) */
+  --ds-lav:#A78BF7; --ds-peach:#F6A875; --ds-grass:#5BCE83;
+
+  --ds-gap:14px; --ds-pad:18px;
+}
+
+/* ---- LIGHT — near-white, black structure ------------------------------ */
+:root, [data-theme="light"]{
+  --ds-canvas:#F3F1EA;
+  --ds-surface:#FBFAF5;
+  --ds-paper:#FFFFFF;
+  --ds-sunk:#EFECE1;
+  --ds-ink:#16130C;
+  --ds-ink-2:#5B564A;
+  --ds-ink-3:#938D7D;
+  --ds-border:#16130C;       /* the brutalist outline (black) */
+  --ds-line-soft:#E3DFD2;    /* subtle internal hairlines */
+  --ds-dark:#16130C;         /* dark surface/button */
+  --ds-dark-ink:#F6F1E4;
+  --ds-accent-wash:#E2F0E7;
+  --ds-on-accent:#FFFFFF;
+  --ds-shadow-color:#16130C;
+  --ds-hard-sm:2px 2px 0 var(--ds-shadow-color);
+  --ds-hard:4px 4px 0 var(--ds-shadow-color);
+  --ds-hard-lg:6px 6px 0 var(--ds-shadow-color);
+}
+
+/* ---- DARK — warm charcoal, light outlines ----------------------------- */
+[data-theme="dark"]{
+  --ds-canvas:#14120C;
+  --ds-surface:#1C1910;
+  --ds-paper:#211D13;
+  --ds-sunk:#181408;
+  --ds-ink:#F4ECDB;
+  --ds-ink-2:#ADA48E;
+  --ds-ink-3:#746C5A;
+  --ds-border:#F4ECDB;       /* light outline on dark */
+  --ds-line-soft:#2D2718;
+  --ds-dark:#000000;
+  --ds-dark-ink:#F4ECDB;
+  --ds-accent:#2EA56E;
+  --ds-allow:#2EA56E;
+  --ds-accent-wash:#17291F;
+  --ds-on-accent:#0C0F0B;
+  --ds-shadow-color:#000000;
+  --ds-hard-sm:2px 2px 0 var(--ds-shadow-color);
+  --ds-hard:4px 4px 0 var(--ds-shadow-color);
+  --ds-hard-lg:6px 6px 0 var(--ds-shadow-color);
+}
+
+/* ===================== BASE ===================== */
+*{box-sizing:border-box;}
+.ds-root, body.ds{
+  margin:0; background:var(--ds-canvas); color:var(--ds-ink);
+  font-family:var(--ds-font); font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.ds-mono{font-family:var(--ds-mono);}
+
+/* display: heavy, tight, chunky */
+.ds-display{font-family:var(--ds-display);font-weight:800;letter-spacing:-.02em;line-height:.96;color:var(--ds-ink);margin:0;}
+.ds-h1{font-family:var(--ds-display);font-weight:800;letter-spacing:-.018em;line-height:1.0;font-size:34px;margin:0;}
+.ds-h2{font-family:var(--ds-display);font-weight:800;letter-spacing:-.015em;line-height:1.04;font-size:24px;margin:0;}
+.ds-h3{font-family:var(--ds-display);font-weight:700;letter-spacing:-.01em;font-size:17px;margin:0;}
+.ds-lead{font-family:var(--ds-font);font-size:16px;color:var(--ds-ink-2);line-height:1.5;max-width:60ch;}
+.ds-eyebrow{font-family:var(--ds-font);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ds-ink-3);display:inline-flex;align-items:center;gap:8px;}
+.ds-eyebrow::before{content:"";width:14px;height:2px;border-radius:2px;background:var(--ds-accent);}
+/* outlined-pill eyebrow (creem section labels) */
+.ds-eyebrow--pill{border:1.5px solid var(--ds-border);border-radius:var(--ds-pill);padding:6px 14px;color:var(--ds-ink);background:var(--ds-paper);}
+.ds-eyebrow--pill::before{display:none;}
+
+/* scribble underline — hand-drawn, accent green */
+.ds-scribble{display:inline-block;position:relative;white-space:nowrap;}
+.ds-scribble > svg{position:absolute;left:-2%;right:-2%;bottom:-.32em;width:104%;height:.4em;color:var(--ds-accent);overflow:visible;pointer-events:none;}
+.ds-scribble.is-peach > svg{color:var(--ds-peach);}
+
+/* ===================== BUTTONS (rounded-rect + hard shadow) ============= */
+.ds-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border:2px solid var(--ds-border);border-radius:var(--ds-r-sm);
+  font-family:var(--ds-font);font-weight:700;letter-spacing:-.01em;font-size:14px;
+  padding:9px 18px;cursor:pointer;line-height:1;background:var(--ds-paper);color:var(--ds-ink);white-space:nowrap;
+  box-shadow:var(--ds-hard-sm);
+  transition:transform .1s ease, box-shadow .1s ease, background .14s, color .14s;
+}
+.ds-btn:hover{transform:translate(-1px,-1px);box-shadow:var(--ds-hard);}
+.ds-btn:active{transform:translate(1px,1px);box-shadow:0 0 0 var(--ds-shadow-color);}
+.ds-btn--primary{background:var(--ds-accent);color:var(--ds-on-accent);}
+.ds-btn--dark{background:var(--ds-dark);color:var(--ds-dark-ink);}
+.ds-btn--ghost{background:var(--ds-paper);color:var(--ds-ink);}
+.ds-btn--soft{background:var(--ds-accent-wash);color:var(--ds-accent);}
+.ds-btn--lg{padding:12px 24px;font-size:15px;border-radius:var(--ds-r);}
+.ds-btn--sm{padding:6px 13px;font-size:12.5px;box-shadow:var(--ds-hard-sm);}
+.ds-btn--cta{text-transform:uppercase;letter-spacing:.04em;font-weight:800;}
+.ds-btn:disabled{opacity:.45;cursor:default;transform:none;box-shadow:var(--ds-hard-sm);}
+
+/* ===================== CARDS / SURFACES ================================= */
+.ds-card{background:var(--ds-paper);border:2px solid var(--ds-border);border-radius:var(--ds-r-lg);box-shadow:var(--ds-hard);}
+.ds-card--flat{box-shadow:none;}
+.ds-tray{background:var(--ds-sunk);border:2px solid var(--ds-border);border-radius:var(--ds-r);}
+.ds-paper{background:var(--ds-paper);border:2px solid var(--ds-border);border-radius:var(--ds-r-sm);}
+.ds-divider{height:2px;background:var(--ds-border);border:0;border-radius:2px;}
+.ds-dot-divider{height:0;border:0;border-top:2px dotted var(--ds-line-soft);}
+
+/* color blocks (decorative, sparing) */
+.ds-block{border:2px solid var(--ds-border);border-radius:var(--ds-r);}
+.ds-block--lav{background:var(--ds-lav);} .ds-block--peach{background:var(--ds-peach);} .ds-block--grass{background:var(--ds-grass);}
+
+/* ===================== PILLS / CHIPS / TAGS ============================= */
+.ds-chip{display:inline-flex;align-items:center;gap:7px;background:var(--ds-paper);border:1.5px solid var(--ds-border);border-radius:var(--ds-pill);padding:7px 14px;font-family:var(--ds-font);font-weight:700;font-size:13px;color:var(--ds-ink);cursor:pointer;transition:.12s;white-space:nowrap;}
+.ds-chip:hover{transform:translate(-1px,-1px);box-shadow:var(--ds-hard-sm);}
+.ds-chip.is-on{background:var(--ds-ink);color:var(--ds-canvas);}
+
+.ds-tag{font-family:var(--ds-mono);font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:var(--ds-pill);background:var(--ds-paper);border:1.5px solid var(--ds-border);color:var(--ds-ink);}
+
+/* decision pills — bordered, bold */
+.ds-decision{display:inline-flex;align-items:center;gap:6px;font-family:var(--ds-display);font-weight:800;letter-spacing:.01em;border-radius:var(--ds-pill);line-height:1;font-size:12px;padding:5px 12px 5px 10px;border:1.5px solid;}
+.ds-decision svg{width:14px;height:14px;}
+.ds-decision--lg{font-size:17px;padding:9px 18px 9px 14px;}
+.ds-decision--lg svg{width:19px;height:19px;}
+.ds-decision--sm{font-size:10.5px;padding:3px 10px 3px 8px;}
+.ds-allow{background:color-mix(in oklab,var(--ds-allow) 16%,var(--ds-paper));color:var(--ds-allow);border-color:var(--ds-allow);}
+.ds-deny{background:color-mix(in oklab,var(--ds-deny) 16%,var(--ds-paper));color:var(--ds-deny);border-color:var(--ds-deny);}
+.ds-escalate{background:color-mix(in oklab,var(--ds-escalate) 18%,var(--ds-paper));color:var(--ds-escalate);border-color:var(--ds-escalate);}
+
+/* ===================== FORM CONTROLS =================================== */
+.ds-input,.ds-select{
+  width:100%;background:var(--ds-surface);border:2px solid var(--ds-border);border-radius:var(--ds-r-sm);
+  padding:9px 12px;font-family:var(--ds-font);font-size:13.5px;font-weight:500;color:var(--ds-ink);transition:.12s;
+}
+.ds-input::placeholder{color:var(--ds-ink-3);}
+.ds-input:focus,.ds-select:focus{outline:none;box-shadow:var(--ds-hard-sm);}
+.ds-input.ds-mono{font-family:var(--ds-mono);font-size:12.5px;}
+.ds-select{appearance:none;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--ds-ink) 50%),linear-gradient(135deg,var(--ds-ink) 50%,transparent 50%);background-position:calc(100% - 17px) 17px,calc(100% - 12px) 17px;background-size:5px 5px;background-repeat:no-repeat;padding-right:32px;}
+
+.ds-seg{display:inline-flex;background:var(--ds-paper);border:2px solid var(--ds-border);border-radius:var(--ds-pill);padding:3px;gap:2px;}
+.ds-seg button{border:0;background:transparent;color:var(--ds-ink-2);font-family:var(--ds-font);font-weight:700;font-size:12.5px;padding:6px 14px;border-radius:var(--ds-pill);cursor:pointer;transition:.12s;}
+.ds-seg button.is-on{background:var(--ds-ink);color:var(--ds-canvas);}
+
+.ds-toggle{width:42px;height:24px;border-radius:var(--ds-pill);border:2px solid var(--ds-border);background:var(--ds-paper);position:relative;cursor:pointer;transition:.16s;flex-shrink:0;}
+.ds-toggle.is-on{background:var(--ds-accent);}
+.ds-toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ds-border);transition:.16s;}
+.ds-toggle.is-on::after{left:20px;background:var(--ds-on-accent);}
+
+/* ===================== CODE / YAML ===================================== */
+.ds-yaml{background:var(--ds-surface);border:2px solid var(--ds-border);border-radius:var(--ds-r-sm);box-shadow:var(--ds-hard-sm);padding:14px 16px;margin:0;overflow:auto;font-family:var(--ds-mono);font-size:12px;line-height:1.7;color:var(--ds-ink-2);}
+.ds-yaml .y-key,.y-key{color:var(--ds-ink);font-weight:600;}
+.ds-yaml .y-str,.y-str{color:var(--ds-allow);}
+.ds-yaml .y-var,.y-var{color:var(--ds-accent);font-weight:600;}
+.ds-yaml .y-num,.y-num{color:var(--ds-escalate);}
+.ds-yaml .y-bool,.y-bool{color:var(--ds-deny);font-weight:600;}
+.ds-yaml .y-com,.y-com{color:var(--ds-ink-3);font-style:italic;}
+.ds-yaml .y-punc,.y-punc{color:var(--ds-ink-3);}
+
+::selection{background:color-mix(in oklab,var(--ds-accent) 30%,transparent);}

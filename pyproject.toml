@@ -141,6 +141,7 @@ dev = [
     "typer[all]>=0.12",
     "rich>=13",
     "pre-commit>=3.5",
+    "fathom-studio",
 ]
 
 [tool.uv]
@@ -153,7 +154,11 @@ package = true
 # own pin -- this override applies to this repo's lock, not to the wheel.
 override-dependencies = ["json-repair>=0.60.1"]
 
+[tool.uv.workspace]
+members = ["packages/fathom-studio"]
+
 [tool.uv.sources]
+fathom-studio = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -202,8 +207,12 @@ module = "fathom.proto.*"
 ignore_errors = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/fathom-studio/tests"]
 addopts = "--strict-markers -ra"
+markers = [
+    "integration: requires external service containers (Docker: redis:7-alpine, postgres:16-alpine)",
+    "concurrency: multi-threaded stress test; slow and excludable",
+]
 
 [tool.coverage.run]
 source = ["fathom"]
