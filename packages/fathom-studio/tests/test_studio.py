@@ -219,10 +219,15 @@ def test_spa_shell_is_reachable_without_a_token(anonymous_client: TestClient) ->
 
 
 def test_token_query_param_grants_browser_cookie(anonymous_client: TestClient) -> None:
-    """``/?token=`` validates the token and hands the browser the panel cookie."""
+    """``/?token=`` validates the token and hands the browser a session cookie."""
     response = anonymous_client.get("/", params={"token": _TOKEN})
     assert response.status_code == 200
-    assert anonymous_client.cookies.get(TOKEN_COOKIE) == _TOKEN
+    granted = anonymous_client.cookies.get(TOKEN_COOKIE)
+    assert granted
+    # The cookie is an opaque session id, never the API token: the browser jar
+    # is storage the operator does not control, and the token also opens /v1.
+    assert granted != _TOKEN
+    assert _TOKEN not in granted
     # The cookie now unlocks the panels for the plain HTML forms.
     assert anonymous_client.get("/packs").status_code == 200
 
@@ -232,3 +237,18 @@ def test_wrong_token_query_param_grants_nothing(anonymous_client: TestClient) ->
     anonymous_client.get("/", params={"token": "wrong-token"})
     assert anonymous_client.cookies.get(TOKEN_COOKIE) is None
     assert anonymous_client.get("/packs").status_code == 401
+
+
+def test_granted_cookie_is_not_a_usable_bearer_token(anonymous_client: TestClient) -> None:
+    """A stolen Studio cookie cannot be replayed as a bearer token on ``/v1``.
+
+    This is the point of minting a session id instead of echoing the API token:
+    the mounted REST app validates ``FATHOM_API_TOKEN``, which the cookie is not.
+    """
+    anonymous_client.get("/", params={"token": _TOKEN})
+    granted = anonymous_client.cookies.get(TOKEN_COOKIE)
+    assert granted
+    stolen = anonymous_client.get(
+        "/api/v1/rules", headers={"Authorization": f"Bearer {granted}"}
+    )
+    assert stolen.status_code == 401
