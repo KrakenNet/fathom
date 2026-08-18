@@ -6,8 +6,8 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-from fathom.errors import EvaluationError
-from fathom.models import EvaluationResult
+from fathom.errors import EvaluationError, EvaluationLimitError
+from fathom.models import EvaluationResult, LogLevel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -31,18 +31,26 @@ class Evaluator:
         default_decision: str | None,
         focus_order: list[str],
         fact_manager: FactManager | None = None,
+        run_limit: int | None = None,
     ) -> None:
         self._env_provider = env_provider
         self._default_decision = default_decision
         self._focus_order = focus_order
         self._fact_manager = fact_manager
+        self._run_limit = run_limit
 
     def set_focus_order(self, modules: list[str]) -> None:
         """Replace the evaluator's focus order."""
         self._focus_order = list(modules)
 
-    def evaluate(self) -> EvaluationResult:
-        """Run the full evaluation sequence and return the result."""
+    def evaluate(self) -> tuple[EvaluationResult, LogLevel]:
+        """Run the full evaluation sequence.
+
+        Returns:
+            Tuple of the :class:`EvaluationResult` and the winning
+            decision's ``then.log`` level, which the caller uses to decide
+            how much of the evaluation to write to the audit sink.
+        """
         start_ns = time.perf_counter_ns()
 
         # Snapshot env once at evaluation entry for atomic-swap safety (design D1).
@@ -52,29 +60,48 @@ class Evaluator:
             self._setup_focus_stack(env)
             if self._fact_manager is not None:
                 self._fact_manager.cleanup_expired()
-            env.run()
+            self._run(env)
 
-            decision, reason, metadata = self._read_decision(env)
+            decision, reason, metadata, log_level = self._read_decision(env)
             rule_trace, module_trace = self._capture_trace(env)
-            self._cleanup_decision_facts(env)
+
+            end_ns = time.perf_counter_ns()
+            duration_us = (end_ns - start_ns) // 1000
+
+            return (
+                EvaluationResult(
+                    decision=decision,
+                    reason=reason,
+                    rule_trace=rule_trace,
+                    module_trace=module_trace,
+                    duration_us=duration_us,
+                    metadata=metadata,
+                ),
+                log_level,
+            )
         except EvaluationError:
             raise
         except Exception as exc:
             raise EvaluationError(
                 f"Evaluation failed: {exc}",
             ) from exc
+        finally:
+            # Always retract decision facts, including on the error paths
+            # above: a leftover ``__fathom_decision`` fact wedges every
+            # later evaluate() with a stale or unparseable decision.
+            self._cleanup_decision_facts(env)
 
-        end_ns = time.perf_counter_ns()
-        duration_us = (end_ns - start_ns) // 1000
-
-        return EvaluationResult(
-            decision=decision,
-            reason=reason,
-            rule_trace=rule_trace,
-            module_trace=module_trace,
-            duration_us=duration_us,
-            metadata=metadata,
-        )
+    def _run(self, env: clips.Environment) -> None:
+        """Run the agenda to quiescence, honouring the activation budget."""
+        if self._run_limit is None:
+            env.run()
+            return
+        fired = env.run(self._run_limit)
+        if fired >= self._run_limit and next(env.activations(), None) is not None:
+            raise EvaluationLimitError(
+                f"evaluation exceeded run_limit of {self._run_limit} activations "
+                "with activations still pending (non-terminating ruleset?)"
+            )
 
     def _setup_focus_stack(self, env: clips.Environment) -> None:
         """Push modules onto the CLIPS focus stack in reverse order.
@@ -114,39 +141,68 @@ class Evaluator:
 
     def _read_decision(
         self, env: clips.Environment
-    ) -> tuple[str | None, str | None, dict[str, Any]]:
+    ) -> tuple[str | None, str | None, dict[str, str], LogLevel]:
         """Read the winning decision from ``__fathom_decision`` facts.
 
         Last-write-wins: the last fact in the list is the winning decision.
         Falls back to ``default_decision`` if no decision facts exist.
 
         Returns:
-            Tuple of (decision, reason, metadata).
+            Tuple of (decision, reason, metadata, log_level). ``log_level``
+            is the winning rule's ``then.log`` value; a default decision
+            (no rule fired) reports :attr:`LogLevel.SUMMARY`.
         """
         facts = list(self._iter_decision_facts(env))
 
         if not facts:
             if self._default_decision is not None:
-                return self._default_decision, "default decision (no rules fired)", {}
-            return None, None, {}
+                return (
+                    self._default_decision,
+                    "default decision (no rules fired)",
+                    {},
+                    LogLevel.SUMMARY,
+                )
+            return None, None, {}, LogLevel.SUMMARY
 
         # Last fact wins
         winner = facts[-1]
         action = str(winner["action"])
         reason = str(winner["reason"])
         metadata_raw = str(winner["metadata"])
+        try:
+            log_level = LogLevel(str(winner["log-level"]))
+        except ValueError as exc:
+            raise EvaluationError(
+                f"invalid log-level in __fathom_decision: {exc}"
+            ) from exc
 
-        # Parse metadata (stored as JSON string in CLIPS)
-        metadata: dict[str, Any] = {}
+        # Parse metadata (stored as JSON string in CLIPS). The only producer
+        # is ThenBlock.metadata, which is dict[str, str], and the public
+        # EvaluationResult/AuditRecord models declare the same — so validate
+        # the shape here rather than letting a pydantic ValidationError escape
+        # from inside the error boundary as an unrelated-looking failure.
+        metadata: dict[str, str] = {}
         if metadata_raw:
             try:
-                metadata = json.loads(metadata_raw)
+                parsed = json.loads(metadata_raw)
             except (json.JSONDecodeError, ValueError) as exc:
                 raise EvaluationError(
                     f"invalid metadata encoding in __fathom_decision: {exc}"
                 ) from exc
+            if not isinstance(parsed, dict):
+                raise EvaluationError(
+                    "invalid metadata in __fathom_decision: expected a JSON "
+                    f"object, got {type(parsed).__name__}"
+                )
+            for key, value in parsed.items():
+                if not isinstance(key, str) or not isinstance(value, str):
+                    raise EvaluationError(
+                        "invalid metadata in __fathom_decision: every key and "
+                        f"value must be a string, got {key!r}: {value!r}"
+                    )
+            metadata = parsed
 
-        return action, reason, metadata
+        return action, reason, metadata, log_level
 
     def _cleanup_decision_facts(self, env: clips.Environment) -> None:
         """Retract all ``__fathom_decision`` facts from working memory."""

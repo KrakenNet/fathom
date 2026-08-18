@@ -91,8 +91,12 @@ class FactManager:
         env: clips.Environment,
         template_name: str,
         validated: dict[str, Any],
-    ) -> None:
-        """Coerce + assert a pre-validated slot dict, recording the timestamp."""
+    ) -> Any:
+        """Coerce + assert a pre-validated slot dict, recording the timestamp.
+
+        Returns the CLIPS fact handle so callers that need to withdraw
+        exactly what they asserted can hold on to it.
+        """
         coerced = self._coerce_for_clips(template_name, validated)
         tpl = env.find_template(template_name)
         try:
@@ -106,6 +110,7 @@ class FactManager:
             ) from exc
         self._fact_timestamps[fact.index] = time.time()
         self._notify(template_name, "assert", validated)
+        return fact
 
     def assert_fact(self, template_name: str, data: dict[str, Any]) -> None:
         """Validate and assert a single fact into working memory."""
@@ -115,12 +120,66 @@ class FactManager:
 
     def assert_facts(self, facts: list[tuple[str, dict[str, Any]]]) -> None:
         """Assert multiple facts atomically (pre-validate all, then assert)."""
+        self.assert_facts_scoped(facts)
+
+    def assert_facts_scoped(
+        self, facts: list[tuple[str, dict[str, Any]]]
+    ) -> list[tuple[str, Any, dict[str, Any]]]:
+        """Assert multiple facts, returning handles for the ones actually created.
+
+        Backs :meth:`fathom.engine.Engine.evaluate_once`: the returned
+        ``(template_name, fact, slots)`` triples are what
+        :meth:`retract_handles` withdraws, so a request-scoped evaluation
+        removes exactly the facts it added and nothing else.
+
+        CLIPS de-duplicates working memory: asserting a fact that is already
+        present is a no-op and hands back the *existing* fact. Returning that
+        handle would make the caller's cleanup retract a fact somebody else
+        owns — a request-scoped evaluation silently deleting long-lived state.
+        So handles that were already in working memory before this call are
+        excluded: we did not create them, and we do not withdraw them.
+
+        Validation of the whole batch happens before anything is asserted, so
+        an invalid fact late in the list cannot leave earlier ones behind.
+        """
         env = self._env_provider()
         validated_batch = [
             (template_name, self._validate(template_name, data)) for template_name, data in facts
         ]
+        pre_existing = {fact.index for fact in env.facts()}
+        created: list[tuple[str, Any, dict[str, Any]]] = []
         for template_name, validated in validated_batch:
-            self._assert_validated(env, template_name, validated)
+            fact = self._assert_validated(env, template_name, validated)
+            if fact.index in pre_existing:
+                # De-duplicated against a fact we do not own (or against an
+                # earlier entry in this same batch) — not ours to retract.
+                continue
+            pre_existing.add(fact.index)
+            created.append((template_name, fact, validated))
+        return created
+
+    def retract_handles(self, handles: list[tuple[str, Any, dict[str, Any]]]) -> None:
+        """Retract the exact facts named by *handles* (see :meth:`assert_facts_scoped`).
+
+        Handles already withdrawn — by a rule, by TTL expiry, or by an
+        explicit :meth:`retract` — are skipped rather than raising.
+        """
+        for template_name, fact, slots in handles:
+            try:
+                fact.retract()
+            except Exception:  # noqa: BLE001 -- already gone is not an error here
+                # Do NOT drop the timestamp here: the fact is still in working
+                # memory, and discarding its TTL clock would strand it there
+                # forever. Popping before the retract lost the clock on every
+                # genuine failure.
+                logger.debug(
+                    "retract of '%s' failed; leaving its TTL clock in place",
+                    template_name,
+                    exc_info=True,
+                )
+                continue
+            self._fact_timestamps.pop(fact.index, None)
+            self._notify(template_name, "retract", slots)
 
     def query(
         self,
@@ -153,6 +212,18 @@ class FactManager:
             else:
                 results.append(row)
         return results
+
+    def all_facts(self) -> list[dict[str, Any]]:
+        """Return every fact in working memory across all registered templates.
+
+        Each row is the fact's slot values plus a ``__template__`` key naming
+        its template, so callers can tell rows from different templates apart.
+        """
+        rows: list[dict[str, Any]] = []
+        for template_name in self._template_registry:
+            for row in self.query(template_name):
+                rows.append({"__template__": template_name, **row})
+        return rows
 
     def count(
         self,
@@ -192,6 +263,7 @@ class FactManager:
                 continue
             to_retract.append((fact, row))
         for fact, row in to_retract:
+            self._fact_timestamps.pop(fact.index, None)
             fact.retract()
             self._notify(template_name, "retract", row)
         return len(to_retract)

@@ -74,6 +74,13 @@ class TestPackageMeta:
             "Engine",
             "CompilationError",
             "EvaluationError",
+            # Raised out of the public Engine.evaluate() when a ruleset
+            # exhausts its activation budget; a transport has to be able to
+            # name it to map it to its own status code.
+            "EvaluationLimitError",
+            # Raised out of the public Engine.assert_fact() for a
+            # fleet-scoped template (issue #133).
+            "ScopeError",
             "ValidationError",
             "EvaluationResult",
             "AssertSpec",
@@ -114,12 +121,6 @@ class TestEngineCreation:
 
         e = Engine(session_id="test-session-42")
         assert e._session_id == "test-session-42"
-
-    def test_experimental_backward_chaining_flag(self) -> None:
-        from fathom import Engine
-
-        e = Engine(experimental_backward_chaining=True)
-        assert e._experimental_backward_chaining is True
 
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,15 @@ class EvaluationError(FathomError):
         super().__init__(message)
 
 
+class EvaluationLimitError(EvaluationError):
+    """Raised when an evaluation exhausts its activation budget with activations still pending.
+
+    Distinct from its parent so a transport can tell "this ruleset does not
+    terminate" (a policy/client problem) from any other evaluation failure
+    (a server problem) and pick the right status code.
+    """
+
+
 class AttestationError(FathomError):
     """Raised when attestation operations fail (key generation, signing, verification)."""
 
@@ -100,9 +109,12 @@ class FleetConnectionError(FleetError):
         super().__init__(message, session_id=session_id)
 
 
-class ScopeError(RuntimeError):
+class ScopeError(FathomError, RuntimeError):
     """Raised when an operation is attempted at the wrong scope.
 
     E.g. asserting a fleet-scoped fact through ``Engine.assert_fact`` instead
     of ``FleetEngine.assert_fact``.
+
+    Inherits ``RuntimeError`` as well as :class:`FathomError` so pre-1.0
+    ``except RuntimeError`` call sites keep working.
     """

@@ -19,14 +19,14 @@ import yaml
 
 from fathom.audit import AuditLog, AuditSink, NullSink
 from fathom.compiler import Compiler
-from fathom.errors import CompilationError, ScopeError
+from fathom.errors import CompilationError, EvaluationLimitError, ScopeError
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
 from fathom.metrics import MetricsCollector
 from fathom.models import HierarchyDefinition
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from fathom.attestation import AttestationService
     from fathom.models import (
@@ -43,8 +43,26 @@ logger = logging.getLogger(__name__)
 # Reserved prefix for fathom-internal CLIPS functions (see Engine.register_function).
 RESERVED_FUNCTION_PREFIX = "fathom-"
 
-# Max regex pattern/input length for fathom-matches — bounds catastrophic
-# backtracking without adopting a full re2 dependency (see Sec-M6).
+# Default activation budget for a single evaluation. A ruleset whose rules
+# assert facts that re-trigger those same rules never reaches quiescence, and
+# an unbounded ``env.run()`` would spin until the process is killed — taking
+# every other request on a shared server with it. Callers who genuinely want
+# an unbounded run pass ``Engine(run_limit=None)``.
+_DEFAULT_RUN_LIMIT = 100_000
+
+# Max regex pattern/input length for fathom-matches.
+#
+# This cap does NOT bound catastrophic backtracking. Python's `re` is a
+# backtracking engine, and a pathological pattern blows up on inputs orders
+# of magnitude below this limit: `^(a+)+$` against 40 characters of "a"
+# followed by "b" runs for minutes. The cap only bounds the *linear* cost of
+# a well-behaved pattern and keeps a single call from copying megabytes.
+#
+# The actual mitigation for ReDoS is the threat model: rule authors are
+# trusted (decision D4), so patterns are not attacker-controlled. A caller
+# who accepts untrusted regexes needs a real defence — an re2 binding, or
+# running evaluation under a wall-clock budget in a separate process.
+# See Sec-M6.
 _FATHOM_MATCHES_MAX_LEN = 4096
 
 # User-registered CLIPS function names: restrict to the same ASCII subset
@@ -141,11 +159,12 @@ class Engine:
     def __init__(
         self,
         default_decision: str | None = "deny",
+        *,
         audit_sink: AuditSink | None = None,
         session_id: str | None = None,
-        experimental_backward_chaining: bool = False,
         attestation_service: AttestationService | None = None,
         metrics: bool = False,
+        run_limit: int | None = _DEFAULT_RUN_LIMIT,
     ) -> None:
         """Initialise a new Engine instance.
 
@@ -157,18 +176,29 @@ class Engine:
                 :class:`NullSink` (no-op).
             session_id: Optional session identifier. A random UUID is
                 generated when omitted.
-            experimental_backward_chaining: Reserved for a future
-                release. This flag currently has **no behavioural
-                effect**: setting it to ``True`` does not enable
-                backward chaining and only emits a ``FutureWarning``.
-                Default ``False``.
             attestation_service: Optional attestation service for signing
                 evaluation results. When provided, all evaluation results
                 are signed with an Ed25519 JWT token.
             metrics: Enable Prometheus metrics collection. Falls back
                 to ``FATHOM_METRICS=1`` environment variable when
                 ``False``.
+            run_limit: Maximum rule activations a single evaluation may
+                fire before :meth:`evaluate` gives up and raises
+                :class:`~fathom.errors.EvaluationLimitError`. ``None``
+                runs to quiescence with no budget. Defaults to
+                ``100_000``.
+
+        Note:
+            Engine is thread-safe: every public method serialises on an
+            internal re-entrant lock, so a transport may share one Engine
+            across a thread pool. Concurrent evaluations therefore
+            serialise — CLIPS has one environment and one agenda, so that
+            is correctness rather than a regression.
         """
+        # Re-entrant: public methods call one another (evaluate_once ->
+        # evaluate, load_modules -> set_focus), so a plain Lock would
+        # self-deadlock on the nested call.
+        self._lock = threading.RLock()
         self._env: clips.Environment = clips.Environment()
         self._session_id: str = session_id or str(uuid4())
         self._default_decision: str | None = default_decision
@@ -192,18 +222,9 @@ class Engine:
             default_decision=self._default_decision,
             focus_order=self._focus_order,
             fact_manager=self._fact_manager,
+            run_limit=run_limit,
         )
         self._audit_log = AuditLog(audit_sink or NullSink())
-        self._experimental_backward_chaining = experimental_backward_chaining
-        if experimental_backward_chaining:
-            import warnings
-
-            warnings.warn(
-                "experimental_backward_chaining is reserved for a future release "
-                "and currently has no effect.",
-                FutureWarning,
-                stacklevel=2,
-            )
         self._attestation_service = attestation_service
 
         # Metrics collector (no-op when disabled or prometheus_client absent)
@@ -262,12 +283,13 @@ class Engine:
         Validation is skipped when no modules have been loaded yet (the module
         registry is empty), allowing pre-load focus configuration.
         """
-        if self._module_registry:
-            unknown = [m for m in modules if m and m not in self._module_registry]
-            if unknown:
-                raise ValueError(f"unknown modules in focus order: {unknown}")
-        self._focus_order = list(modules)
-        self._evaluator.set_focus_order(modules)
+        with self._lock:
+            if self._module_registry:
+                unknown = [m for m in modules if m and m not in self._module_registry]
+                if unknown:
+                    raise ValueError(f"unknown modules in focus order: {unknown}")
+            self._focus_order = list(modules)
+            self._evaluator.set_focus_order(modules)
 
     # --- Internal helpers ---
 
@@ -313,12 +335,18 @@ class Engine:
         def fathom_matches(string_value: str, pattern: str) -> bool:
             """Return True when *pattern* matches *string_value* via re.search.
 
-            Pattern is passed verbatim to Python's ``re`` engine. To bound
-            catastrophic backtracking, both the pattern and the input are
-            capped at ``_FATHOM_MATCHES_MAX_LEN`` characters. Longer inputs
-            raise ``ValueError`` — rule authors must pre-truncate or pick a
-            more selective slot. With server auth enabled, patterns come
-            from trusted rule authors; the cap is belt-and-braces.
+            Pattern is passed verbatim to Python's ``re`` engine. Both the
+            pattern and the input are capped at ``_FATHOM_MATCHES_MAX_LEN``
+            characters; longer inputs raise ``ValueError``.
+
+            That cap is a size limit, **not** a ReDoS defence. ``re`` is a
+            backtracking engine, so a pathological pattern such as
+            ``^(a+)+$`` hangs on ~40 characters of input — three orders of
+            magnitude under the cap. Fathom's protection against that is the
+            1.0 threat model: rule authors are trusted, so patterns are not
+            attacker-controlled. Callers who let untrusted parties author
+            patterns must add their own bound (re2, or a wall-clock budget
+            in a separate process).
             """
             p = str(pattern)
             s = str(string_value)
@@ -550,9 +578,12 @@ class Engine:
             path: Path to a YAML file or directory containing ``*.yaml`` files.
         """
         count = 0
+        self._lock.acquire()
         try:
             p = Path(path)
-            files: list[Path] = list(p.glob("*.yaml")) if p.is_dir() else [p]
+            # sorted(): readdir order is filesystem-dependent, so an
+            # unsorted glob made load order vary between machines.
+            files: list[Path] = sorted(p.glob("*.yaml")) if p.is_dir() else [p]
             for file in files:
                 definitions = self._compiler.parse_template_file(file)
                 for defn in definitions:
@@ -563,6 +594,7 @@ class Engine:
                         self._fact_manager.set_ttl(defn.name, defn.ttl)
                     count += 1
         finally:
+            self._lock.release()
             if count:
                 self._metrics.record_templates_loaded(count)
 
@@ -576,9 +608,12 @@ class Engine:
             CompilationError: On duplicate module names or invalid YAML.
         """
         count = 0
+        self._lock.acquire()
         try:
             p = Path(path)
-            files: list[Path] = list(p.glob("*.yaml")) if p.is_dir() else [p]
+            # sorted(): readdir order is filesystem-dependent, so an
+            # unsorted glob made load order vary between machines.
+            files: list[Path] = sorted(p.glob("*.yaml")) if p.is_dir() else [p]
             # Ensure MAIN exports all constructs so non-MAIN modules can import them
             if not self._module_registry:
                 self._safe_build(
@@ -602,6 +637,7 @@ class Engine:
                 if focus_order:
                     self.set_focus(focus_order)
         finally:
+            self._lock.release()
             if count:
                 self._metrics.record_modules_loaded(count)
 
@@ -616,9 +652,12 @@ class Engine:
             path: Path to a YAML file or directory containing ``*.yaml`` files.
         """
         count = 0
+        self._lock.acquire()
         try:
             p = Path(path)
-            files: list[Path] = list(p.glob("*.yaml")) if p.is_dir() else [p]
+            # sorted(): readdir order is filesystem-dependent, so an
+            # unsorted glob made load order vary between machines.
+            files: list[Path] = sorted(p.glob("*.yaml")) if p.is_dir() else [p]
             for file in files:
                 definitions = self._compiler.parse_function_file(file)
 
@@ -646,6 +685,7 @@ class Engine:
                                 self._safe_build(block, context=f"function:{defn.name}")
                         count += 1
         finally:
+            self._lock.release()
             if count:
                 self._metrics.record_functions_loaded(count)
 
@@ -664,6 +704,7 @@ class Engine:
                 or on YAML/validation errors.
         """
         count = 0
+        self._lock.acquire()
         try:
             p = Path(path)
             files: list[Path] = sorted(p.glob("*.yaml")) if p.is_dir() else [p]
@@ -685,11 +726,25 @@ class Engine:
                         construct=f"ruleset:{ruleset.ruleset}",
                     )
 
-                # Compile and build each rule into the CLIPS environment
+                # Compile and build each rule into the CLIPS environment.
+                # The registry is keyed "module::name": keying it by bare name
+                # meant a rule in a second file silently replaced an
+                # identically-named rule from the first, and two modules could
+                # not hold the same rule name at all.
                 for rule_defn in ruleset.rules:
-                    clips_str = self._compiler.compile_rule(rule_defn, ruleset.module)
+                    key = f"{ruleset.module}::{rule_defn.name}"
+                    if key in self._rule_registry:
+                        raise CompilationError(
+                            "[fathom.engine] load rules failed: "
+                            f"duplicate rule name '{key}'",
+                            file=str(file),
+                            construct=f"rule:{key}",
+                        )
+                    clips_str = self._compiler.compile_rule(
+                        rule_defn, ruleset.module, self._template_registry
+                    )
                     self._safe_build(clips_str, context=f"rule:{rule_defn.name}")
-                    self._rule_registry[rule_defn.name] = rule_defn
+                    self._rule_registry[key] = rule_defn
                     count += 1
 
                 loaded_bytes.append(file_bytes)
@@ -701,13 +756,16 @@ class Engine:
                 prior = self._ruleset_yaml_bytes or b""
                 self._ruleset_yaml_bytes = prior + b"".join(loaded_bytes)
         finally:
-            if count:
-                self._metrics.record_rules_loaded(count)
             # Recompute the cached flag used by evaluate() to short-circuit
             # snapshotting when no loaded rule emits user-declared asserts.
+            # Must happen BEFORE releasing the lock: it iterates
+            # _rule_registry, which a concurrent load_rules() mutates.
             self._has_asserting_rules = any(
                 bool(r.then.asserts) for r in self._rule_registry.values()
             )
+            self._lock.release()
+            if count:
+                self._metrics.record_rules_loaded(count)
 
     def load_clips_function(self, clips_string: str) -> None:
         """Load a raw CLIPS function string into the environment.
@@ -715,7 +773,11 @@ class Engine:
         Args:
             clips_string: A valid CLIPS deffunction string.
         """
-        self._safe_build(clips_string, context="clips_function")
+        # Mutates the CLIPS environment, so it takes the same lock every
+        # other env mutation takes — otherwise a build racing an evaluate()
+        # corrupts the environment.
+        with self._lock:
+            self._safe_build(clips_string, context="clips_function")
 
     def register_function(
         self,
@@ -758,7 +820,10 @@ class Engine:
                 f"register_function: name must not start with reserved "
                 f"prefix {RESERVED_FUNCTION_PREFIX!r} (got {name!r})"
             )
-        self._env.define_function(fn, name)
+        # define_function mutates the CLIPS environment; hold the same lock
+        # evaluate() and the fact mutators take.
+        with self._lock:
+            self._env.define_function(fn, name)
 
     def subscribe(
         self,
@@ -885,6 +950,12 @@ class Engine:
         The audit sink is intentionally **not** touched here; the REST /
         gRPC layer signs and emits the ``ruleset_reloaded`` event on
         successful return (design C5 / C6).
+
+        .. warning::
+           This **discards all working memory**. The rules are compiled onto
+           a brand-new :class:`clips.Environment`, so every fact asserted
+           before the reload is gone afterwards, and TTL timestamps are
+           cleared. Callers holding session state must re-assert it.
 
         Args:
             ruleset_yaml: Raw YAML bytes containing a ruleset document
@@ -1015,9 +1086,19 @@ class Engine:
         # atomically.
         new_rule_registry: dict[str, RuleDefinition] = {}
         for rule_defn in new_ruleset.rules:
-            clips_str = self._compiler.compile_rule(rule_defn, new_ruleset.module)
+            key = f"{new_ruleset.module}::{rule_defn.name}"
+            if key in new_rule_registry:
+                raise CompilationError(
+                    f"[fathom.engine] reload_rules: duplicate rule name '{key}'",
+                    construct=f"rule:{key}",
+                )
+            # new_template_registry, not self._template_registry: the rules
+            # must be typed against the templates built onto new_env.
+            clips_str = self._compiler.compile_rule(
+                rule_defn, new_ruleset.module, new_template_registry
+            )
             self._safe_build(clips_str, context=f"rule:{rule_defn.name}", env=new_env)
-            new_rule_registry[rule_defn.name] = rule_defn
+            new_rule_registry[key] = rule_defn
 
         new_has_asserting_rules = any(bool(r.then.asserts) for r in new_rule_registry.values())
 
@@ -1041,6 +1122,17 @@ class Engine:
             self._module_registry.update(new_module_registry)
             self._has_asserting_rules = new_has_asserting_rules
             self._ruleset_yaml_bytes = ruleset_yaml
+            # The new env starts empty, so the reload discards ALL working
+            # memory. The TTL timestamps are keyed by old-env fact index and
+            # would otherwise expire unrelated facts in the new one.
+            self._fact_manager.clear_timestamps()
+            # The reload also discards the rule registry, so any pack loaded
+            # into this engine no longer has rules here. Forget the "already
+            # loaded" record, or a later load_pack() returns success while
+            # silently restoring nothing.
+            from fathom.packs import forget_packs
+
+            forget_packs(self)
 
         # Notify reload listeners outside the lock — listeners may do
         # I/O (e.g. wake gRPC change streams) and must never extend the
@@ -1056,6 +1148,25 @@ class Engine:
 
     # --- Fact management ---
 
+    def _publish_working_memory(self, templates: Iterable[str]) -> None:
+        """Publish the live fact count for each of *templates*.
+
+        Backs the ``fathom_working_memory_facts`` gauge, which is registered
+        and exported but was never recorded, so a working-memory leak read as
+        healthy on any dashboard. Caller must hold ``self._lock``; counts are
+        read straight from the fact manager so the gauge cannot drift the way
+        an inc/dec pair can.
+        """
+        if not self._metrics.enabled:
+            return
+        for template in dict.fromkeys(templates):
+            if template not in self._template_registry:
+                continue
+            self._metrics.set_working_memory_facts(
+                template=template,
+                count=self._fact_manager.count(template),
+            )
+
     def assert_fact(self, template: str, data: dict[str, Any]) -> None:
         """Assert a single fact into working memory.
 
@@ -1063,16 +1174,56 @@ class Engine:
             template: Name of a previously loaded template.
             data: Slot name-to-value mapping for the fact.
         """
-        tmpl_def = self._template_registry.get(template)
-        if tmpl_def is not None and tmpl_def.scope == "fleet":
-            raise ScopeError(
-                f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
-                "so the fact is also written through to the shared FactStore."
-            )
-        try:
-            self._fact_manager.assert_fact(template, data)
-        finally:
-            self._metrics.record_fact_asserted(template)
+        with self._lock:
+            tmpl_def = self._template_registry.get(template)
+            if tmpl_def is not None and tmpl_def.scope == "fleet":
+                raise ScopeError(
+                    f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
+                    "so the fact is also written through to the shared FactStore."
+                )
+            try:
+                self._fact_manager.assert_fact(template, data)
+            finally:
+                self._metrics.record_fact_asserted(template)
+                self._publish_working_memory([template])
+
+    def _assert_local(
+        self, template: str, data: dict[str, Any]
+    ) -> list[tuple[str, Any, dict[str, Any]]]:
+        """Assert a fact bypassing the fleet-scope guard.
+
+        :class:`~fathom.fleet.FleetEngine` is the only legitimate caller: it
+        has already written the fact through to the shared store, so the
+        guard in :meth:`assert_fact` — which exists to stop a caller writing
+        a fleet-scoped fact to one node only — must not fire. Everything else
+        :meth:`assert_fact` does (the lock, the metrics) still applies.
+
+        Returns:
+            Handles for the facts this call actually created — empty when
+            CLIPS de-duplicated the assert onto a fact that already existed.
+            :meth:`_retract_local_handles` withdraws exactly these, which is
+            what makes FleetEngine's rollback-on-store-failure sound: it
+            cannot miss a coerced value the way a retract-by-value filter
+            does, and it cannot delete a pre-existing duplicate it did not
+            create.
+        """
+        with self._lock:
+            try:
+                return self._fact_manager.assert_facts_scoped([(template, data)])
+            finally:
+                self._metrics.record_fact_asserted(template)
+                self._publish_working_memory([template])
+
+    def _retract_local_handles(
+        self, handles: list[tuple[str, Any, dict[str, Any]]]
+    ) -> None:
+        """Retract exactly the facts named by *handles* (see :meth:`_assert_local`)."""
+        if not handles:
+            return
+        with self._lock:
+            self._fact_manager.retract_handles(handles)
+            self._metrics.record_facts_retracted(len(handles))
+            self._publish_working_memory([template for template, _, _ in handles])
 
     def assert_facts(self, facts: list[tuple[str, dict[str, Any]]]) -> None:
         """Assert multiple facts atomically.
@@ -1083,11 +1234,13 @@ class Engine:
         Args:
             facts: List of ``(template_name, slot_data)`` tuples.
         """
-        try:
-            self._fact_manager.assert_facts(facts)
-        finally:
-            for template, _ in facts:
-                self._metrics.record_fact_asserted(template)
+        with self._lock:
+            try:
+                self._fact_manager.assert_facts(facts)
+            finally:
+                for template, _ in facts:
+                    self._metrics.record_fact_asserted(template)
+                self._publish_working_memory(t for t, _ in facts)
 
     def query(
         self,
@@ -1103,7 +1256,18 @@ class Engine:
         Returns:
             List of matching facts as dictionaries.
         """
-        return self._fact_manager.query(template, fact_filter)
+        with self._lock:
+            return self._fact_manager.query(template, fact_filter)
+
+    def all_facts(self) -> list[dict[str, Any]]:
+        """Return every fact currently in working memory, as dictionaries.
+
+        Each entry carries a ``__template__`` key naming the template the
+        fact came from, alongside its slot values. The public way to inspect
+        working memory without reaching into the CLIPS environment.
+        """
+        with self._lock:
+            return self._fact_manager.all_facts()
 
     def count(self, template: str, fact_filter: dict[str, Any] | None = None) -> int:
         """Count facts matching *template* and optional *fact_filter*.
@@ -1112,14 +1276,33 @@ class Engine:
             template: Template name to count.
             fact_filter: Optional slot name-to-value filter.
         """
-        return self._fact_manager.count(template, fact_filter)
+        with self._lock:
+            return self._fact_manager.count(template, fact_filter)
 
     def retract(self, template: str, fact_filter: dict[str, Any] | None = None) -> int:
         """Retract facts matching *template* and optional *fact_filter*.
 
         Returns count retracted.
+
+        Raises:
+            ScopeError: *template* is fleet-scoped. The guard is the mirror
+                of the one on :meth:`assert_fact`: dropping a fleet fact on
+                one node only diverges that node from the shared FactStore,
+                which is exactly what the assert-side guard exists to
+                prevent. Fleet retraction does not propagate at all (see the
+                module docstring of :mod:`fathom.fleet`), so this fails
+                loudly rather than diverging silently.
         """
-        retracted = self._fact_manager.retract(template, fact_filter)
+        with self._lock:
+            tmpl_def = self._template_registry.get(template)
+            if tmpl_def is not None and tmpl_def.scope == "fleet":
+                raise ScopeError(
+                    f"template '{template}' is fleet-scoped; retracting it locally "
+                    "would diverge this node from the shared FactStore. Fleet "
+                    "retraction does not propagate — recreate the session instead."
+                )
+            retracted = self._fact_manager.retract(template, fact_filter)
+            self._publish_working_memory([template])
         try:
             return retracted
         finally:
@@ -1140,9 +1323,41 @@ class Engine:
         from fathom.models import AssertedFact
 
         snapshot: list[AssertedFact] = []
-        for template_name in self._template_registry:
+        # Materialise the key view first: reload_rules rebuilds
+        # _template_registry in place under _reload_lock only, so iterating
+        # the live dict here races with a concurrent hot reload and raises
+        # "dictionary changed size during iteration" mid-evaluation.
+        for template_name in list(self._template_registry):
             for row in self._fact_manager.query(template_name):
                 snapshot.append(AssertedFact(template=template_name, slots=row))
+        return snapshot
+
+    def _snapshot_input_facts(self) -> list[dict[str, Any]]:
+        """Working memory as a flat list of ``{template, slots}`` entries.
+
+        This is the exact serialisation the attestation ``input_hash`` is
+        taken over (``json.dumps(..., sort_keys=True)``) and what an
+        ``AuditRecord.input_facts`` holds at ``log: full``. It must be
+        captured BEFORE inference, or rule-asserted facts would be folded
+        into the record of what the decision was computed from.
+
+        Each entry carries the template name alongside the slot values.
+        Emitting bare slot dicts made ``input_hash`` blind to template
+        identity: two templates with the same slot names produced a
+        byte-identical hash, so a token attesting ``low_risk_asset(id=x)``
+        also verified against ``high_risk_asset(id=x)``.
+
+        Ordering is template-registry order (ruleset declaration order),
+        then working-memory order within each template. It is stable for a
+        given ruleset but is NOT a canonical set ordering: the hash binds
+        the facts *as asserted*, not an order-insensitive set.
+        """
+        snapshot: list[dict[str, Any]] = []
+        # list(): see _snapshot_user_facts — the live dict is rebuilt in
+        # place by reload_rules under a different lock.
+        for template_name in list(self._template_registry):
+            for row in self._fact_manager.query(template_name):
+                snapshot.append({"template": template_name, "slots": row})
         return snapshot
 
     def evaluate(self) -> EvaluationResult:
@@ -1156,45 +1371,185 @@ class Engine:
         Returns:
             :class:`EvaluationResult` with decision, reason, and traces.
         """
-        # Pre-snapshot user facts when any loaded rule declares `asserts`,
-        # so newly-asserted facts can be captured for the audit record.
-        pre_snapshot = self._snapshot_user_facts() if self._has_asserting_rules else None
+        with self._lock:
+            # Pre-snapshot user facts when any loaded rule declares `asserts`,
+            # so newly-asserted facts can be captured for the audit record.
+            pre_snapshot = self._snapshot_user_facts() if self._has_asserting_rules else None
 
-        result = self._evaluator.evaluate()
+            # The caller-supplied working memory the decision is computed
+            # over. Needed BEFORE inference by attestation (it is what
+            # input_hash binds) and by `log: full`. Skipped entirely when
+            # neither consumer exists, since it costs a query per template.
+            input_facts: list[dict[str, Any]] | None = None
+            if self._attestation_service is not None or self._audit_log.is_recording:
+                input_facts = self._snapshot_input_facts()
+
+            result, log_level = self._evaluator.evaluate()
+            try:
+                # Sign attestation if service is configured. input_facts is
+                # non-None here by construction; sign() refuses None because a
+                # token signed without inputs binds nothing.
+                if self._attestation_service is not None:
+                    result.attestation_token = self._attestation_service.sign(
+                        result,
+                        self._session_id,
+                        input_facts=input_facts if input_facts is not None else [],
+                    )
+
+                asserted_facts = None
+                if pre_snapshot is not None:
+                    post_snapshot = self._snapshot_user_facts()
+                    diff = _diff_user_facts(pre_snapshot, post_snapshot)
+                    asserted_facts = diff or None
+
+                self._audit_log.record(
+                    result,
+                    self._session_id,
+                    input_facts=input_facts,
+                    asserted_facts=asserted_facts,
+                    log_level=log_level,
+                )
+                return result
+            finally:
+                self._metrics.record_evaluation(result, self._session_id)
+
+    def _refresh_all_rules(self) -> None:
+        """Clear CLIPS refraction for every loaded rule, in every module.
+
+        ``env.rules()`` wraps ``GetNextDefrule``, which enumerates only the
+        CLIPS *current module*. After an evaluation the current module is
+        whichever one the focus stack left behind — often ``MAIN``, which
+        holds no user rules — so a bare ``for rule in env.rules()`` loop
+        silently refreshed *nothing* and refraction survived. That made the
+        request-scoped boundary non-deterministic: a deny rule keyed on
+        long-lived facts fired on request 1, was skipped on request 2, and
+        came back on request 3.
+
+        Walk every defmodule explicitly and restore the current module
+        afterwards so we do not disturb the focus stack the evaluator sets up.
+
+        Caller must hold ``self._lock``.
+        """
+        env = self._env
+        saved = env.current_module
         try:
-            # Sign attestation if service is configured
-            if self._attestation_service is not None:
-                result.attestation_token = self._attestation_service.sign(result, self._session_id)
-
-            asserted_facts = None
-            if pre_snapshot is not None:
-                post_snapshot = self._snapshot_user_facts()
-                diff = _diff_user_facts(pre_snapshot, post_snapshot)
-                asserted_facts = diff or None
-
-            self._audit_log.record(
-                result,
-                self._session_id,
-                asserted_facts=asserted_facts,
-            )
-            return result
+            for module in list(env.modules()):
+                env.current_module = module
+                for rule in env.rules():
+                    rule.refresh()
         finally:
-            self._metrics.record_evaluation(result, self._session_id)
+            env.current_module = saved
+
+    def evaluate_once(self, facts: list[tuple[str, dict[str, Any]]]) -> EvaluationResult:
+        """Evaluate exactly *facts* and leave working memory as it was found.
+
+        Asserts *facts*, runs :meth:`evaluate`, then retracts precisely the
+        facts this call asserted and clears CLIPS refraction so an identical
+        repeat call fires the same rules again. This is the request-scoped
+        boundary the REST and gRPC ``Evaluate`` handlers use: two calls with
+        the same facts return the same decision regardless of what this
+        engine evaluated before.
+
+        :meth:`evaluate` keeps its cumulative semantics for library callers
+        (decision D1) — this is an additional entry point, not a change to
+        that one.
+
+        Facts asserted by *rules* during evaluation are left in place; only
+        the caller-supplied ones are withdrawn.
+
+        Args:
+            facts: List of ``(template_name, slot_data)`` tuples, the same
+                shape :meth:`assert_facts` takes.
+
+        Returns:
+            :class:`EvaluationResult` for this fact set alone.
+
+        Raises:
+            ScopeError: A named template is fleet-scoped.
+            ValidationError: Slot data is invalid — raised before anything
+                is asserted, so working memory is untouched.
+        """
+        with self._lock:
+            # Guard every template BEFORE asserting any of them, so a
+            # fleet-scoped template late in the list cannot leave the
+            # earlier facts behind.
+            for template, _ in facts:
+                tmpl_def = self._template_registry.get(template)
+                if tmpl_def is not None and tmpl_def.scope == "fleet":
+                    raise ScopeError(
+                        f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
+                        "so the fact is also written through to the shared FactStore."
+                    )
+            handles = self._fact_manager.assert_facts_scoped(facts)
+            for template, _ in facts:
+                self._metrics.record_fact_asserted(template)
+            self._publish_working_memory(t for t, _ in facts)
+            # Clear refraction BEFORE the run, not after.
+            #
+            # Retracting this request's facts un-matches the rules that
+            # joined against them, but a rule whose LHS references only
+            # longer-lived working memory (an `agent` fact, a policy fact)
+            # matched once and stays refracted forever — it silently stops
+            # firing from the second request onwards. For a deny rule that
+            # is a fail-open, and the shipped owasp/nist/hipaa/cmmc packs
+            # all contain deny rules of exactly that shape.
+            #
+            # Refreshing afterwards does not fix it: CLIPS `refresh` does not
+            # restore an activation that fired during the run just completed,
+            # so the rule was still refracted on the very next call. Doing it
+            # here means every evaluate_once starts from a clean agenda,
+            # which is what "same facts in, same decision out" requires.
+            self._refresh_all_rules()
+            # Fact indices present before inference. Used only on the
+            # budget-exhaustion path below.
+            pre_run_indices = {fact.index for fact in self._env.facts()}
+            try:
+                return self.evaluate()
+            except EvaluationLimitError:
+                # A ruleset that exhausts the activation budget is one whose
+                # rules re-trigger themselves, so by the time we get here it
+                # has typically asserted ~run_limit facts. Retracting only the
+                # caller's own handles would leave all of them in this
+                # session's working memory forever: one 503 permanently costs
+                # the process ~100k facts, and a caller who can provoke it
+                # repeatedly grows the server without bound.
+                #
+                # The request produced no decision, so nothing it created has
+                # any value — drop the lot and leave working memory as the
+                # request found it.
+                for fact in list(self._env.facts()):
+                    if fact.index in pre_run_indices:
+                        continue
+                    with contextlib.suppress(Exception):
+                        fact.retract()
+                raise
+            finally:
+                # `finally`: a failed evaluation (e.g. an exhausted activation
+                # budget) must not leak the request's facts into the working
+                # memory of the next request on this session.
+                self._fact_manager.retract_handles(handles)
+                if handles:
+                    self._metrics.record_facts_retracted(len(handles))
+                self._publish_working_memory(t for t, _ in facts)
 
     # --- Session management ---
 
     def reset(self) -> None:
         """Reset the CLIPS environment.
 
-        Calls ``env.reset()`` which clears all facts and re-asserts
-        ``(initial-fact)``, then re-builds the ``__fathom_decision``
-        template since ``reset()`` preserves deftemplates.
+        Calls ``env.reset()``, which clears all facts and re-asserts
+        ``(initial-fact)``. Deftemplates — including ``__fathom_decision``
+        — survive ``reset()``, so nothing is rebuilt: every compiled rule
+        asserts ``__fathom_decision``, which makes the template permanently
+        "in use", and CLIPS refuses to redefine a deftemplate a loaded rule
+        references (``[CSTRCPSR4]``). The unconditional rebuild that used to
+        live here therefore broke ``reset()`` on any engine with rules
+        loaded — i.e. ``fathom test`` and ``fathom bench``.
         """
-        self._env.reset()
-        self._fact_manager.clear_timestamps()
-        # __fathom_decision template survives reset (deftemplates persist),
-        # but re-build is safe (CLIPS ignores duplicate identical deftemplates).
-        self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision")
+        with self._lock:
+            self._env.reset()
+            self._fact_manager.clear_timestamps()
+            self._publish_working_memory(list(self._template_registry))
 
     def clear_facts(self) -> None:
         """Retract all user facts from working memory.
@@ -1202,4 +1557,6 @@ class Engine:
         Iterates registered templates and retracts their facts,
         leaving internal CLIPS facts (initial-fact, __fathom_decision) intact.
         """
-        self._fact_manager.clear_all()
+        with self._lock:
+            self._fact_manager.clear_all()
+            self._publish_working_memory(list(self._template_registry))

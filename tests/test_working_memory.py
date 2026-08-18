@@ -572,6 +572,39 @@ class TestReset:
         assert e.count("agent") == 1
 
 
+class TestResetWithRulesLoaded:
+    """reset() on a real rule pack (C2).
+
+    Every compiled rule asserts ``__fathom_decision``, so the template is
+    permanently "in use" and the unconditional rebuild reset() used to do
+    raised ``[CSTRCPSR4] Cannot redefine deftemplate``. The templates-only
+    fixture above never triggered it.
+    """
+
+    def test_reset_on_real_pack_does_not_raise(self):
+        e = Engine.from_rules("examples/01-hello-allow-deny")
+        e.assert_fact("agent", {"id": "a1", "clearance": "secret"})
+        e.reset()
+        assert e.count("agent") == 0
+
+    def test_engine_usable_after_reset_on_real_pack(self):
+        e = Engine.from_rules("examples/01-hello-allow-deny")
+        e.reset()
+        e.assert_fact("agent", {"id": "a1", "clearance": "secret"})
+        e.assert_fact(
+            "data_request",
+            {"agent_id": "a1", "classification": "top-secret", "resource": "x"},
+        )
+        assert e.evaluate().decision == "deny"
+
+    def test_repeated_reset_evaluate_cycle(self):
+        """The `fathom bench` / `fathom test` loop: reset() then evaluate(), n times."""
+        e = Engine.from_rules("examples/01-hello-allow-deny")
+        for _ in range(5):
+            e.reset()
+            e.evaluate()
+
+
 # ---------------------------------------------------------------------------
 # Clear_facts tests
 # ---------------------------------------------------------------------------

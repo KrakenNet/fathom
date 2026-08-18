@@ -855,3 +855,87 @@ class TestFromRulesEvaluation:
         e = Engine.from_rules(str(fixtures_dir))
         result = e.evaluate()
         assert result.decision == "deny"
+
+
+# ---------------------------------------------------------------------------
+# Class 14: Evaluation safety — activation budget and decision-fact cleanup
+# ---------------------------------------------------------------------------
+
+
+def _write_self_triggering_pack(root):
+    """A rule whose `assert` re-satisfies its own LHS — never reaches quiescence."""
+    (root / "templates.yaml").write_text(
+        "templates:\n  - name: ctr\n    slots:\n      - name: n\n        type: integer\n"
+    )
+    (root / "modules.yaml").write_text(
+        "modules:\n  - name: m\n    priority: 100\nfocus_order: [m]\n"
+    )
+    (root / "rules.yaml").write_text(
+        "ruleset: r\nmodule: m\nrules:\n"
+        "  - name: loop\n    when:\n      - template: ctr\n"
+        '        conditions:\n          - slot: n\n            bind: "?n"\n'
+        "    then:\n      action: allow\n      reason: ok\n"
+        "      assert:\n        - template: ctr\n"
+        '          slots:\n            n: "(+ ?n 1)"\n'
+    )
+
+
+class TestRunLimit:
+    """env.run() is bounded, so a non-terminating ruleset cannot hang the process."""
+
+    def test_self_triggering_rule_raises_instead_of_hanging(self, tmp_path):
+        from fathom.errors import EvaluationError
+
+        _write_self_triggering_pack(tmp_path)
+        e = Engine.from_rules(str(tmp_path), run_limit=200)
+        e.assert_fact("ctr", {"n": 0})
+        with pytest.raises(EvaluationError, match="run_limit"):
+            e.evaluate()
+
+    def test_normal_ruleset_is_unaffected_by_the_budget(self, fixtures_dir):
+        e = Engine.from_rules(str(fixtures_dir), run_limit=10)
+        e.assert_fact("agent", {"id": "a1", "clearance": "secret"})
+        e.assert_fact(
+            "data_request",
+            {"agent_id": "a1", "classification": "top-secret", "resource": "doc1"},
+        )
+        assert e.evaluate().decision == "deny"
+
+    def test_run_limit_none_runs_unbounded(self, fixtures_dir):
+        e = Engine.from_rules(str(fixtures_dir), run_limit=None)
+        assert e.evaluate().decision == "deny"
+
+
+class TestDecisionFactCleanupOnError:
+    """A failed evaluation must not leave __fathom_decision facts behind."""
+
+    def test_engine_recovers_after_a_failed_evaluation(self, tmp_path):
+        """Pre-fix, cleanup sat at the end of `try` and a raise wedged the engine forever."""
+        from fathom.errors import EvaluationError
+
+        (tmp_path / "templates.yaml").write_text(
+            "templates:\n  - name: agent\n    slots:\n      - name: id\n        type: symbol\n"
+        )
+        (tmp_path / "modules.yaml").write_text(
+            "modules:\n  - name: m\n    priority: 100\nfocus_order: [m]\n"
+        )
+        (tmp_path / "rules.yaml").write_text(
+            "ruleset: r\nmodule: m\nrules:\n"
+            "  - name: forge\n    when:\n      - template: agent\n"
+            '        conditions:\n          - slot: id\n            expression: "equals(alice)"\n'
+            "    then:\n      action: allow\n      reason: ok\n"
+            "      assert:\n        - template: __fathom_decision\n"
+            '          slots:\n            action: "(sym-cat deny)"\n'
+            "            metadata: not-json\n"
+        )
+        e = Engine.from_rules(str(tmp_path))
+        e.assert_fact("agent", {"id": "alice"})
+        with pytest.raises(EvaluationError, match="invalid metadata encoding"):
+            e.evaluate()
+
+        leftover = list(e._env.find_template("__fathom_decision").facts())
+        assert leftover == []
+
+        # The engine is still usable: retract the trigger and evaluate cleanly.
+        e.retract("agent", {"id": "alice"})
+        assert e.evaluate().decision == "deny"
