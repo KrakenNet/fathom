@@ -136,8 +136,8 @@ def test_status_hash_advances_after_reload(client: TestClient) -> None:
     reload_resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
     assert reload_resp.status_code == 200, reload_resp.text
     reload_data = reload_resp.json()
-    assert reload_data["hash_before"] == hash_before
-    assert reload_data["hash_after"] != hash_before
+    assert reload_data["ruleset_hash_before"] == hash_before
+    assert reload_data["ruleset_hash_after"] != hash_before
 
     # Post-reload status.
     resp = client.get("/v1/status")
@@ -146,7 +146,7 @@ def test_status_hash_advances_after_reload(client: TestClient) -> None:
 
     # Hash advanced …
     assert after["ruleset_hash"] != hash_before
-    assert after["ruleset_hash"] == reload_data["hash_after"]
+    assert after["ruleset_hash"] == reload_data["ruleset_hash_after"]
     # … and equals the live engine's hash (no drift).
     assert after["ruleset_hash"] == client.app.state.engine.ruleset_hash
 

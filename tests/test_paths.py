@@ -81,6 +81,18 @@ class TestResolveRuleset:
         with pytest.raises(PathJailError, match="invalid ruleset path"):
             resolve_ruleset(str(rules_dir), "link.yaml")
 
+    @pytest.mark.parametrize("user_path", ["a\x00b", "\x00", "ok.yaml\x00.txt"])
+    def test_rejects_embedded_null_byte(self, tmp_path: Path, user_path: str) -> None:
+        """A null byte must be a PathJailError, not a bare ValueError.
+
+        Both subclass ValueError, so a raw ValueError escapes every caller
+        (which catches only PathJailError) and becomes a 500 / UNKNOWN.
+        """
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        with pytest.raises(PathJailError, match="invalid ruleset path"):
+            resolve_ruleset(str(rules_dir), user_path)
+
     def test_missing_root_raises(self, tmp_path: Path) -> None:
         with pytest.raises(PathJailError, match="ruleset root"):
             resolve_ruleset(str(tmp_path / "missing"), "x.yaml")

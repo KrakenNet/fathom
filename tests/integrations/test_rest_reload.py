@@ -2,7 +2,7 @@
 
 Validates the exactly-one-of ``ruleset_path`` / ``ruleset_yaml`` contract on
 ``RulesetReloadRequest`` plus the 3-field happy-path response shape
-(``hash_before`` / ``hash_after`` / ``attestation_token``).
+(``ruleset_hash_before`` / ``ruleset_hash_after`` / ``attestation_token``).
 
 The shape-tests fixture runs against ``build_app(require_signature=False)``
 with the dev-escape env var set (``FATHOM_ALLOW_UNSIGNED_RULESETS=1``).
@@ -69,9 +69,10 @@ def _seed_engine(tmp_path: Path) -> Engine:
     engine = Engine()
     engine.load_templates(str(tmp_path / "templates.yaml"))
     engine.load_modules(str(tmp_path / "modules.yaml"))
-    # Seed an initial ruleset so ``hash_before`` is non-sentinel and differs
-    # from ``hash_after``. Not strictly required by the shape tests, but it
-    # gives realistic hash trajectories in the happy-path assertions.
+    # Seed an initial ruleset so ``ruleset_hash_before`` is non-sentinel and
+    # differs from ``ruleset_hash_after``. Not strictly required by the shape
+    # tests, but it gives realistic hash trajectories in the happy-path
+    # assertions.
     initial = _ruleset_yaml("rule-seed", "seed")
     (tmp_path / "rules-seed.yaml").write_text(initial)
     engine.load_rules(str(tmp_path / "rules-seed.yaml"))
@@ -102,7 +103,7 @@ AUTH = {"Authorization": "Bearer testtok"}
 def test_shape_valid_ruleset_yaml(client: TestClient) -> None:
     """Happy path: ``ruleset_yaml`` alone → 200 with 3-field response.
 
-    AC-5.1: response exposes ``hash_before`` / ``hash_after`` /
+    AC-5.1: response exposes ``ruleset_hash_before`` / ``ruleset_hash_after`` /
     ``attestation_token`` and nothing else material.
     """
     body = {"ruleset_yaml": _ruleset_yaml("rule-new", "alice")}
@@ -110,10 +111,10 @@ def test_shape_valid_ruleset_yaml(client: TestClient) -> None:
     assert resp.status_code == 200, resp.text
     data = resp.json()
     # Exactly the three documented fields must be present.
-    assert set(data.keys()) == {"hash_before", "hash_after", "attestation_token"}
-    assert data["hash_before"].startswith("sha256:")
-    assert data["hash_after"].startswith("sha256:")
-    assert data["hash_before"] != data["hash_after"]
+    assert set(data.keys()) == {"ruleset_hash_before", "ruleset_hash_after", "attestation_token"}
+    assert data["ruleset_hash_before"].startswith("sha256:")
+    assert data["ruleset_hash_after"].startswith("sha256:")
+    assert data["ruleset_hash_before"] != data["ruleset_hash_after"]
     assert isinstance(data["attestation_token"], str) and data["attestation_token"]
 
 
@@ -176,7 +177,11 @@ def test_admin_token_accepts_admin_token(
         headers={"Authorization": "Bearer admintok"},
     )
     assert resp.status_code == 200, resp.text
-    assert set(resp.json().keys()) == {"hash_before", "hash_after", "attestation_token"}
+    assert set(resp.json().keys()) == {
+        "ruleset_hash_before",
+        "ruleset_hash_after",
+        "attestation_token",
+    }
 
 
 def test_admin_token_unset_data_plane_still_works(
@@ -260,17 +265,17 @@ def test_signed_reload_audit_emission(
     resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert set(data.keys()) == {"hash_before", "hash_after", "attestation_token"}
-    assert data["hash_before"].startswith("sha256:")
-    assert data["hash_after"].startswith("sha256:")
-    assert data["hash_before"] != data["hash_after"]
+    assert set(data.keys()) == {"ruleset_hash_before", "ruleset_hash_after", "attestation_token"}
+    assert data["ruleset_hash_before"].startswith("sha256:")
+    assert data["ruleset_hash_after"].startswith("sha256:")
+    assert data["ruleset_hash_before"] != data["ruleset_hash_after"]
 
     # Attestation token: EdDSA JWT signed by the runtime key — decode with its pubkey.
     claims = verify_token(data["attestation_token"], attestation.public_key)
     assert claims["iss"] == "fathom"
     assert isinstance(claims["iat"], int)
-    assert claims["ruleset_hash_before"] == data["hash_before"]
-    assert claims["ruleset_hash_after"] == data["hash_after"]
+    assert claims["ruleset_hash_before"] == data["ruleset_hash_before"]
+    assert claims["ruleset_hash_after"] == data["ruleset_hash_after"]
     assert claims["actor"] == "bearer-token"
     assert isinstance(claims["timestamp"], str) and claims["timestamp"]
 
@@ -278,8 +283,8 @@ def test_signed_reload_audit_emission(
     reloaded = [r for r in sink.records if r.get("event_type") == "ruleset_reloaded"]
     assert len(reloaded) == 1, sink.records
     rec = reloaded[0]
-    assert rec["ruleset_hash_before"] == data["hash_before"]
-    assert rec["ruleset_hash_after"] == data["hash_after"]
+    assert rec["ruleset_hash_before"] == data["ruleset_hash_before"]
+    assert rec["ruleset_hash_after"] == data["ruleset_hash_after"]
     assert rec["actor"] == "bearer-token"
     assert rec["timestamp"] == claims["timestamp"]
 
@@ -304,6 +309,57 @@ def test_unsigned_reload_rejected_by_default(
 
     rejected = [r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"]
     assert len(rejected) == 1, sink.records
+
+
+def test_forged_signature_rejected(
+    signed_client: tuple[TestClient, Ed25519PrivateKey, _ListAuditSink, AttestationService],
+) -> None:
+    """A well-formed signature from the wrong key → 400 + rejection audit.
+
+    Distinct from the missing-signature case above: this one reaches
+    ``verify_ruleset_signature`` and must fail there, leaving the loaded
+    ruleset untouched.
+    """
+    client, _priv, sink, _attestation = signed_client
+    hash_before = client.get("/v1/status").json()["ruleset_hash"]
+
+    yaml_str = _ruleset_yaml("rule-forged", "mallory")
+    attacker = Ed25519PrivateKey.generate()
+    body = {
+        "ruleset_yaml": yaml_str,
+        "signature": base64.b64encode(attacker.sign(yaml_str.encode("utf-8"))).decode("ascii"),
+    }
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"] == "unsigned_ruleset"
+
+    rejected = [r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"]
+    assert len(rejected) == 1, sink.records
+    assert rejected[0]["reason"] == "ruleset signature verification failed"
+    assert client.get("/v1/status").json()["ruleset_hash"] == hash_before
+
+
+def test_tampered_payload_rejected(
+    signed_client: tuple[TestClient, Ed25519PrivateKey, _ListAuditSink, AttestationService],
+) -> None:
+    """A genuine signature over different YAML → 400, ruleset unchanged."""
+    client, priv, sink, _attestation = signed_client
+    hash_before = client.get("/v1/status").json()["ruleset_hash"]
+
+    signed_yaml = _ruleset_yaml("rule-honest", "alice")
+    tampered_yaml = _ruleset_yaml("rule-tampered", "mallory")
+    body = {
+        "ruleset_yaml": tampered_yaml,
+        "signature": base64.b64encode(priv.sign(signed_yaml.encode("utf-8"))).decode("ascii"),
+    }
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"] == "unsigned_ruleset"
+    rejected = [r for r in sink.records if r.get("event_type") == "ruleset_reload_rejected"]
+    assert len(rejected) == 1, sink.records
+    assert client.get("/v1/status").json()["ruleset_hash"] == hash_before
 
 
 def _write_pubkey(tmp_path: Path) -> tuple[Path, Ed25519PrivateKey, bytes]:
@@ -399,7 +455,7 @@ def test_dev_escape_needs_both_flags(
         resp = tc_c.post("/v1/rules/reload", json=body, headers=AUTH)
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert set(data.keys()) == {"hash_before", "hash_after", "attestation_token"}
+    assert set(data.keys()) == {"ruleset_hash_before", "ruleset_hash_after", "attestation_token"}
 
 
 def test_concurrent_reloads(
@@ -410,9 +466,9 @@ def test_concurrent_reloads(
     Two threads POST distinct signed rulesets simultaneously — released in
     lockstep via ``threading.Barrier(2)`` to maximize contention. Both must
     succeed (200) with distinct ``attestation_token``s and distinct
-    ``hash_after`` values (different YAML bodies hash differently). The final
-    ``engine.ruleset_hash`` must equal exactly one of the two ``hash_after``
-    values — last-write-wins under the lock.
+    ``ruleset_hash_after`` values (different YAML bodies hash differently). The
+    final ``engine.ruleset_hash`` must equal exactly one of the two
+    ``ruleset_hash_after`` values — last-write-wins under the lock.
     """
     client, priv, _sink, _attestation = signed_client
 
@@ -448,17 +504,17 @@ def test_concurrent_reloads(
     data_a = resp_a.json()
     data_b = resp_b.json()
 
-    # Distinct rulesets → distinct hash_after values.
-    assert data_a["hash_after"] != data_b["hash_after"], (data_a, data_b)
+    # Distinct rulesets → distinct ruleset_hash_after values.
+    assert data_a["ruleset_hash_after"] != data_b["ruleset_hash_after"], (data_a, data_b)
     # Distinct attestation tokens (every reload mints a fresh JWT).
     assert data_a["attestation_token"] != data_b["attestation_token"]
 
     # Last-write-wins under the lock: engine.ruleset_hash is exactly one of
-    # the two reported hash_after values.
+    # the two reported ruleset_hash_after values.
     engine = client.app.state.engine
     final_hash = engine.ruleset_hash
-    assert final_hash in {data_a["hash_after"], data_b["hash_after"]}, (
+    assert final_hash in {data_a["ruleset_hash_after"], data_b["ruleset_hash_after"]}, (
         final_hash,
-        data_a["hash_after"],
-        data_b["hash_after"],
+        data_a["ruleset_hash_after"],
+        data_b["ruleset_hash_after"],
     )

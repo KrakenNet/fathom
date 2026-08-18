@@ -6,17 +6,20 @@ import base64
 import binascii
 import logging
 import os
-import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 try:
     import prometheus_client
@@ -31,15 +34,21 @@ from pydantic import ValidationError as PydanticValidationError
 from fathom import __version__ as _fathom_version
 from fathom.compiler import Compiler
 from fathom.engine import Engine
-from fathom.errors import CompilationError
+from fathom.errors import CompilationError, EvaluationError, EvaluationLimitError
 from fathom.errors import ValidationError as FathomValidationError
 from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
+from fathom.integrations.sessions import (
+    SessionLimitError,
+    SessionRulesetMismatchError,
+    SessionStore,
+)
 from fathom.models import (
     AssertFactRequest,
     AssertFactResponse,
     CompileRequest,
     CompileResponse,
+    ErrorResponse,
     EvaluateRequest,
     EvaluateResponse,
     ModuleDefinition,
@@ -64,10 +73,10 @@ def _make_error_response(
     error: str,
     detail: str,
 ) -> JSONResponse:
-    """Return a consistent error envelope: ``{"error": str, "detail": str}``."""
+    """Return the shared error envelope (``models.ErrorResponse``)."""
     return JSONResponse(
         status_code=status_code,
-        content={"error": error, "detail": detail},
+        content=ErrorResponse(error=error, detail=detail, field=None).model_dump(),
     )
 
 
@@ -129,50 +138,95 @@ def _resolve_user_ruleset(user_path: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-class SessionStore:
-    """Manages Engine instances for stateful REST sessions."""
+def _session_engine(session_id: str, rules_path: str) -> Engine:
+    """Return the session Engine, mapping store rejections onto HTTP status.
 
-    def __init__(
-        self,
-        ttl_seconds: int = 1800,
-        max_sessions: int = 1000,
-    ) -> None:
-        self._sessions: dict[str, tuple[Engine, float]] = {}
-        self._ttl_seconds = ttl_seconds
-        self._max_sessions = max_sessions
+    A session is bound to the ruleset it was created with; addressing it
+    with a different one is 409 rather than a silent evaluation under the
+    wrong policy.
+    """
+    try:
+        return session_store.get_or_create(session_id, rules_path)
+    except SessionRulesetMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "session_ruleset_mismatch", "detail": str(exc)},
+        ) from exc
+    except SessionLimitError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "session_limit_exceeded", "detail": str(exc)},
+        ) from exc
 
-    def _cleanup_expired(self) -> None:
-        """Remove expired sessions (lazy cleanup)."""
-        now = time.time()
-        expired = [
-            sid
-            for sid, (_, last_access) in self._sessions.items()
-            if now - last_access > self._ttl_seconds
-        ]
-        for sid in expired:
-            del self._sessions[sid]
 
-    def get_or_create(self, session_id: str, rules_path: str) -> Engine:
-        """Get existing session or create new one."""
-        self._cleanup_expired()
+def _require_session_engine(session_id: str) -> Engine:
+    """Return the Engine for an existing session, or raise 404."""
+    engine = session_store.get(session_id)
+    if engine is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return engine
 
-        if session_id in self._sessions:
-            engine, _ = self._sessions[session_id]
-            self._sessions[session_id] = (engine, time.time())
-            return engine
 
-        if len(self._sessions) >= self._max_sessions:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "error": "session_limit_exceeded",
-                    "detail": "Maximum session limit reached",
-                },
-            )
+# Maximum accepted request body on the data-plane routes. POST /v1/evaluate
+# runs a quadratic CLIPS join over the facts it is handed, so an unbounded
+# body is an unbounded amount of server CPU. Sized to stay above the
+# 1,000,000-character cap on CompileRequest.yaml_content once JSON-encoded.
+# The reload route enforces its own cap (FATHOM_MAX_RELOAD_BYTES) and is
+# skipped here. Overridable via FATHOM_MAX_REQUEST_BYTES.
+_DEFAULT_MAX_REQUEST_BYTES = 2 * 1024 * 1024  # 2 MB
+_RELOAD_PATH = "/v1/rules/reload"
 
-        engine = Engine.from_rules(rules_path)
-        self._sessions[session_id] = (engine, time.time())
-        return engine
+
+def _max_request_bytes() -> int:
+    """Return the data-plane body cap in bytes (env-overridable, per call)."""
+    raw = os.environ.get("FATHOM_MAX_REQUEST_BYTES", "")
+    if not raw:
+        return _DEFAULT_MAX_REQUEST_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_REQUEST_BYTES
+    return value if value > 0 else _DEFAULT_MAX_REQUEST_BYTES
+
+
+class BodySizeLimitMiddleware:
+    """Reject over-sized request bodies while they stream in.
+
+    The cap is enforced on the bytes actually received rather than the
+    Content-Length header (chunked bodies lie), and it aborts as soon as
+    the running total passes the limit so a hostile body is never fully
+    buffered. Raising :class:`HTTPException` from inside ``receive`` is
+    deliberate: FastAPI re-raises it out of body parsing unchanged, so it
+    renders through the normal error envelope.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("path") == _RELOAD_PATH:
+            await self._app(scope, receive, send)
+            return
+
+        limit = _max_request_bytes()
+        total = 0
+
+        async def counting_receive() -> Message:
+            nonlocal total
+            message = await receive()
+            if message["type"] == "http.request":
+                total += len(message.get("body", b""))
+                if total > limit:
+                    raise HTTPException(
+                        status_code=413,
+                        detail={
+                            "error": "payload_too_large",
+                            "detail": f"request body exceeds the {limit}-byte limit",
+                        },
+                    )
+            return message
+
+        await self._app(scope, counting_receive, send)
 
 
 # Docs/OpenAPI are disabled by default — they leak schema and route names
@@ -188,6 +242,89 @@ app = FastAPI(
     redoc_url="/redoc" if _expose_docs else None,
     openapi_url="/openapi.json" if _expose_docs else None,
 )
+
+app.add_middleware(BodySizeLimitMiddleware)
+
+
+# Slug used in the ``error`` field when an HTTPException carries only a
+# plain-string detail. One envelope for every error the API returns:
+# ``{"error": str, "detail": str, "field": str | None}`` (models.ErrorResponse).
+_ERROR_SLUGS = {
+    400: "invalid_request",
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    405: "method_not_allowed",
+    409: "conflict",
+    413: "payload_too_large",
+    422: "validation_error",
+    429: "too_many_requests",
+    500: "internal_error",
+    503: "unavailable",
+}
+
+
+# Every route renders errors through the ErrorResponse envelope above, so
+# declare it once and attach it to each route. Without this the exported
+# OpenAPI still advertises FastAPI's default 422 shape (a `detail` LIST of
+# error objects), which is not what the API returns — clients written
+# against the published spec fail to parse a real error.
+_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    401: {"model": ErrorResponse, "description": "Missing or invalid token"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    409: {"model": ErrorResponse, "description": "Conflict"},
+    413: {"model": ErrorResponse, "description": "Request body too large"},
+    422: {"model": ErrorResponse, "description": "Request body failed validation"},
+    503: {"model": ErrorResponse, "description": "Service unavailable"},
+}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Render every HTTPException through the single ErrorResponse envelope.
+
+    Registered on the Starlette base class so framework-raised errors (405,
+    404 on an unknown route) use the same envelope as the app's own.
+    """
+    fallback = _ERROR_SLUGS.get(exc.status_code, "error")
+    if isinstance(exc.detail, dict):
+        body = ErrorResponse(
+            error=str(exc.detail.get("error", fallback)),
+            detail=str(exc.detail.get("detail", "")),
+            field=exc.detail.get("field"),
+        )
+    else:
+        body = ErrorResponse(error=fallback, detail=str(exc.detail), field=None)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=body.model_dump(),
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Render FastAPI's body-validation errors through the same envelope."""
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    # `loc` is ("body", <field>, ...) for a field error but ("body", <int>)
+    # for a malformed-JSON error, where the int is a BYTE OFFSET. Rendering
+    # that offset as `"field": "1"` presents a position as a field name, so
+    # drop non-identifier parts and report no field instead.
+    loc = ".".join(
+        str(part)
+        for part in first.get("loc", ())
+        if part != "body" and not isinstance(part, int)
+    )
+    body = ErrorResponse(
+        error="validation_error",
+        detail=str(first.get("msg", "invalid request body")),
+        field=loc or None,
+    )
+    return JSONResponse(status_code=422, content=body.model_dump())
 
 
 _metrics_enabled = _HAS_PROMETHEUS and os.environ.get("FATHOM_METRICS") == "1"
@@ -212,13 +349,8 @@ async def fathom_validation_error_handler(
     request: Request, exc: FathomValidationError
 ) -> JSONResponse:
     """Return 422 for Fathom validation errors."""
-    content: dict[str, str | None] = {
-        "error": "validation_error",
-        "detail": str(exc),
-    }
-    if exc.slot:
-        content["field"] = exc.slot
-    return JSONResponse(status_code=422, content=content)
+    body = ErrorResponse(error="validation_error", detail=str(exc), field=exc.slot or None)
+    return JSONResponse(status_code=422, content=body.model_dump())
 
 
 @app.get("/health")
@@ -233,20 +365,47 @@ session_store = SessionStore()
 @app.post(
     "/v1/evaluate",
     response_model=EvaluateResponse,
+    responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
-    """Evaluate facts against a ruleset (stateless or stateful)."""
+def evaluate(request: EvaluateRequest) -> EvaluateResponse:
+    """Evaluate facts against a ruleset (stateless or stateful).
+
+    Request-scoped: the supplied facts are asserted, evaluated, then
+    withdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the
+    same session can never change this one's decision.
+
+    Declared ``def`` (not ``async def``) on purpose: CLIPS evaluation is
+    blocking CPU work, so Starlette must run it in the threadpool rather
+    than on the event loop, where one large request stalls every other
+    connection.
+    """
     resolved = _resolve_user_ruleset(request.ruleset)
     if request.session_id:
-        engine = session_store.get_or_create(request.session_id, resolved)
+        engine = _session_engine(request.session_id, resolved)
     else:
         engine = Engine.from_rules(resolved)
 
-    for fact_input in request.facts:
-        engine.assert_fact(fact_input.template, fact_input.data)
-
-    result = engine.evaluate()
+    try:
+        result = engine.evaluate_once(
+            facts=[(f.template, f.data) for f in request.facts],
+        )
+    except EvaluationLimitError as exc:
+        # The ruleset exhausted its activation budget, which is how a
+        # non-terminating ruleset is stopped. 503 rather than 500: this is a
+        # policy problem, the request produced no decision, and the server is
+        # still healthy.
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "evaluation_failed", "detail": str(exc)},
+        ) from exc
+    except EvaluationError as exc:
+        # Any other evaluation failure is a server-side fault, not something
+        # the caller can fix by retrying or by sending different facts.
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "evaluation_error", "detail": str(exc)},
+        ) from exc
 
     return EvaluateResponse(
         decision=result.decision,
@@ -275,10 +434,7 @@ async def list_templates(
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all registered template definitions for a session."""
-    engine_tuple = session_store._sessions.get(session_id)
-    if engine_tuple is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    engine, _ = engine_tuple
+    engine = _require_session_engine(session_id)
     items = [t.model_dump() for t in engine.template_registry.values()]
     return _make_list_response(items)
 
@@ -288,10 +444,7 @@ async def list_rules(
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all loaded rule definitions for a session."""
-    engine_tuple = session_store._sessions.get(session_id)
-    if engine_tuple is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    engine, _ = engine_tuple
+    engine = _require_session_engine(session_id)
     items = [r.model_dump() for r in engine.rule_registry.values()]
     return _make_list_response(items)
 
@@ -301,10 +454,7 @@ async def list_modules(
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all registered module definitions for a session."""
-    engine_tuple = session_store._sessions.get(session_id)
-    if engine_tuple is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    engine, _ = engine_tuple
+    engine = _require_session_engine(session_id)
     items = [m.model_dump() for m in engine.module_registry.values()]
     return _make_list_response(items)
 
@@ -312,10 +462,25 @@ async def list_modules(
 @app.post(
     "/v1/compile",
     response_model=CompileResponse,
+    responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-async def compile_yaml(request: CompileRequest) -> CompileResponse:
-    """Compile YAML content into CLIPS constructs."""
+def compile_yaml(request: CompileRequest, http_request: Request) -> CompileResponse:
+    """Compile YAML content into CLIPS constructs.
+
+    Rule literals are emitted according to the declared slot type, so this
+    endpoint compiles against the templates of the engine mounted on
+    ``app.state.engine`` when one is configured. Without an engine there is
+    no type context available and literals fall back to the untyped form —
+    which may differ from what ``Engine.from_rules`` builds for the same
+    YAML. Post the templates alongside the rules, or use ``fathom compile``
+    against the ruleset directory, when the exact form matters.
+
+    Declared ``def`` so compilation runs in the threadpool, not on
+    the event loop.
+    """
+    state_engine = getattr(http_request.app.state, "engine", None)
+    templates = state_engine.template_registry if state_engine is not None else None
     compiler = Compiler()
     errors: list[str] = []
     constructs: list[str] = []
@@ -339,9 +504,15 @@ async def compile_yaml(request: CompileRequest) -> CompileResponse:
                 constructs.append(compiler.compile_module(mod_defn))
         elif "rules" in data or "ruleset" in data:
             ruleset = RulesetDefinition(**data)
+            # Slot types decide how a literal is emitted (a STRING slot gets
+            # a quoted CLIPS string, a SYMBOL slot does not), so compile
+            # against the loaded engine's templates. Without them this
+            # endpoint returned CLIPS that the same server's engine would
+            # never build — and that CLIPS does not even accept
+            # ([CSTRNCHK1]) for a string slot holding e.g. an email address.
             for rule_defn in ruleset.rules:
                 constructs.append(
-                    compiler.compile_rule(rule_defn, ruleset.module),
+                    compiler.compile_rule(rule_defn, ruleset.module, templates),
                 )
     except CompilationError as exc:
         # Return the construct + message but not the raw detail/file paths.
@@ -363,62 +534,59 @@ async def compile_yaml(request: CompileRequest) -> CompileResponse:
 @app.post(
     "/v1/facts",
     response_model=AssertFactResponse,
+    responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-async def assert_fact(request: AssertFactRequest) -> AssertFactResponse:
+def assert_fact(request: AssertFactRequest) -> AssertFactResponse:
     """Assert a single fact into a session's working memory.
 
     Unlike ``/v1/evaluate``, this endpoint does **not** create sessions on
     the fly — the ``session_id`` must reference a session previously
     created via ``/v1/evaluate``. Unknown session ids return 404.
+
+    Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine_tuple = session_store._sessions.get(request.session_id)
-    if engine_tuple is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    engine, _ = engine_tuple
+    engine = _require_session_engine(request.session_id)
     engine.assert_fact(request.template, request.data)
-    session_store._sessions[request.session_id] = (engine, time.time())
     return AssertFactResponse(success=True)
 
 
 @app.post(
     "/v1/query",
     response_model=QueryFactsResponse,
+    responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-async def query_facts(request: QueryFactsRequest) -> QueryFactsResponse:
+def query_facts(request: QueryFactsRequest) -> QueryFactsResponse:
     """Query a session's working memory for facts matching template + filter.
 
     The ``session_id`` must reference an existing session created via
     ``/v1/evaluate``. Unknown session ids return 404.
+
+    Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine_tuple = session_store._sessions.get(request.session_id)
-    if engine_tuple is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    engine, _ = engine_tuple
+    engine = _require_session_engine(request.session_id)
     facts = engine.query(request.template, request.filter)
-    session_store._sessions[request.session_id] = (engine, time.time())
     return QueryFactsResponse(facts=facts)
 
 
 @app.delete(
     "/v1/facts",
     response_model=RetractFactsResponse,
+    responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-async def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
+def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
     """Retract facts matching template + optional filter from working memory.
 
     The ``session_id`` must reference an existing session created via
     ``/v1/evaluate``. Unknown session ids return 404. Retract is by
     template + filter (matches the gRPC surface), not by fact index.
+
+    Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine_tuple = session_store._sessions.get(request.session_id)
-    if engine_tuple is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    engine, _ = engine_tuple
+    engine = _require_session_engine(request.session_id)
     count = engine.retract(request.template, request.filter)
-    session_store._sessions[request.session_id] = (engine, time.time())
     return RetractFactsResponse(retracted_count=count)
 
 
@@ -450,8 +618,11 @@ def _write_audit(sink: Any | None, record: dict[str, Any]) -> None:
         return
     try:
         sink.write(record)
-    except Exception:  # pragma: no cover - audit failure must not crash reload
-        logger.exception("audit sink write failed")
+    except Exception:
+        # Audit failure must not crash a reload, but the record must not
+        # vanish either — log it in full so the event is recoverable from
+        # the process log when the sink rejects it.
+        logger.exception("audit sink write failed; dropped record: %r", record)
 
 
 @app.post(
@@ -652,8 +823,8 @@ async def reload_rules(
     return JSONResponse(
         status_code=200,
         content={
-            "hash_before": hash_before,
-            "hash_after": hash_after,
+            "ruleset_hash_before": hash_before,
+            "ruleset_hash_after": hash_after,
             "attestation_token": attestation_token,
         },
     )

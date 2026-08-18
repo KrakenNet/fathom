@@ -28,13 +28,20 @@ def resolve_ruleset(root: str, user_path: str) -> Path:
     if not root_path.exists() or not root_path.is_dir():
         raise PathJailError("ruleset root is not configured correctly")
 
+    # An embedded null byte makes the OS path calls below raise a bare
+    # ValueError, which callers catching PathJailError do not see (both
+    # subclass ValueError) — it would surface as a 500 / UNKNOWN instead
+    # of the documented rejection.
+    if "\x00" in user_path:
+        raise PathJailError("invalid ruleset path")
+
     candidate = Path(user_path)
     if candidate.is_absolute() or candidate.drive:
         raise PathJailError("invalid ruleset path")
 
-    resolved = (root_path / candidate).resolve(strict=False)
     try:
+        resolved = (root_path / candidate).resolve(strict=False)
         resolved.relative_to(root_path)
-    except ValueError:
+    except (ValueError, OSError):
         raise PathJailError("invalid ruleset path") from None
     return resolved

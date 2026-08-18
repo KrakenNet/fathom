@@ -8,11 +8,17 @@ from fathom.engine import Engine
 
 
 class FathomMCPServer:
-    """MCP tool server with per-connection Engine isolation.
+    """MCP tool server backed by a single process-wide Engine.
 
     Wraps a :class:`~mcp.server.fastmcp.FastMCP` instance and registers
     four tools: ``fathom.evaluate``, ``fathom.assert_fact``,
     ``fathom.query``, and ``fathom.retract``.
+
+    There is **no** per-connection isolation and **no** authentication on
+    the tools: every caller shares one Engine and can read, inject, or
+    retract another caller's working memory. That is safe under the stdio
+    transport, which runs one server process per client, and only under
+    stdio — :meth:`run` therefore refuses the network transports.
 
     Args:
         rules_path: Optional path to a rules directory or file.
@@ -26,7 +32,7 @@ class FathomMCPServer:
         self._mcp = _create_mcp_app(self)
 
     def _get_engine(self) -> Engine:
-        """Return the per-connection Engine, creating it lazily."""
+        """Return the process-wide Engine, creating it lazily."""
         if self._engine is None:
             if self._rules_path:
                 self._engine = Engine.from_rules(self._rules_path)
@@ -67,8 +73,20 @@ class FathomMCPServer:
         """Start the MCP server (blocking).
 
         Args:
-            transport: Transport protocol. Defaults to ``"stdio"``.
+            transport: Transport protocol. Only ``"stdio"`` is supported.
+
+        Raises:
+            ValueError: A network transport was requested. The tools are
+                unauthenticated and share one Engine, so serving several
+                clients over ``sse`` / ``streamable-http`` would let any
+                caller read and retract another's working memory.
         """
+        if transport != "stdio":
+            raise ValueError(
+                f"unsupported MCP transport {transport!r}: the Fathom MCP tools are "
+                "unauthenticated and share a single Engine, so only 'stdio' "
+                "(one server process per client) is supported"
+            )
         self._mcp.run(transport=transport)
 
 

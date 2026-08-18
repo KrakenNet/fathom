@@ -28,9 +28,15 @@ except ImportError as _exc:
         "Install it with: pip install fathom-rules[grpc]"
     ) from _exc
 
-from fathom.errors import CompilationError
+from fathom.errors import CompilationError, EvaluationError, EvaluationLimitError
 from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
+from fathom.integrations.sessions import (
+    SessionLimitError,
+    SessionNotFoundError,
+    SessionRulesetMismatchError,
+    SessionStore,
+)
 from fathom.proto import fathom_pb2, fathom_pb2_grpc
 
 if TYPE_CHECKING:
@@ -51,32 +57,6 @@ _GRPC_MAX_RECEIVE_BYTES = 4 * 1024 * 1024
 # Typed as an event tuple so the queue annotation stays narrow; never
 # yielded to clients.
 _RELOAD_SENTINEL: tuple[str, str, dict[str, Any]] = ("__ruleset_reloaded__", "", {})
-
-
-class SessionStore:
-    """Minimal session store for gRPC — same pattern as the REST server."""
-
-    def __init__(self) -> None:
-        self._sessions: dict[str, Engine] = {}
-
-    def get_or_create(self, session_id: str, rules_path: str = "") -> Engine:
-        """Return an existing session or create a new one.
-
-        Args:
-            session_id: Unique session identifier.
-            rules_path: Path to rules directory for new sessions.
-
-        Returns:
-            Configured Engine instance.
-        """
-        from fathom.engine import Engine
-
-        if session_id in self._sessions:
-            return self._sessions[session_id]
-
-        engine = Engine.from_rules(rules_path) if rules_path else Engine()
-        self._sessions[session_id] = engine
-        return engine
 
 
 class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
@@ -127,11 +107,50 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         self._ruleset_pubkey = ruleset_pubkey
         self._require_signature = require_signature
 
-    def _engine_for(self, session_id: str, ruleset: str = "") -> Engine:
-        """Resolve engine: session-scoped or default."""
-        if session_id:
+    def _engine_for(self, session_id: str, ruleset: str = "", context: Any = None) -> Engine:
+        """Resolve engine: session-scoped or default.
+
+        Session-store rejections are mapped onto gRPC status: addressing a
+        live session with a different ruleset is ``FAILED_PRECONDITION``
+        (answering it out of the bound Engine would evaluate the request
+        under the wrong policy), and the session ceiling is
+        ``RESOURCE_EXHAUSTED``.
+        """
+        if not session_id:
+            return self._default_engine
+        if not ruleset:
+            # RPCs other than Evaluate carry no ruleset field, so they join
+            # whatever session already exists rather than asserting a binding.
+            existing = self._session_store.get(session_id)
+            if existing is not None:
+                return existing
+            # ...and they must NOT create one. Falling through to
+            # get_or_create(session_id, "") bound the id to the empty
+            # ruleset permanently, so every later Evaluate naming a real
+            # ruleset aborted FAILED_PRECONDITION for the whole session TTL
+            # — one authenticated client could wedge arbitrary session ids.
+            # REST already has this contract (unknown session -> 404, see
+            # `_require_session_engine`); sessions are created by Evaluate,
+            # which is the only call that carries a ruleset to bind to.
+            if context is None:
+                raise SessionNotFoundError(f"session {session_id!r} does not exist")
+            context.abort(
+                grpc.StatusCode.NOT_FOUND,
+                f"session_not_found: {session_id!r} — create it with Evaluate first",
+            )
+            raise  # unreachable; abort raises
+        try:
             return self._session_store.get_or_create(session_id, ruleset)
-        return self._default_engine
+        except SessionRulesetMismatchError as exc:
+            if context is None:
+                raise
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, f"session_ruleset_mismatch: {exc}")
+            raise  # unreachable; abort raises
+        except SessionLimitError as exc:
+            if context is None:
+                raise
+            context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, f"session_limit_exceeded: {exc}")
+            raise  # unreachable; abort raises
 
     def _check_auth(self, context: Any) -> None:
         """Abort the RPC if the caller did not present a valid data-plane token."""
@@ -177,21 +196,32 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.EvaluateResponse:
         """Evaluate facts against loaded rules.
 
-        Asserts each fact from the request into working memory, runs
-        the evaluation, and returns the decision with traces.
+        Request-scoped: the facts are asserted, evaluated, then withdrawn
+        (:meth:`Engine.evaluate_once`), so an earlier RPC on the same
+        session can never change this one's decision.
         """
         self._check_auth(context)
         ruleset = self._resolve_ruleset(
             getattr(request, "ruleset", ""),
             context,
         )
-        engine = self._engine_for(request.session_id, ruleset)
+        engine = self._engine_for(request.session_id, ruleset, context)
 
-        for fact in request.facts:
-            data: dict[str, Any] = json.loads(fact.data_json)
-            engine.assert_fact(fact.template, data)
-
-        result = engine.evaluate()
+        facts: list[tuple[str, dict[str, Any]]] = [
+            (fact.template, json.loads(fact.data_json)) for fact in request.facts
+        ]
+        try:
+            result = engine.evaluate_once(facts=facts)
+        except EvaluationLimitError as exc:
+            # The ruleset exhausted its activation budget, which is how a
+            # non-terminating ruleset is stopped: a policy problem, not a
+            # server fault.
+            context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, f"evaluation_failed: {exc}")
+            raise  # unreachable; abort raises
+        except EvaluationError as exc:
+            # Any other evaluation failure is a server-side fault.
+            context.abort(grpc.StatusCode.INTERNAL, f"evaluation_error: {exc}")
+            raise  # unreachable; abort raises
 
         return fathom_pb2.EvaluateResponse(
             decision=result.decision or "",
@@ -208,7 +238,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.AssertFactResponse:
         """Assert a single fact into working memory."""
         self._check_auth(context)
-        engine = self._engine_for(request.session_id)
+        engine = self._engine_for(request.session_id, context=context)
         data = json.loads(request.data_json)
         engine.assert_fact(request.template, data)
         return fathom_pb2.AssertFactResponse(success=True)
@@ -220,7 +250,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.QueryResponse:
         """Query working memory for matching facts."""
         self._check_auth(context)
-        engine = self._engine_for(request.session_id)
+        engine = self._engine_for(request.session_id, context=context)
 
         fact_filter: dict[str, Any] | None = None
         if request.filter_json:
@@ -236,7 +266,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.RetractResponse:
         """Retract facts matching template and optional filter."""
         self._check_auth(context)
-        engine = self._engine_for(request.session_id)
+        engine = self._engine_for(request.session_id, context=context)
 
         fact_filter: dict[str, Any] | None = None
         if request.filter_json:
@@ -275,7 +305,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         will not appear here -- :class:`Engine` is in-process state.
         """
         self._check_auth(context)
-        engine = self._engine_for(request.session_id)
+        engine = self._engine_for(request.session_id, context=context)
 
         # 1024 events ~= a few hundred KB of buffer. Generous for
         # interactive subscribers; truncates rather than OOMs the
@@ -380,8 +410,11 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             return
         try:
             self._audit_sink.write(record)
-        except Exception:  # pragma: no cover - audit failure must not crash reload
-            logger.exception("audit sink write failed")
+        except Exception:
+            # Audit failure must not crash a reload, but the record must not
+            # vanish either — log it in full so the event is recoverable from
+            # the process log when the sink rejects it.
+            logger.exception("audit sink write failed; dropped record: %r", record)
 
     def Reload(  # noqa: N802 — gRPC convention
         self,
