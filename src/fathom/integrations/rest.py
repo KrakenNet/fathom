@@ -709,11 +709,16 @@ async def reload_rules(
         try:
             with open(resolved, "rb") as f:
                 raw_yaml_bytes = f.read()
-        except OSError as exc:
+        except OSError:
+            # The OSError text carries the resolved server-side absolute path
+            # ("[Errno 2] No such file or directory: '/srv/rules/x.yaml'"),
+            # which must never reach a remote caller -- the same rule the
+            # ruleset path jail follows. Log it, answer with a fixed string.
+            logger.warning("reload: unable to read ruleset_path", exc_info=True)
             return _make_error_response(
                 400,
                 "invalid_request",
-                f"unable to read ruleset_path: {exc}",
+                "unable to read ruleset_path",
             )
 
     # --- decode signature (base64 string → bytes) ---
@@ -787,11 +792,17 @@ async def reload_rules(
             sig_bytes if require_signature else None,
             pubkey if require_signature else None,
         )
-    except CompilationError as exc:
+    except CompilationError:
+        # Compiler diagnostics are written for a library caller and name the
+        # files they were reading ("cannot read file /srv/rules/agents.yaml"),
+        # so they are server-side detail. Callers who want the diagnostic run
+        # the ruleset through POST /v1/compile, which compiles inline YAML and
+        # touches no server paths.
+        logger.warning("reload: ruleset failed to compile", exc_info=True)
         return _make_error_response(
             400,
             "invalid_ruleset",
-            str(exc).split("\n", 1)[0],
+            "ruleset failed to compile",
         )
 
     timestamp = _now_iso()
