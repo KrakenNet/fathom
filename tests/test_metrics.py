@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import MagicMock, patch
+import time
+from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
 
 from fathom.metrics import MetricsCollector
+from fathom.models import EvaluationResult
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
+    from prometheus_client import CollectorRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -17,12 +26,16 @@ from fathom.metrics import MetricsCollector
 def _make_eval_result(
     decision: str = "allow",
     duration_us: int = 5000,
-) -> MagicMock:
-    """Return a mock EvaluationResult with the given fields."""
-    result = MagicMock()
-    result.decision = decision
-    result.duration_us = duration_us
-    return result
+    rule_trace: list[str] | None = None,
+    reason: str = "",
+) -> EvaluationResult:
+    """Return a real EvaluationResult with the given fields."""
+    return EvaluationResult(
+        decision=decision,
+        reason=reason,
+        rule_trace=rule_trace if rule_trace is not None else [],
+        duration_us=duration_us,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +117,8 @@ class TestEnabledMode:
         import prometheus_client
         from prometheus_client import CollectorRegistry
 
+        import fathom.metrics as metrics_module
+
         self._registry = CollectorRegistry()
         reg = self._registry
 
@@ -141,9 +156,14 @@ class TestEnabledMode:
         ]
         for p in self._patches:
             p.start()
+        # Metric families are cached process-wide (so a second Engine cannot
+        # re-register them and crash); drop the cache so this test's private
+        # registry gets its own freshly-built families.
+        metrics_module._reset_families_for_testing()
         yield
         for p in self._patches:
             p.stop()
+        metrics_module._reset_families_for_testing()
 
     def test_enabled_flag(self) -> None:
         mc = MetricsCollector(enabled=True)
@@ -225,10 +245,10 @@ class TestEnabledMode:
 
     def test_record_denial(self) -> None:
         mc = MetricsCollector(enabled=True)
-        mc.record_denial("deny_all", "policy violation")
+        mc.record_denial("deny_all", "governance")
         val = self._registry.get_sample_value(
             "fathom_denials_total",
-            labels={"rule": "deny_all", "reason": "policy violation"},
+            labels={"rule": "deny_all", "module": "governance"},
         )
         assert val == 1.0
 
@@ -309,6 +329,8 @@ class TestEnvVarActivation:
         import prometheus_client
         from prometheus_client import CollectorRegistry
 
+        import fathom.metrics as metrics_module
+
         self._registry = CollectorRegistry()
         reg = self._registry
 
@@ -346,9 +368,14 @@ class TestEnvVarActivation:
         ]
         for p in self._patches:
             p.start()
+        # Metric families are cached process-wide (so a second Engine cannot
+        # re-register them and crash); drop the cache so this test's private
+        # registry gets its own freshly-built families.
+        metrics_module._reset_families_for_testing()
         yield
         for p in self._patches:
             p.stop()
+        metrics_module._reset_families_for_testing()
 
     def test_env_var_enables_metrics(self) -> None:
         with patch.dict(os.environ, {"FATHOM_METRICS": "1"}):
@@ -404,6 +431,7 @@ def _isolated_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Provide a fresh CollectorRegistry so module-level tests don't conflict."""
     import prometheus_client
     from prometheus_client import CollectorRegistry
+
 
     reg = CollectorRegistry()
 
@@ -463,3 +491,325 @@ def test_cardinality_stable_across_many_sessions(
         m.set_working_memory_facts(template="agent", count=i)
     child_count = len(m.working_memory_facts._metrics)
     assert child_count == 1
+
+
+def test_denials_total_has_no_reason_label(_isolated_registry: None) -> None:
+    """A deny reason interpolates runtime fact values — it must never be a label."""
+    from fathom.metrics import MetricsCollector
+
+    m = MetricsCollector(enabled=True)
+    assert m.denials_total._labelnames == ("rule", "module")
+    assert "reason" not in m.denials_total._labelnames
+
+
+def test_denials_cardinality_stable_across_distinct_reasons(
+    monkeypatch: pytest.MonkeyPatch,
+    _isolated_registry: None,
+) -> None:
+    """1000 evaluations whose deny reasons all differ must yield ONE time series.
+
+    Deny reasons are built by `_compile_reason`, which interpolates bound
+    slot values, so a caller controls the string. If it reaches a label, a
+    remote caller can grow the process's metric registry without bound.
+    """
+    monkeypatch.setenv("FATHOM_METRICS", "1")
+    from fathom.metrics import MetricsCollector
+
+    m = MetricsCollector(enabled=True)
+    for i in range(1000):
+        m.record_evaluation(
+            _make_eval_result(
+                decision="deny",
+                reason=f"user user{i} may not delete",
+                rule_trace=["governance::deny-delete"],
+            ),
+            session_id="s1",
+        )
+    assert len(m.denials_total._metrics) == 1
+
+
+# ---------------------------------------------------------------------------
+# Evaluation wiring — rules_fired and denials_total must actually move
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def prom_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistry]:
+    """Point the metrics module at a fresh registry and return it."""
+    import prometheus_client
+    from prometheus_client import CollectorRegistry
+
+    import fathom.metrics as fathom_metrics
+
+    reg = CollectorRegistry()
+
+    def _factory(ctor: Any) -> Any:
+        def _make(name: str, doc: str, labelnames: Any = (), **kw: Any) -> Any:
+            return ctor(name, doc, labelnames=labelnames, registry=reg)
+
+        return _make
+
+    monkeypatch.setattr("fathom.metrics.Counter", _factory(prometheus_client.Counter))
+    monkeypatch.setattr("fathom.metrics.Histogram", _factory(prometheus_client.Histogram))
+    monkeypatch.setattr("fathom.metrics.Gauge", _factory(prometheus_client.Gauge))
+    # Metric families are cached process-wide (so a second Engine cannot
+    # re-register them and crash); drop the cache so the collector built in
+    # this test uses ``reg`` rather than families from an earlier test.
+    fathom_metrics._reset_families_for_testing()
+    yield reg
+    fathom_metrics._reset_families_for_testing()
+
+
+def _write_deny_pack(tmp_path: Path) -> Path:
+    """Write a minimal on-disk rule pack whose only rule denies deletes."""
+    pack = tmp_path / "pack"
+    for sub in ("templates", "modules", "rules"):
+        (pack / sub).mkdir(parents=True)
+    (pack / "templates" / "request.yaml").write_text(
+        "templates:\n"
+        "  - name: request\n"
+        "    slots:\n"
+        "      - name: action\n"
+        "        type: symbol\n"
+        "      - name: user\n"
+        "        type: symbol\n",
+        encoding="utf-8",
+    )
+    (pack / "modules" / "modules.yaml").write_text(
+        "modules:\n  - name: governance\nfocus_order:\n  - governance\n",
+        encoding="utf-8",
+    )
+    (pack / "rules" / "access.yaml").write_text(
+        "module: governance\n"
+        "rules:\n"
+        "  - name: deny-delete\n"
+        "    when:\n"
+        "      - template: request\n"
+        "        conditions:\n"
+        "          - slot: action\n"
+        "            expression: equals(delete)\n"
+        "    then:\n"
+        "      action: deny\n"
+        "      reason: deletes are not permitted\n",
+        encoding="utf-8",
+    )
+    return pack
+
+
+class TestEvaluationWiring:
+    """``record_evaluation`` must feed rules_fired and denials_total."""
+
+    def test_rule_trace_increments_rules_fired(self, prom_registry: CollectorRegistry) -> None:
+        mc = MetricsCollector(enabled=True)
+        mc.record_evaluation(
+            _make_eval_result(rule_trace=["governance::allow-read"]),
+            session_id="s1",
+        )
+        val = prom_registry.get_sample_value(
+            "fathom_rules_fired_total",
+            labels={"rule": "allow-read", "module": "governance"},
+        )
+        assert val == 1.0
+
+    def test_unqualified_rule_ref_uses_main_module(self, prom_registry: CollectorRegistry) -> None:
+        mc = MetricsCollector(enabled=True)
+        mc.record_evaluation(_make_eval_result(rule_trace=["bare-rule"]), session_id="s1")
+        val = prom_registry.get_sample_value(
+            "fathom_rules_fired_total",
+            labels={"rule": "bare-rule", "module": "MAIN"},
+        )
+        assert val == 1.0
+
+    def test_deny_increments_denials_total(self, prom_registry: CollectorRegistry) -> None:
+        mc = MetricsCollector(enabled=True)
+        mc.record_evaluation(
+            _make_eval_result(
+                decision="deny",
+                reason="deletes are not permitted",
+                rule_trace=["governance::allow-read", "governance::deny-delete"],
+            ),
+            session_id="s1",
+        )
+        val = prom_registry.get_sample_value(
+            "fathom_denials_total",
+            labels={"rule": "deny-delete", "module": "governance"},
+        )
+        assert val == 1.0
+
+    def test_allow_does_not_increment_denials_total(
+        self, prom_registry: CollectorRegistry
+    ) -> None:
+        mc = MetricsCollector(enabled=True)
+        mc.record_evaluation(
+            _make_eval_result(rule_trace=["governance::allow-read"]),
+            session_id="s1",
+        )
+        assert prom_registry.get_sample_value("fathom_denials_total", labels={}) is None
+
+    def test_default_deny_without_rule_trace(self, prom_registry: CollectorRegistry) -> None:
+        mc = MetricsCollector(enabled=True)
+        mc.record_evaluation(
+            _make_eval_result(decision="deny", reason="default decision (no rules fired)"),
+            session_id="s1",
+        )
+        val = prom_registry.get_sample_value(
+            "fathom_denials_total",
+            labels={"rule": "<default>", "module": "<default>"},
+        )
+        assert val == 1.0
+
+
+class TestEngineEvaluationRecordsMetrics:
+    """A real Engine evaluation must leave non-zero samples in the exposition."""
+
+    def test_real_denial_moves_rules_fired_and_denials(
+        self,
+        tmp_path: Path,
+        prom_registry: CollectorRegistry,
+    ) -> None:
+        from fathom.engine import Engine
+
+        engine = Engine.from_rules(str(_write_deny_pack(tmp_path)), metrics=True)
+        engine.assert_fact("request", {"action": "delete", "user": "mallory"})
+        result = engine.evaluate()
+
+        assert result.decision == "deny"
+        assert prom_registry.get_sample_value(
+            "fathom_rules_fired_total",
+            labels={"rule": "deny-delete", "module": "governance"},
+        ) == 1.0
+        assert prom_registry.get_sample_value(
+            "fathom_denials_total",
+            labels={"rule": "deny-delete", "module": "governance"},
+        ) == 1.0
+
+
+class TestCollectorIsProcessSafe:
+    """A second MetricsCollector must not blow up on the shared registry.
+
+    ``prometheus_client`` refuses duplicate family names, and every Engine
+    builds its own collector, so with ``FATHOM_METRICS=1`` the second session
+    Engine a SessionStore created used to die with ``ValueError: Duplicated
+    timeseries in CollectorRegistry`` before it ever served a request.
+    """
+
+    def test_many_collectors_construct(self, prom_registry: CollectorRegistry) -> None:
+        collectors = [MetricsCollector(enabled=True) for _ in range(5)]
+        assert all(c._noop is False for c in collectors)
+
+    def test_collectors_share_one_family(self, prom_registry: CollectorRegistry) -> None:
+        first, second = MetricsCollector(enabled=True), MetricsCollector(enabled=True)
+        assert first.evaluations_total is second.evaluations_total
+
+    def test_counts_from_two_collectors_aggregate(
+        self, prom_registry: CollectorRegistry
+    ) -> None:
+        """Two Engines in one process report into the same exposition series."""
+        MetricsCollector(enabled=True).record_fact_asserted("request")
+        MetricsCollector(enabled=True).record_fact_asserted("request")
+        val = prom_registry.get_sample_value(
+            "fathom_facts_asserted_total", labels={"template": "request"}
+        )
+        assert val == 2.0
+
+    def test_two_engines_with_metrics_enabled_both_build(
+        self, prom_registry: CollectorRegistry
+    ) -> None:
+        """The end-to-end shape of the crash: two Engines, metrics on."""
+        from fathom import Engine
+
+        assert Engine(metrics=True) is not None
+        assert Engine(metrics=True) is not None
+
+
+class TestDeadGaugesAreWired:
+    """``fathom_working_memory_facts`` and ``fathom_sessions_active`` used to
+    be registered, exported on /metrics, and never recorded — so a working-set
+    leak and a session leak both read as healthy forever.
+    """
+
+    def test_working_memory_gauge_follows_asserts(
+        self, prom_registry: CollectorRegistry, tmp_path: Path
+    ) -> None:
+        from fathom.engine import Engine
+
+        engine = Engine.from_rules(str(_write_deny_pack(tmp_path)), metrics=True)
+        engine.assert_fact("request", {"action": "read", "user": "alice"})
+        engine.assert_fact("request", {"action": "write", "user": "bob"})
+        val = prom_registry.get_sample_value(
+            "fathom_working_memory_facts", labels={"template": "request"}
+        )
+        assert val == 2.0
+
+    def test_working_memory_gauge_follows_retracts(
+        self, prom_registry: CollectorRegistry, tmp_path: Path
+    ) -> None:
+        from fathom.engine import Engine
+
+        engine = Engine.from_rules(str(_write_deny_pack(tmp_path)), metrics=True)
+        engine.assert_fact("request", {"action": "read", "user": "alice"})
+        engine.retract("request")
+        val = prom_registry.get_sample_value(
+            "fathom_working_memory_facts", labels={"template": "request"}
+        )
+        assert val == 0.0
+
+    def test_working_memory_gauge_returns_to_zero_after_evaluate_once(
+        self, prom_registry: CollectorRegistry, tmp_path: Path
+    ) -> None:
+        """evaluate_once withdraws its facts, so the gauge must come back down."""
+        from fathom.engine import Engine
+
+        engine = Engine.from_rules(str(_write_deny_pack(tmp_path)), metrics=True)
+        engine.evaluate_once([("request", {"action": "delete", "user": "mallory"})])
+        val = prom_registry.get_sample_value(
+            "fathom_working_memory_facts", labels={"template": "request"}
+        )
+        assert val == 0.0
+
+    def test_working_memory_gauge_cleared_by_clear_facts(
+        self, prom_registry: CollectorRegistry, tmp_path: Path
+    ) -> None:
+        from fathom.engine import Engine
+
+        engine = Engine.from_rules(str(_write_deny_pack(tmp_path)), metrics=True)
+        engine.assert_fact("request", {"action": "read", "user": "alice"})
+        engine.clear_facts()
+        val = prom_registry.get_sample_value(
+            "fathom_working_memory_facts", labels={"template": "request"}
+        )
+        assert val == 0.0
+
+    def test_sessions_active_follows_the_store(
+        self, prom_registry: CollectorRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fathom.integrations.sessions import SessionStore
+
+        monkeypatch.setenv("FATHOM_METRICS", "1")
+        store = SessionStore()
+        store.get_or_create("a")
+        store.get_or_create("b")
+        assert prom_registry.get_sample_value("fathom_sessions_active") == 2.0
+
+    def test_sessions_active_drops_on_clear(
+        self, prom_registry: CollectorRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fathom.integrations.sessions import SessionStore
+
+        monkeypatch.setenv("FATHOM_METRICS", "1")
+        store = SessionStore()
+        store.get_or_create("a")
+        store.clear()
+        assert prom_registry.get_sample_value("fathom_sessions_active") == 0.0
+
+    def test_sessions_active_drops_on_ttl_expiry(
+        self, prom_registry: CollectorRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fathom.integrations.sessions import SessionStore
+
+        monkeypatch.setenv("FATHOM_METRICS", "1")
+        store = SessionStore(ttl_seconds=0)
+        store.get_or_create("a")
+        time.sleep(0.01)
+        store.get_or_create("b")  # any access reclaims the expired one
+        assert prom_registry.get_sample_value("fathom_sessions_active") == 1.0

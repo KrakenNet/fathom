@@ -14,7 +14,7 @@ import json
 import statistics
 import time
 from pathlib import Path  # noqa: TC003 - used at runtime by Typer
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import yaml
@@ -25,6 +25,9 @@ from fathom.errors import CompilationError
 from fathom.release_sig import ReleaseSigError
 from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import validate_document
+
+if TYPE_CHECKING:
+    from fathom.models import TemplateDefinition
 
 try:
     import typer
@@ -76,6 +79,17 @@ def _print_success(message: str) -> None:
         _console.print(f"[bold green]{message}[/bold green]")
     else:
         typer.echo(message)
+
+
+def _compilation_error_text(exc: CompilationError) -> str:
+    """Render a compilation error including its detail line when present.
+
+    The compiler puts remediation hints (e.g. the list of supported condition
+    operators) in ``CompilationError.detail``; without this the CLI drops them.
+    """
+    if exc.detail:
+        return f"{exc}\n  {exc.detail}"
+    return str(exc)
 
 
 def _version_callback(value: bool) -> None:
@@ -180,14 +194,70 @@ class _CompileFormat(enum.StrEnum):
     pretty = "pretty"
 
 
+def _collect_template_registry(
+    yaml_files: list[Path],
+    compiler: Compiler,
+) -> dict[str, TemplateDefinition]:
+    """Build a template registry from every template file in *yaml_files*.
+
+    ``compile_rule`` emits literals according to the declared slot type — a
+    STRING slot gets a quoted CLIPS string, a SYMBOL slot does not. Without
+    the registry it falls back to the untyped form, so ``fathom compile``
+    printed ``(agent (id alice@example.com))`` for a ruleset where the real
+    Engine builds ``(agent (id "alice@example.com"))``. The unquoted form is
+    the one CLIPS rejects with ``[CSTRNCHK1]``, i.e. the command was showing
+    CLIPS that the engine would never build and that does not even load.
+
+    Parse failures are ignored here: this pass only gathers type context, and
+    the real compile pass below reports the error properly.
+    """
+    registry: dict[str, TemplateDefinition] = {}
+    for yaml_file in yaml_files:
+        try:
+            data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(data, dict) or "templates" not in data:
+            continue
+        try:
+            for tmpl_defn in compiler.parse_template_file(yaml_file):
+                registry[tmpl_defn.name] = tmpl_defn
+        except CompilationError:
+            continue
+    return registry
+
+
+def _sibling_template_files(path: Path) -> list[Path]:
+    """Template files belonging to the ruleset *path* lives in.
+
+    ``fathom compile ruleset/rules/r.yaml`` names one file, but the slot
+    types it needs live in ``ruleset/templates/``. Fathom's on-disk layout
+    puts them there (that is what ``Engine.from_rules`` walks), so pick them
+    up rather than silently compiling without type context.
+    """
+    if not path.is_file() or path.parent.name != "rules":
+        return []
+    templates_dir = path.parent.parent / "templates"
+    if not templates_dir.is_dir():
+        return []
+    return sorted(templates_dir.rglob("*.yaml")) + sorted(templates_dir.rglob("*.yml"))
+
+
 def _compile_yaml_file(
     file_path: Path,
     compiler: Compiler,
+    templates: dict[str, TemplateDefinition] | None = None,
 ) -> list[str]:
     """Compile a single YAML file into CLIPS construct strings.
 
     Auto-detects the document type (templates, modules, rules, functions)
     from top-level YAML keys and compiles accordingly.
+
+    Args:
+        file_path: YAML file to compile.
+        compiler: Compiler instance.
+        templates: Slot-type context, so emitted literals match what
+            :meth:`Engine.from_rules` builds for the same ruleset.
 
     Returns:
         List of CLIPS construct strings.
@@ -217,7 +287,7 @@ def _compile_yaml_file(
         ruleset = compiler.parse_rule_file(file_path)
         for rule_defn in ruleset.rules:
             constructs.append(
-                compiler.compile_rule(rule_defn, ruleset.module),
+                compiler.compile_rule(rule_defn, ruleset.module, templates),
             )
 
     return constructs
@@ -273,13 +343,18 @@ def compile(  # noqa: A001
 
         compiler = Compiler()
         all_constructs: list[str] = []
+        # Two passes: gather slot types first so rule literals are emitted
+        # exactly as Engine.from_rules would emit them for this ruleset.
+        templates = _collect_template_registry(
+            yaml_files + _sibling_template_files(path), compiler
+        )
 
         for yaml_file in yaml_files:
             try:
-                constructs = _compile_yaml_file(yaml_file, compiler)
+                constructs = _compile_yaml_file(yaml_file, compiler, templates)
                 all_constructs.extend(constructs)
             except CompilationError as exc:
-                _print_error(f"[fathom.cli] compile failed: {exc}")
+                _print_error(f"[fathom.cli] compile failed: {_compilation_error_text(exc)}")
                 raise typer.Exit(code=_EXIT_ERROR) from exc
 
         if not all_constructs:
@@ -312,7 +387,7 @@ def info(
     try:
         engine = Engine.from_rules(str(path))
     except CompilationError as exc:
-        msg = f"compilation error loading rules from {path}: {exc}"
+        msg = f"compilation error loading rules from {path}: {_compilation_error_text(exc)}"
         _print_error(f"[fathom.cli] info failed: {msg}")
         raise typer.Exit(code=_EXIT_ERROR) from exc
     except OSError as exc:
@@ -368,7 +443,10 @@ def test(
         try:
             engine = Engine.from_rules(str(rules_path))
         except CompilationError as exc:
-            msg = f"compilation error loading rules from {rules_path}: {exc}"
+            msg = (
+                f"compilation error loading rules from {rules_path}: "
+                f"{_compilation_error_text(exc)}"
+            )
             _print_error(f"[fathom.cli] test failed: {msg}")
             raise typer.Exit(code=_EXIT_ERROR) from exc
         except OSError as exc:
@@ -391,11 +469,14 @@ def test(
             except OSError as exc:
                 _print_error(f"[fathom.cli] test failed: error reading {test_file}: {exc}")
                 failed += 1
+                failures.append(f"{test_file}: read error")
                 continue
 
             data = yaml.safe_load(content)
             if not isinstance(data, list):
-                _print_warning(f"{test_file} is not a list of test cases, skipping.")
+                _print_error(f"[fathom.cli] test failed: {test_file} is not a list of test cases")
+                failed += 1
+                failures.append(f"{test_file}: not a list of test cases")
                 continue
 
             for case in data:
@@ -435,6 +516,9 @@ def test(
 
         # Summary
         total = passed + failed
+        if total == 0:
+            _print_error(f"[fathom.cli] test failed: no test cases ran from {test_path}")
+            raise typer.Exit(code=_EXIT_ERROR)
         if failures:
             _print_error(f"{total} test(s): {passed} passed, {failed} failed")
             raise typer.Exit(code=_EXIT_ERROR)
@@ -472,7 +556,10 @@ def bench(
         try:
             engine = Engine.from_rules(str(rules_path))
         except CompilationError as exc:
-            msg = f"compilation error loading rules from {rules_path}: {exc}"
+            msg = (
+                f"compilation error loading rules from {rules_path}: "
+                f"{_compilation_error_text(exc)}"
+            )
             _print_error(f"[fathom.cli] bench failed: {msg}")
             raise typer.Exit(code=_EXIT_ERROR) from exc
         except OSError as exc:
@@ -695,6 +782,9 @@ def _repl_help() -> None:
     typer.echo("  reset                          — Reset engine state")
     typer.echo("  help                           — Show this help")
     typer.echo("  quit / exit                    — Exit REPL")
+    typer.echo("")
+    typer.echo("Example:")
+    typer.echo('  assert request {"action": "read", "user": "alice"}')
 
 
 def _repl_loop(engine: Engine) -> None:
@@ -721,12 +811,14 @@ def _repl_loop(engine: Engine) -> None:
             engine.reset()
             typer.echo("Engine state reset.")
         elif cmd == "facts":
-            facts = list(engine._env.facts())
+            facts = engine.all_facts()
             if not facts:
                 typer.echo("No facts in working memory.")
             else:
                 for fact in facts:
-                    typer.echo(f"  {fact}")
+                    template = fact["__template__"]
+                    slots = {k: v for k, v in fact.items() if k != "__template__"}
+                    typer.echo(f"  ({template} {slots})")
         elif cmd == "evaluate":
             result = engine.evaluate()
             typer.echo(f"  decision: {result.decision}")
@@ -736,6 +828,7 @@ def _repl_loop(engine: Engine) -> None:
         elif cmd == "assert":
             if len(parts) < 3:
                 typer.echo("Usage: assert <template> <json_data>")
+                typer.echo('  e.g. assert request {"action": "read", "user": "alice"}')
                 continue
             template = parts[1]
             try:
@@ -780,7 +873,7 @@ def _repl_loop(engine: Engine) -> None:
 
 @app.command()
 def repl(
-    rules: Path = typer.Option(  # noqa: B008
+    rules: Path | None = typer.Option(  # noqa: B008
         None,
         "--rules",
         "-r",
@@ -795,7 +888,10 @@ def repl(
                 engine = Engine.from_rules(str(rules))
                 _print_success(f"Loaded rules from {rules}")
             except CompilationError as exc:
-                msg = f"compilation error loading rules from {rules}: {exc}"
+                msg = (
+                    f"compilation error loading rules from {rules}: "
+                    f"{_compilation_error_text(exc)}"
+                )
                 _print_error(f"[fathom.cli] repl failed: {msg}")
                 raise typer.Exit(code=_EXIT_ERROR) from exc
             except OSError as exc:
