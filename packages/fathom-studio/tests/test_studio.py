@@ -40,6 +40,7 @@ from fathom_studio.panels import (
     _list_rule_packs,
     _run_scripted_guardrail,
 )
+from fathom_studio.rulesets import packaged_root
 from fathom_studio.sessions import SESSION_COOKIE
 
 if TYPE_CHECKING:
@@ -48,8 +49,11 @@ if TYPE_CHECKING:
 #: Bearer token wired into the mounted REST app for the configured fixtures.
 _TOKEN = "demo-token"
 
-#: Ruleset root: the bundled ``examples/0N-*`` directories the seeds load.
-_RULESET_ROOT = "examples"
+#: Ruleset root: the ``0N-*`` directories the Studio ships as package data.
+#: Absolute, via :func:`packaged_root` -- a repo-relative ``"examples"`` only
+#: resolved when pytest happened to run from the repo root, so it broke the
+#: moment the suite was invoked from ``packages/fathom-studio/``.
+_RULESET_ROOT = str(packaged_root())
 
 #: Authorization header presenting the Studio token, as ``curl``/the SPA do.
 _AUTH = {"Authorization": f"Bearer {_TOKEN}"}
@@ -248,7 +252,5 @@ def test_granted_cookie_is_not_a_usable_bearer_token(anonymous_client: TestClien
     anonymous_client.get("/", params={"token": _TOKEN})
     granted = anonymous_client.cookies.get(TOKEN_COOKIE)
     assert granted
-    stolen = anonymous_client.get(
-        "/api/v1/rules", headers={"Authorization": f"Bearer {granted}"}
-    )
+    stolen = anonymous_client.get("/api/v1/rules", headers={"Authorization": f"Bearer {granted}"})
     assert stolen.status_code == 401

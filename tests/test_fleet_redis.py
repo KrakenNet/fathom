@@ -12,9 +12,9 @@ import pytest_asyncio
 from fathom.fleet_redis import RedisFactStore
 from tests.test_fleet_integration import (
     REDIS_IMAGE,
-    exec_ok,
     requires_docker,
     running_container,
+    tcp_answers,
     wait_until,
 )
 
@@ -29,8 +29,8 @@ pytestmark = [pytest.mark.integration, requires_docker]
 @pytest.fixture(scope="module")
 def redis_port() -> Iterator[int]:
     """Start a Redis container for this module and yield its host port."""
-    with running_container(REDIS_IMAGE, 6379) as (container_id, host_port):
-        wait_until(lambda: exec_ok(container_id, "redis-cli", "ping"))
+    with running_container(REDIS_IMAGE, 6379) as (_container_id, host_port):
+        wait_until(lambda: tcp_answers("127.0.0.1", host_port))
         yield host_port
 
 

@@ -14,7 +14,7 @@ from fathom.fleet_pg import PostgresFactStore
 from tests.test_fleet_integration import (
     POSTGRES_IMAGE,
     POSTGRES_PASSWORD,
-    exec_ok,
+    postgres_accepts,
     requires_docker,
     running_container,
     wait_until,
@@ -35,9 +35,10 @@ def postgres_dsn() -> Iterator[str]:
         POSTGRES_IMAGE,
         5432,
         env={"POSTGRES_PASSWORD": POSTGRES_PASSWORD},
-    ) as (container_id, host_port):
-        wait_until(lambda: exec_ok(container_id, "pg_isready", "-U", "postgres"))
-        yield f"postgresql://postgres:{POSTGRES_PASSWORD}@127.0.0.1:{host_port}/postgres"
+    ) as (_container_id, host_port):
+        dsn = f"postgresql://postgres:{POSTGRES_PASSWORD}@127.0.0.1:{host_port}/postgres"
+        wait_until(lambda: postgres_accepts(dsn), timeout=60.0)
+        yield dsn
 
 
 @pytest_asyncio.fixture

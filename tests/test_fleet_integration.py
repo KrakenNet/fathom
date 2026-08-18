@@ -7,8 +7,10 @@ when Docker is unavailable.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import functools
+import socket
 import subprocess
 import time
 from typing import TYPE_CHECKING
@@ -72,11 +74,19 @@ requires_docker = pytest.mark.skipif(_NoDocker(), reason=DOCKER_REASON)
 
 
 def wait_until(check: Callable[[], bool], timeout: float = 60.0) -> None:
-    """Poll *check* until it returns True or *timeout* seconds elapse."""
+    """Poll *check* until it returns True or *timeout* seconds elapse.
+
+    A *check* that raises counts as "not ready yet": the host-side probes below
+    connect over TCP, and a server mid-startup refuses or resets rather than
+    answering, which surfaces as an exception rather than a False.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if check():
-            return
+        try:
+            if check():
+                return
+        except Exception:  # noqa: BLE001 - any failure means "not ready yet"
+            pass
         time.sleep(0.25)
     raise TimeoutError("container did not become ready in time")
 
@@ -109,20 +119,41 @@ def running_container(
         subprocess.run(["docker", "rm", "-f", container_id], capture_output=True, check=False)
 
 
-def exec_ok(container_id: str, *args: str) -> bool:
-    proc = subprocess.run(
-        ["docker", "exec", container_id, *args],
-        capture_output=True,
-        check=False,
-    )
-    return proc.returncode == 0
+def tcp_answers(host: str, port: int) -> bool:
+    """True when *host*:*port* completes a TCP handshake.
+
+    Readiness must be probed from the HOST, the way the tests connect. An
+    in-container ``redis-cli ping`` answers over the unix socket and can pass
+    before the published port is accepting.
+    """
+    with socket.create_connection((host, port), timeout=1.0):
+        return True
+
+
+def postgres_accepts(dsn: str) -> bool:
+    """True when *dsn* completes a real asyncpg connect-and-close.
+
+    ``pg_isready`` inside the container is NOT a readiness signal: the image
+    runs initdb against a temporary server and then restarts it, so pg_isready
+    passes during init while the host's next TCP connect is reset ("[Errno 104]
+    Connection reset by peer"). Poll a real connect instead -- the same client,
+    over the same socket, as the tests use.
+    """
+    import asyncpg
+
+    async def _probe() -> bool:
+        conn = await asyncpg.connect(dsn, timeout=2.0)
+        await conn.close()
+        return True
+
+    return asyncio.run(_probe())
 
 
 @pytest.fixture(scope="session")
 def redis_port() -> Iterator[int]:
     """Start a Redis container for the test session and yield its host port."""
-    with running_container(REDIS_IMAGE, 6379) as (container_id, host_port):
-        wait_until(lambda: exec_ok(container_id, "redis-cli", "ping"))
+    with running_container(REDIS_IMAGE, 6379) as (_container_id, host_port):
+        wait_until(lambda: tcp_answers("127.0.0.1", host_port))
         yield host_port
 
 
@@ -133,9 +164,10 @@ def postgres_dsn() -> Iterator[str]:
         POSTGRES_IMAGE,
         5432,
         env={"POSTGRES_PASSWORD": POSTGRES_PASSWORD},
-    ) as (container_id, host_port):
-        wait_until(lambda: exec_ok(container_id, "pg_isready", "-U", "postgres"))
-        yield (f"postgresql://postgres:{POSTGRES_PASSWORD}@127.0.0.1:{host_port}/postgres")
+    ) as (_container_id, host_port):
+        dsn = f"postgresql://postgres:{POSTGRES_PASSWORD}@127.0.0.1:{host_port}/postgres"
+        wait_until(lambda: postgres_accepts(dsn), timeout=60.0)
+        yield dsn
 
 
 def seed_shared_status(engine: Engine) -> None:
