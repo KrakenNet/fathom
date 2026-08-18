@@ -173,8 +173,7 @@ class FactManager:
                 # forever. Popping before the retract lost the clock on every
                 # genuine failure.
                 logger.debug(
-                    "retract of '%s' failed; leaving its TTL clock in place",
-                    template_name,
+                    "fact retract failed; leaving its TTL clock in place",
                     exc_info=True,
                 )
                 continue
