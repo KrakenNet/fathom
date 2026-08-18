@@ -77,10 +77,18 @@ jobs:
         # Retry: an apt mirror/network blip must not fail a required job.
         # `command -v` after the loop fails loud if all attempts truly failed
         # (so the issue-#16 skip-guard still catches a genuinely-missing tool).
+        #
+        # Each attempt is wrapped in `timeout` and the step is capped: a mirror
+        # that hangs rather than erroring never returns, so without these the
+        # retry loop is unreachable and the stall eats the whole 15-minute job
+        # budget before a single test has run.
+        timeout-minutes: 6
         run: |
           set -euo pipefail
           for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y minisign && break || {
+            timeout 90 sudo apt-get update \
+              && timeout 90 sudo apt-get install -y minisign \
+              && break || {
               echo "apt attempt $i failed; retrying in $((i * 5))s"; sleep $((i * 5)); }
           done
           command -v minisign
