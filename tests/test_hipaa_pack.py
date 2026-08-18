@@ -8,6 +8,7 @@ positive and negative cases for each rule.
 from __future__ import annotations
 
 import importlib
+import time
 from pathlib import Path
 
 import pytest
@@ -75,6 +76,7 @@ class TestMinimumNecessary:
                 "role": "nurse",
                 "access_level": "read",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = hipaa_engine.evaluate()
@@ -89,6 +91,7 @@ class TestMinimumNecessary:
                 "role": "doctor",
                 "access_level": "write",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = hipaa_engine.evaluate()
@@ -102,6 +105,7 @@ class TestMinimumNecessary:
                 "role": "admin",
                 "access_level": "admin",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = hipaa_engine.evaluate()
@@ -116,6 +120,7 @@ class TestMinimumNecessary:
                 "role": "nurse",
                 "access_level": "read",
                 "justification": "patient care coordination",
+                "ts": time.time(),
             },
         )
         result = hipaa_engine.evaluate()
@@ -179,29 +184,14 @@ class TestTransmissionSecurity:
 
 
 class TestBreachNotification:
-    """Breach trigger (164.402): escalate on PHI access matching breach pattern.
+    """Breach trigger (164.402): escalate on more than 10 PHI reads in 300s.
 
-    The temporal count_exceeds threshold is metadata-only until temporal
-    operators are wired into rule compilation.  The rule currently fires
-    whenever a phi_policy fact has access_level in [read, write, admin].
+    The threshold is compiled as a ``rate_exceeds`` condition on the ts
+    slot, so a single access must not be reported as a breach event.
     """
 
-    def test_breach_trigger_fires_on_matching_access(self, hipaa_engine: Engine) -> None:
-        """PHI access with matching access_level triggers breach rule."""
-        hipaa_engine.assert_fact(
-            "phi_policy",
-            {
-                "resource": "patient-record",
-                "role": "analyst",
-                "access_level": "read",
-                "justification": "audit review",
-            },
-        )
-        result = hipaa_engine.evaluate()
-        assert "hipaa::breach-trigger" in result.rule_trace
-
-    def test_breach_trigger_salience_wins(self, hipaa_engine: Engine) -> None:
-        """Breach trigger (salience 200) should produce escalate when justified."""
+    def test_single_access_does_not_trigger_breach(self, hipaa_engine: Engine) -> None:
+        """One justified read is not a 164.402 breach-notification event."""
         hipaa_engine.assert_fact(
             "phi_policy",
             {
@@ -209,11 +199,81 @@ class TestBreachNotification:
                 "role": "nurse",
                 "access_level": "read",
                 "justification": "patient care",
+                "ts": time.time(),
             },
         )
         result = hipaa_engine.evaluate()
+        assert "hipaa::breach-trigger" not in result.rule_trace
+        assert "164.402" not in (result.reason or "")
+
+    def test_threshold_reads_do_not_trigger_breach(self, hipaa_engine: Engine) -> None:
+        """Exactly the threshold (10 reads) is below the > 10 trigger."""
+        for i in range(10):
+            hipaa_engine.assert_fact(
+                "phi_policy",
+                {
+                    "resource": f"patient-record-{i}",
+                    "role": "analyst",
+                    "access_level": "read",
+                    "justification": "audit review",
+                    "ts": time.time(),
+                },
+            )
+        result = hipaa_engine.evaluate()
+        assert "hipaa::breach-trigger" not in result.rule_trace
+
+    def test_bulk_reads_within_window_trigger_breach(self, hipaa_engine: Engine) -> None:
+        """More than 10 reads inside the 300s window escalates."""
+        for i in range(11):
+            hipaa_engine.assert_fact(
+                "phi_policy",
+                {
+                    "resource": f"patient-record-{i}",
+                    "role": "analyst",
+                    "access_level": "read",
+                    "justification": "audit review",
+                    "ts": time.time(),
+                },
+            )
+        result = hipaa_engine.evaluate()
+        assert "hipaa::breach-trigger" in result.rule_trace
         assert result.decision == "escalate"
         assert "164.402" in (result.reason or "")
+
+    def test_bulk_reads_outside_window_do_not_trigger(self, hipaa_engine: Engine) -> None:
+        """Reads older than the 300s window do not count toward the threshold."""
+        stale = time.time() - 3600
+        for i in range(15):
+            hipaa_engine.assert_fact(
+                "phi_policy",
+                {
+                    "resource": f"patient-record-{i}",
+                    "role": "analyst",
+                    "access_level": "read",
+                    "justification": "audit review",
+                    "ts": stale,
+                },
+            )
+        result = hipaa_engine.evaluate()
+        assert "hipaa::breach-trigger" not in result.rule_trace
+
+    def test_breach_metadata_reaches_the_result(self, hipaa_engine: Engine) -> None:
+        """Control metadata is emitted with the decision, not silently dropped."""
+        for i in range(11):
+            hipaa_engine.assert_fact(
+                "phi_policy",
+                {
+                    "resource": f"patient-record-{i}",
+                    "role": "analyst",
+                    "access_level": "read",
+                    "justification": "audit review",
+                    "ts": time.time(),
+                },
+            )
+        result = hipaa_engine.evaluate()
+        assert result.metadata["control"] == "164.402"
+        assert result.metadata["threshold"] == "10"
+        assert result.metadata["window_seconds"] == "300"
 
 
 # =========================================================================
@@ -224,12 +284,17 @@ class TestBreachNotification:
 class TestHIPAARuleMetadata:
     """Verify salience and log-level metadata across HIPAA rules."""
 
-    def test_all_deny_rules_salience_gte_100(self, hipaa_ruleset) -> None:
-        for rule in hipaa_ruleset.rules:
-            if rule.then.action.value == "deny":
-                assert rule.salience >= 100, (
-                    f"Deny rule '{rule.name}' has salience {rule.salience} < 100"
-                )
+    def test_deny_salience_below_every_escalate(self, hipaa_ruleset) -> None:
+        """Severity must be monotone in reverse salience (last write wins)."""
+        deny_saliences = [r.salience for r in hipaa_ruleset.rules if r.then.action.value == "deny"]
+        escalate_saliences = [
+            r.salience for r in hipaa_ruleset.rules if r.then.action.value == "escalate"
+        ]
+        assert deny_saliences and escalate_saliences
+        assert max(deny_saliences) < min(escalate_saliences), (
+            f"deny saliences {deny_saliences} must all be below "
+            f"escalate saliences {escalate_saliences}"
+        )
 
     def test_breach_trigger_highest_salience(self, hipaa_ruleset) -> None:
         breach_rule = next(r for r in hipaa_ruleset.rules if r.name == "breach-trigger")

@@ -1,13 +1,12 @@
 module: nist
 ruleset: nist-800-53-sc
 version: "1.0"
+# Salience convention: decision selection is last-write-wins and CLIPS fires
+# the highest salience first, so the LOWEST-salience rule that fires decides.
+# Severity is monotone in reverse salience here: deny 50, escalate >= 80.
 rules:
   - name: boundary-protection
-    salience: 100
-    metadata:
-      control: SC-7
-      framework: NIST-800-53
-      title: Boundary Protection
+    salience: 50
     when:
       - template: data_transfer
         conditions:
@@ -20,13 +19,13 @@ rules:
       reason: "Data transfer to external boundary requires secure protocol (SC-7)"
       log: full
       attestation: true
+      metadata:
+        control: SC-7
+        framework: NIST-800-53
+        title: Boundary Protection
 
   - name: transmission-confidentiality
-    salience: 100
-    metadata:
-      control: SC-16
-      framework: NIST-800-53
-      title: Transmission of Security and Privacy Attributes
+    salience: 50
     when:
       - template: data_transfer
         conditions:
@@ -36,6 +35,10 @@ rules:
             expression: "in([unknown, plaintext, ftp, telnet])"
     then:
       action: deny
-      reason: "Classified data requires secure transmission protocol for attribute protection (SC-16)"
+      reason: "Classified data requires secure transmission protocol (SC-8)"
       log: full
       attestation: true
+      metadata:
+        control: SC-8
+        framework: NIST-800-53
+        title: Transmission Confidentiality and Integrity

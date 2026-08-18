@@ -13,7 +13,7 @@ ruleset: ssvc-deployer-tree
 version: 1.0.0
 rules:
 - name: ssvc_deployer_01
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -37,7 +37,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_deployer_02
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -61,7 +61,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_deployer_03
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -85,7 +85,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_04
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -109,7 +109,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_05
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -133,7 +133,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_deployer_06
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -157,7 +157,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_07
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -181,7 +181,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_08
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -205,7 +205,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_09
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -229,7 +229,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_deployer_10
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -253,7 +253,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_11
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -277,7 +277,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_12
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -301,7 +301,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_13
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -325,7 +325,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_14
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -349,7 +349,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_15
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -373,7 +373,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_16
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -397,7 +397,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_17
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -421,7 +421,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_deployer_18
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -445,7 +445,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_19
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -469,7 +469,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_20
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -493,7 +493,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_21
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -517,7 +517,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_22
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -541,7 +541,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_23
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -565,7 +565,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_24
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -589,7 +589,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_25
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -613,7 +613,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_deployer_26
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -637,7 +637,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_27
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -661,7 +661,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_28
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -685,7 +685,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_29
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -709,7 +709,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_30
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -733,7 +733,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_31
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -757,7 +757,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_32
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -781,7 +781,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_33
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -805,7 +805,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_deployer_34
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -829,7 +829,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_35
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -853,7 +853,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_36
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -877,7 +877,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_37
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -901,7 +901,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_38
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -925,7 +925,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_39
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -949,7 +949,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_40
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -973,7 +973,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_41
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -997,7 +997,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_42
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1021,7 +1021,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_43
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1045,7 +1045,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_44
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1069,7 +1069,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_45
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1093,7 +1093,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_46
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1117,7 +1117,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_47
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1141,7 +1141,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_48
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1165,7 +1165,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_49
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1189,7 +1189,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_50
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1213,7 +1213,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_51
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1237,7 +1237,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_52
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1261,7 +1261,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_53
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1285,7 +1285,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_54
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1309,7 +1309,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_55
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1333,7 +1333,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_56
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1357,7 +1357,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_57
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1381,7 +1381,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_58
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1405,7 +1405,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_59
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1429,7 +1429,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_60
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1453,7 +1453,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_61
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1477,7 +1477,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_62
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1501,7 +1501,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_63
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1525,7 +1525,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_64
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1549,7 +1549,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_65
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1573,7 +1573,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_deployer_66
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1597,7 +1597,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_67
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1621,7 +1621,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_68
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1645,7 +1645,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_deployer_69
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1669,7 +1669,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_70
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1693,7 +1693,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_deployer_71
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -1717,7 +1717,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_deployer_72
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:

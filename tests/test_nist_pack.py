@@ -109,8 +109,48 @@ class TestAccessEnforcement:
             },
         )
         result = nist_engine.evaluate()
-        # AC-3 shouldn't fire: resource not classified/restricted/secret/top.secret
-        assert "AC-3" not in (result.reason or "")
+        # AC-3 shouldn't fire: resource not classified/restricted/secret
+        assert "nist::access-enforcement" not in result.rule_trace
+
+    @pytest.mark.parametrize(
+        "resource",
+        ["secret_docs", "classified-doc", "restricted-area", "TOP_SECRET_docs", "Secret_plans"],
+    )
+    def test_classified_resource_fires_regardless_of_case(
+        self, nist_engine: Engine, resource: str
+    ) -> None:
+        """AC-3 must be case-insensitive: TOP_SECRET_docs is still secret."""
+        nist_engine.assert_fact(
+            "access_request",
+            {
+                "subject": "user-1",
+                "resource": resource,
+                "action": "read",
+                "clearance": "unclassified",
+            },
+        )
+        result = nist_engine.evaluate()
+        assert "nist::access-enforcement" in result.rule_trace
+
+    @pytest.mark.parametrize(
+        "resource",
+        ["unclassified_notes", "declassified-memo", "public-docs", "topXsecretXx"],
+    )
+    def test_unclassified_named_resource_not_denied(
+        self, nist_engine: Engine, resource: str
+    ) -> None:
+        """AC-3 must not substring-match: 'unclassified' contains 'classified'."""
+        nist_engine.assert_fact(
+            "access_request",
+            {
+                "subject": "user-1",
+                "resource": resource,
+                "action": "read",
+                "clearance": "unclassified",
+            },
+        )
+        result = nist_engine.evaluate()
+        assert "nist::access-enforcement" not in result.rule_trace
 
 
 # =========================================================================
@@ -428,17 +468,21 @@ class TestAuditReview:
         assert "AU-6" in (result.reason or "")
 
     def test_failed_delete_event(self, nist_engine: Engine) -> None:
+        # resource is supplied so AU-12 (deny) does not also fire: a deny
+        # now outranks an escalate by firing at lower salience.
         nist_engine.assert_fact(
             "audit_event",
             {
                 "event_type": "delete",
                 "subject": "user-1",
+                "resource": "cui-doc",
                 "outcome": "failed",
                 "ts": 1700000000.0,
             },
         )
         result = nist_engine.evaluate()
         assert result.decision == "escalate"
+        assert "AU-6" in (result.reason or "")
 
     def test_successful_escalate_not_triggered(self, nist_engine: Engine) -> None:
         """Successful privileged action should NOT trigger AU-6."""
@@ -599,12 +643,12 @@ class TestBoundaryProtection:
 
 
 # =========================================================================
-# SC-16: Transmission of Security and Privacy Attributes
+# SC-8: Transmission Confidentiality and Integrity
 # =========================================================================
 
 
 class TestTransmissionConfidentiality:
-    """SC-16: deny classified data over insecure protocols."""
+    """SC-8: deny classified data over insecure protocols."""
 
     def test_secret_over_plaintext_denied(self, nist_engine: Engine) -> None:
         nist_engine.assert_fact(
@@ -618,7 +662,7 @@ class TestTransmissionConfidentiality:
         )
         result = nist_engine.evaluate()
         assert result.decision == "deny"
-        assert "SC-16" in (result.reason or "")
+        assert "SC-8" in (result.reason or "")
 
     def test_confidential_over_ftp_denied(self, nist_engine: Engine) -> None:
         nist_engine.assert_fact(
@@ -633,8 +677,8 @@ class TestTransmissionConfidentiality:
         result = nist_engine.evaluate()
         assert result.decision == "deny"
 
-    def test_secret_over_tls_not_denied_by_sc16(self, nist_engine: Engine) -> None:
-        """Classified data over secure protocol should NOT trigger SC-16."""
+    def test_secret_over_tls_not_denied_by_sc8(self, nist_engine: Engine) -> None:
+        """Classified data over secure protocol should NOT trigger SC-8."""
         nist_engine.assert_fact(
             "data_transfer",
             {
@@ -645,10 +689,10 @@ class TestTransmissionConfidentiality:
             },
         )
         result = nist_engine.evaluate()
-        assert "SC-16" not in (result.reason or "")
+        assert "SC-8" not in (result.reason or "")
 
-    def test_unclassified_over_plaintext_not_denied_by_sc16(self, nist_engine: Engine) -> None:
-        """Unclassified data over insecure protocol should NOT trigger SC-16."""
+    def test_unclassified_over_plaintext_not_denied_by_sc8(self, nist_engine: Engine) -> None:
+        """Unclassified data over insecure protocol should NOT trigger SC-8."""
         nist_engine.assert_fact(
             "data_transfer",
             {
@@ -659,7 +703,7 @@ class TestTransmissionConfidentiality:
             },
         )
         result = nist_engine.evaluate()
-        assert "SC-16" not in (result.reason or "")
+        assert "SC-8" not in (result.reason or "")
 
 
 # =========================================================================
@@ -670,13 +714,21 @@ class TestTransmissionConfidentiality:
 class TestNISTRuleMetadata:
     """Verify salience and log-level metadata across all NIST rules."""
 
-    def test_all_deny_rules_salience_gte_80(self, nist_rulesets) -> None:
-        for ruleset in nist_rulesets:
-            for rule in ruleset.rules:
-                if rule.then.action.value == "deny":
-                    assert rule.salience >= 80, (
-                        f"Deny rule '{rule.name}' has salience {rule.salience} < 80"
-                    )
+    def test_deny_salience_below_every_escalate(self, nist_rulesets) -> None:
+        """Severity must be monotone in reverse salience (last write wins).
+
+        CLIPS fires the highest salience first and the evaluator keeps the
+        last decision written, so a deny only survives if it fires after
+        every escalate -- i.e. at a strictly lower salience.
+        """
+        rules = [r for ruleset in nist_rulesets for r in ruleset.rules]
+        deny_saliences = [r.salience for r in rules if r.then.action.value == "deny"]
+        escalate_saliences = [r.salience for r in rules if r.then.action.value == "escalate"]
+        assert deny_saliences and escalate_saliences
+        assert max(deny_saliences) < min(escalate_saliences), (
+            f"deny saliences {deny_saliences} must all be below "
+            f"escalate saliences {escalate_saliences}"
+        )
 
     def test_all_rules_use_log_full(self, nist_rulesets) -> None:
         for ruleset in nist_rulesets:
@@ -688,3 +740,39 @@ class TestNISTRuleMetadata:
     def test_pack_has_at_least_ten_rules(self, nist_rulesets) -> None:
         total = sum(len(rs.rules) for rs in nist_rulesets)
         assert total >= 10
+
+
+# =========================================================================
+# Salience ordering (AC-3 deny must outrank AU-6 escalate)
+# =========================================================================
+
+
+class TestSalienceOrdering:
+    """A deny must survive an escalate that fires in the same evaluation."""
+
+    def test_access_denial_beats_audit_review_escalate(self, nist_engine: Engine) -> None:
+        """AC-3 denial must not be downgraded to an AU-6 review escalation."""
+        nist_engine.assert_fact(
+            "access_request",
+            {
+                "subject": "mallory",
+                "resource": "top_secret_docs",
+                "action": "read",
+                "clearance": "unclassified",
+            },
+        )
+        nist_engine.assert_fact(
+            "audit_event",
+            {
+                "event_type": "escalate",
+                "subject": "mallory",
+                "resource": "top_secret_docs",
+                "outcome": "denied",
+                "ts": 1700000000.0,
+            },
+        )
+        result = nist_engine.evaluate()
+        assert "nist::access-enforcement" in result.rule_trace
+        assert "nist::audit-review-analysis" in result.rule_trace
+        assert result.decision == "deny"
+        assert "AC-3" in (result.reason or "")

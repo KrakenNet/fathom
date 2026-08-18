@@ -10,32 +10,32 @@
 templates:
   - name: exploitation
     slots:
-      - { name: value, type: symbol, allowed_symbols: [none, poc, active], required: true }
+      - { name: value, type: symbol, allowed_values: [none, poc, active], required: true }
   - name: utility
     slots:
       - { name: value, type: symbol,
-          allowed_symbols: [laborious, efficient, super_effective],
+          allowed_values: [laborious, efficient, super_effective],
           required: true }
   - name: technical_impact
     slots:
-      - { name: value, type: symbol, allowed_symbols: [partial, total], required: true }
+      - { name: value, type: symbol, allowed_values: [partial, total], required: true }
   - name: public_safety_impact
     slots:
-      - { name: value, type: symbol, allowed_symbols: [minimal, significant], required: true }
+      - { name: value, type: symbol, allowed_values: [minimal, significant], required: true }
   - name: exposure
     slots:
-      - { name: value, type: symbol, allowed_symbols: [small, controlled, open], required: true }
+      - { name: value, type: symbol, allowed_values: [small, controlled, open], required: true }
   - name: automatable
     slots:
-      - { name: value, type: symbol, allowed_symbols: ["yes", "no"], required: true }
+      - { name: value, type: symbol, allowed_values: ["yes", "no"], required: true }
   - name: human_impact
     slots:
       - { name: value, type: symbol,
-          allowed_symbols: [low, medium, high, very_high],
+          allowed_values: [low, medium, high, very_high],
           required: true }
   - name: mission_wellbeing
     slots:
-      - { name: value, type: symbol, allowed_symbols: [low, medium, high], required: true }
+      - { name: value, type: symbol, allowed_values: [low, medium, high], required: true }
   - name: ssvc_meta
     slots:
       - { name: version, type: string, required: true }

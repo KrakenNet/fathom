@@ -9,6 +9,7 @@ templates (data_transfer, audit_event) and the nist module.
 from __future__ import annotations
 
 import importlib
+import time
 from pathlib import Path
 
 import pytest
@@ -21,25 +22,20 @@ from fathom.models import LogLevel
 # Pack directory resolution
 # ---------------------------------------------------------------------------
 
-_nist_pkg = importlib.import_module("fathom.rule_packs.nist_800_53")
-NIST_DIR = Path(_nist_pkg.__path__[0])
-
 _cmmc_pkg = importlib.import_module("fathom.rule_packs.cmmc")
 CMMC_DIR = Path(_cmmc_pkg.__path__[0])
 
 
 @pytest.fixture
 def cmmc_engine() -> Engine:
-    """Engine loaded with NIST (dependency) then CMMC rule pack."""
+    """Engine loaded with the CMMC pack through its own entry point.
+
+    The pack declares ``PACK_DEPENDENCIES = ("nist-800-53",)``, so the
+    loader pulls in the NIST templates (audit_event, data_transfer) and
+    the nist module first -- no hand-rolled two-pack fixture.
+    """
     e = Engine()
-    # Load NIST first (templates: access_request, audit_event, data_transfer; module: nist)
-    e.load_templates(str(NIST_DIR / "templates"))
-    e.load_modules(str(NIST_DIR / "modules"))
-    e.load_rules(str(NIST_DIR / "rules"))
-    # Load CMMC on top (template: cui_policy; module: cmmc; rules reference nist templates too)
-    e.load_templates(str(CMMC_DIR / "templates"))
-    e.load_modules(str(CMMC_DIR / "modules"))
-    e.load_rules(str(CMMC_DIR / "rules"))
+    e.load_pack("cmmc")
     return e
 
 
@@ -89,6 +85,7 @@ class TestAuthorizedAccess:
                 "resource": "cui-document",
                 "action": "read",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = cmmc_engine.evaluate()
@@ -103,6 +100,7 @@ class TestAuthorizedAccess:
                 "resource": "cui-document",
                 "action": "write",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = cmmc_engine.evaluate()
@@ -117,6 +115,7 @@ class TestAuthorizedAccess:
                 "resource": "cui-document",
                 "action": "read",
                 "justification": "project requirement",
+                "ts": time.time(),
             },
         )
         result = cmmc_engine.evaluate()
@@ -199,6 +198,7 @@ class TestCUILeastPrivilege:
                 "resource": "cui-system",
                 "action": "admin",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = cmmc_engine.evaluate()
@@ -213,6 +213,7 @@ class TestCUILeastPrivilege:
                 "resource": "cui-records",
                 "action": "delete",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = cmmc_engine.evaluate()
@@ -227,6 +228,7 @@ class TestCUILeastPrivilege:
                 "resource": "cui-system",
                 "action": "admin",
                 "justification": "authorized maintenance",
+                "ts": time.time(),
             },
         )
         result = cmmc_engine.evaluate()
@@ -244,6 +246,7 @@ class TestCUILeastPrivilege:
                 "resource": "cui-document",
                 "action": "read",
                 "justification": "",
+                "ts": time.time(),
             },
         )
         result = cmmc_engine.evaluate()
@@ -363,15 +366,14 @@ class TestAuditTraceability:
 
 
 class TestIncidentHandling:
-    """IR.L2-3.6.1: escalate on CUI access matching incident pattern.
+    """IR.L2-3.6.1: escalate on more than 20 CUI reads in 600s.
 
-    The temporal count_exceeds threshold is metadata-only until temporal
-    operators are wired into rule compilation.  The rule currently fires
-    whenever a cui_policy fact has action in [read, write, admin, export].
+    The threshold is compiled as a ``rate_exceeds`` condition on the ts
+    slot, so a single access must not be reported as an incident.
     """
 
-    def test_incident_trigger_fires_on_matching_access(self, cmmc_engine: Engine) -> None:
-        """CUI access with matching action triggers incident handling rule."""
+    def test_single_access_does_not_trigger_incident(self, cmmc_engine: Engine) -> None:
+        """One justified read is not an IR.L2-3.6.1 incident."""
         cmmc_engine.assert_fact(
             "cui_policy",
             {
@@ -379,25 +381,65 @@ class TestIncidentHandling:
                 "resource": "cui-doc-1",
                 "action": "read",
                 "justification": "authorized review",
+                "ts": time.time(),
             },
         )
+        result = cmmc_engine.evaluate()
+        assert "cmmc::ir-l2-incident-handling" not in result.rule_trace
+        assert "IR.L2-3.6.1" not in (result.reason or "")
+
+    def test_bulk_reads_within_window_trigger_incident(self, cmmc_engine: Engine) -> None:
+        """More than 20 reads inside the 600s window escalates."""
+        for i in range(21):
+            cmmc_engine.assert_fact(
+                "cui_policy",
+                {
+                    "subject": "analyst-1",
+                    "resource": f"cui-doc-{i}",
+                    "action": "read",
+                    "justification": "authorized review",
+                    "ts": time.time(),
+                },
+            )
         result = cmmc_engine.evaluate()
         assert "cmmc::ir-l2-incident-handling" in result.rule_trace
-
-    def test_incident_handling_salience_wins(self, cmmc_engine: Engine) -> None:
-        """IR rule (salience 200) should produce escalate when justified."""
-        cmmc_engine.assert_fact(
-            "cui_policy",
-            {
-                "subject": "user-1",
-                "resource": "cui-doc-1",
-                "action": "write",
-                "justification": "authorized task",
-            },
-        )
-        result = cmmc_engine.evaluate()
         assert result.decision == "escalate"
         assert "IR.L2-3.6.1" in (result.reason or "")
+
+    def test_bulk_reads_outside_window_do_not_trigger(self, cmmc_engine: Engine) -> None:
+        """Reads older than the 600s window do not count toward the threshold."""
+        stale = time.time() - 7200
+        for i in range(25):
+            cmmc_engine.assert_fact(
+                "cui_policy",
+                {
+                    "subject": "analyst-1",
+                    "resource": f"cui-doc-{i}",
+                    "action": "read",
+                    "justification": "authorized review",
+                    "ts": stale,
+                },
+            )
+        result = cmmc_engine.evaluate()
+        assert "cmmc::ir-l2-incident-handling" not in result.rule_trace
+
+    def test_incident_metadata_reaches_the_result(self, cmmc_engine: Engine) -> None:
+        """Practice metadata is emitted with the decision, not silently dropped."""
+        for i in range(21):
+            cmmc_engine.assert_fact(
+                "cui_policy",
+                {
+                    "subject": "analyst-1",
+                    "resource": f"cui-doc-{i}",
+                    "action": "read",
+                    "justification": "authorized review",
+                    "ts": time.time(),
+                },
+            )
+        result = cmmc_engine.evaluate()
+        assert result.metadata["cmmc_practice"] == "IR.L2-3.6.1"
+        assert result.metadata["cmmc_level"] == "2"
+        assert result.metadata["threshold"] == "20"
 
 
 # =========================================================================
@@ -408,12 +450,17 @@ class TestIncidentHandling:
 class TestCMMCRuleMetadata:
     """Verify salience and log-level metadata across CMMC rules."""
 
-    def test_all_deny_rules_salience_gte_100(self, cmmc_ruleset) -> None:
-        for rule in cmmc_ruleset.rules:
-            if rule.then.action.value == "deny":
-                assert rule.salience >= 100, (
-                    f"Deny rule '{rule.name}' has salience {rule.salience} < 100"
-                )
+    def test_deny_salience_below_every_escalate(self, cmmc_ruleset) -> None:
+        """Severity must be monotone in reverse salience (last write wins)."""
+        deny_saliences = [r.salience for r in cmmc_ruleset.rules if r.then.action.value == "deny"]
+        escalate_saliences = [
+            r.salience for r in cmmc_ruleset.rules if r.then.action.value == "escalate"
+        ]
+        assert deny_saliences and escalate_saliences
+        assert max(deny_saliences) < min(escalate_saliences), (
+            f"deny saliences {deny_saliences} must all be below "
+            f"escalate saliences {escalate_saliences}"
+        )
 
     def test_incident_handling_highest_salience(self, cmmc_ruleset) -> None:
         ir_rule = next(r for r in cmmc_ruleset.rules if r.name == "ir-l2-incident-handling")

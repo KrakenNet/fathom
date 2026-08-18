@@ -1,13 +1,12 @@
 module: nist
 ruleset: nist-800-53-au
 version: "1.0"
+# Salience convention: decision selection is last-write-wins and CLIPS fires
+# the highest salience first, so the LOWEST-salience rule that fires decides.
+# Severity is monotone in reverse salience here: deny 50, escalate >= 80.
 rules:
   - name: audit-events
     salience: 90
-    metadata:
-      control: AU-2
-      framework: NIST-800-53
-      title: Audit Events
     when:
       - template: audit_event
         conditions:
@@ -20,13 +19,13 @@ rules:
       reason: "Auditable event has unknown outcome — requires resolution (AU-2)"
       log: full
       attestation: true
+      metadata:
+        control: AU-2
+        framework: NIST-800-53
+        title: Audit Events
 
   - name: audit-content
-    salience: 90
-    metadata:
-      control: AU-3
-      framework: NIST-800-53
-      title: Content of Audit Records
+    salience: 50
     when:
       - template: audit_event
         conditions:
@@ -37,13 +36,13 @@ rules:
       reason: "Audit record missing required subject field (AU-3)"
       log: full
       attestation: true
+      metadata:
+        control: AU-3
+        framework: NIST-800-53
+        title: Content of Audit Records
 
   - name: audit-review-analysis
     salience: 80
-    metadata:
-      control: AU-6
-      framework: NIST-800-53
-      title: Audit Review, Analysis, and Reporting
     when:
       - template: audit_event
         conditions:
@@ -56,13 +55,13 @@ rules:
       reason: "Failed privileged action requires review and analysis (AU-6)"
       log: full
       attestation: true
+      metadata:
+        control: AU-6
+        framework: NIST-800-53
+        title: Audit Review, Analysis, and Reporting
 
   - name: audit-generation
-    salience: 90
-    metadata:
-      control: AU-12
-      framework: NIST-800-53
-      title: Audit Generation
+    salience: 50
     when:
       - template: audit_event
         conditions:
@@ -75,3 +74,7 @@ rules:
       reason: "Audit generation requires resource identification for data events (AU-12)"
       log: full
       attestation: true
+      metadata:
+        control: AU-12
+        framework: NIST-800-53
+        title: Audit Generation

@@ -1,13 +1,12 @@
 module: hipaa
 ruleset: hipaa-privacy-security
 version: "1.0"
+# Salience convention: decision selection is last-write-wins and CLIPS fires
+# the highest salience first, so the LOWEST-salience rule that fires decides.
+# Severity is monotone in reverse salience here: deny 50, escalate >= 80.
 rules:
   - name: minimum-necessary
-    salience: 100
-    metadata:
-      control: "164.502(b)"
-      framework: HIPAA
-      title: Minimum Necessary Standard
+    salience: 50
     when:
       - template: phi_policy
         conditions:
@@ -20,13 +19,13 @@ rules:
       reason: "PHI access denied: minimum necessary justification required (164.502(b))"
       log: full
       attestation: true
+      metadata:
+        control: "164.502(b)"
+        framework: HIPAA
+        title: Minimum Necessary Standard
 
   - name: transmission-security
-    salience: 100
-    metadata:
-      control: "164.312(e)(1)"
-      framework: HIPAA
-      title: Transmission Security
+    salience: 50
     when:
       - template: data_transfer
         conditions:
@@ -39,25 +38,31 @@ rules:
       reason: "PHI transfer blocked: transmission must be encrypted (164.312(e)(1))"
       log: full
       attestation: true
+      metadata:
+        control: "164.312(e)(1)"
+        framework: HIPAA
+        title: Transmission Security
 
+  # Threshold control: more than 10 PHI reads within 300 seconds. Expressed as
+  # a rate_exceeds condition on the ts slot -- the only form the compiler
+  # implements; a sibling `temporal:` mapping is silently ignored.
   - name: breach-trigger
     salience: 200
-    metadata:
-      control: "164.402"
-      framework: HIPAA
-      title: Breach Notification Trigger
-      threshold: 10
     when:
       - template: phi_policy
         conditions:
           - slot: access_level
-            expression: "in([read, write, admin])"
-        temporal:
-          operator: count_exceeds
-          threshold: 10
-          window_seconds: 300
+            expression: "equals(read)"
+          - slot: ts
+            expression: "rate_exceeds(phi_policy, access_level, read, 10, 300, ts)"
     then:
       action: escalate
-      reason: "Bulk PHI access detected: breach notification evaluation required (164.402)"
+      reason: "Bulk PHI access detected: more than 10 reads in 300s, breach notification evaluation required (164.402)"
       log: full
       attestation: true
+      metadata:
+        control: "164.402"
+        framework: HIPAA
+        title: Breach Notification Trigger
+        threshold: "10"
+        window_seconds: "300"

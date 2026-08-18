@@ -157,7 +157,16 @@ def write_rules(spec: dict[str, Any], branches: list[dict[str, str]]) -> None:
         rules.append(
             {
                 "name": f"ssvc_{spec['tree']}_{i:02d}",
-                "salience": 10,
+                # Decisions are last-write-wins, so the LOWEST salience fires
+                # last and wins. Severity must therefore be monotone in
+                # reverse salience: deny (50) < escalate (80-200) < route <
+                # allow. At the old value of 10 an SSVC route sat BELOW the
+                # compliance packs' deny tier, so co-loading ssvc with any of
+                # them let a routing decision override a denial. 300 is
+                # strictly above the highest escalate in any shipped pack
+                # (200, in cmmc and hipaa) — a tie there would be just as
+                # ambiguous as being under it.
+                "salience": 300,
                 "when": conditions,
                 "then": {
                     "action": "route",
