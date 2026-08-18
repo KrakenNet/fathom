@@ -29,6 +29,11 @@ def resolve_ruleset(root: str, user_path: str) -> Path:
     :class:`PathJailError` for parent traversals, absolute inputs, and
     symlinks that escape the root.
 
+    ``""`` and ``"."`` both mean the root itself. Any other spelling that
+    normalises back to the root (``"sub/.."``) is rejected: the containment
+    test is a strict-descendant check, and keeping it strict is what lets it
+    stay a single unqualified guard (see the comment on it below).
+
     Error messages never echo the resolved server-side ``root`` absolute
     path — that would leak internal filesystem layout to remote callers.
     """
@@ -47,20 +52,30 @@ def resolve_ruleset(root: str, user_path: str) -> Path:
     if candidate.is_absolute() or candidate.drive:
         raise PathJailError("invalid ruleset path")
 
-    # Normalise with ``os.path.realpath`` and gate on ``startswith`` rather than
-    # ``Path.relative_to``/``os.path.commonpath``. All three are equivalent here,
-    # but this is the shape CodeQL's path-injection query recognises as a
-    # sanitizing barrier, so the check registers as one for every downstream
-    # ``open()`` in the compiler instead of being flagged at each sink.
+    # The root directory is itself a legitimate ruleset -- the transports pass
+    # an empty ruleset name to mean "everything under the root" -- and it is
+    # the one path that cannot satisfy the descendant test below. Answer it
+    # here so that test stays a single unqualified check.
+    if str(candidate) == ".":
+        return root_path
+
     root_str = str(root_path)
     try:
         resolved_str = os.path.realpath(os.path.join(root_str, str(candidate)))
     except (ValueError, OSError):
         raise PathJailError("invalid ruleset path") from None
 
-    # ``startswith(root + sep)`` alone would reject the root itself, which is a
-    # legitimate ruleset directory, so allow the exact match too. The separator
-    # matters: without it ``/srv/rules-evil`` passes a bare ``/srv/rules`` prefix.
-    if resolved_str != root_str and not resolved_str.startswith(root_str + os.sep):
+    # ``os.path.realpath`` normalisation followed by a lone ``startswith``
+    # against the root is the shape CodeQL's path-injection query models as a
+    # sanitizing barrier -- ``Path.relative_to``/``os.path.commonpath`` are
+    # equivalent but unrecognised, and even this check stops registering the
+    # moment it gains a second disjunct, which puts the report back on every
+    # downstream ``open()`` in the compiler.
+    #
+    # The trailing separator is load-bearing on its own account: without it a
+    # sibling ``/srv/rules-evil`` passes a bare ``/srv/rules`` prefix.
+    # ``os.path.join(root, "")`` appends it without doubling it when the root
+    # is ``/``.
+    if not resolved_str.startswith(os.path.join(root_str, "")):
         raise PathJailError("invalid ruleset path")
     return Path(resolved_str)

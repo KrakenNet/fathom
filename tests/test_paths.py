@@ -113,8 +113,26 @@ class TestResolveRuleset:
         with pytest.raises(PathJailError, match="invalid ruleset path"):
             resolve_ruleset(str(rules_dir), "../rules-evil/leak.yaml")
 
-    def test_root_itself_resolves(self, tmp_path: Path) -> None:
-        """The root directory is a legitimate ruleset path, not an escape."""
+    @pytest.mark.parametrize("user_path", ["", "."])
+    def test_root_itself_resolves(self, tmp_path: Path, user_path: str) -> None:
+        """The root directory is a legitimate ruleset path, not an escape.
+
+        The transports spell "everything under the root" as an empty ruleset
+        name, which ``Path`` normalises to ``"."``.
+        """
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
-        assert resolve_ruleset(str(rules_dir), ".") == rules_dir.resolve()
+        assert resolve_ruleset(str(rules_dir), user_path) == rules_dir.resolve()
+
+    def test_rejects_traversal_that_lands_back_on_the_root(self, tmp_path: Path) -> None:
+        """``sub/..`` is the root, but only ``""``/``"."`` may say so.
+
+        The containment test is a strict-descendant check so that it stays a
+        single unqualified guard; the two root spellings are answered before
+        it. Anything else that normalises back to the root is rejected.
+        """
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "sub").mkdir()
+        with pytest.raises(PathJailError, match="invalid ruleset path"):
+            resolve_ruleset(str(rules_dir), "sub/..")
