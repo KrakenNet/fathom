@@ -889,8 +889,7 @@ def repl(
                 _print_success(f"Loaded rules from {rules}")
             except CompilationError as exc:
                 msg = (
-                    f"compilation error loading rules from {rules}: "
-                    f"{_compilation_error_text(exc)}"
+                    f"compilation error loading rules from {rules}: {_compilation_error_text(exc)}"
                 )
                 _print_error(f"[fathom.cli] repl failed: {msg}")
                 raise typer.Exit(code=_EXIT_ERROR) from exc

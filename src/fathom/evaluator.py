@@ -172,9 +172,7 @@ class Evaluator:
         try:
             log_level = LogLevel(str(winner["log-level"]))
         except ValueError as exc:
-            raise EvaluationError(
-                f"invalid log-level in __fathom_decision: {exc}"
-            ) from exc
+            raise EvaluationError(f"invalid log-level in __fathom_decision: {exc}") from exc
 
         # Parse metadata (stored as JSON string in CLIPS). The only producer
         # is ThenBlock.metadata, which is dict[str, str], and the public

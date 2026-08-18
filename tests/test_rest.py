@@ -925,8 +925,7 @@ class TestEvaluateFactCeiling:
     @staticmethod
     def _facts(n: int) -> list[dict[str, object]]:
         return [
-            {"template": "agent", "data": {"id": f"a{i}", "clearance": "secret"}}
-            for i in range(n)
+            {"template": "agent", "data": {"id": f"a{i}", "clearance": "secret"}} for i in range(n)
         ]
 
     @staticmethod
@@ -941,9 +940,7 @@ class TestEvaluateFactCeiling:
         """
         facts: list[dict[str, object]] = []
         for i in range(n // 2):
-            facts.append(
-                {"template": "agent", "data": {"id": f"a{i}", "clearance": "secret"}}
-            )
+            facts.append({"template": "agent", "data": {"id": f"a{i}", "clearance": "secret"}})
             facts.append(
                 {
                     "template": "data_request",

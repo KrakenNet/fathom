@@ -432,7 +432,6 @@ def _isolated_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     import prometheus_client
     from prometheus_client import CollectorRegistry
 
-
     reg = CollectorRegistry()
 
     def _counter(
@@ -674,14 +673,20 @@ class TestEngineEvaluationRecordsMetrics:
         result = engine.evaluate()
 
         assert result.decision == "deny"
-        assert prom_registry.get_sample_value(
-            "fathom_rules_fired_total",
-            labels={"rule": "deny-delete", "module": "governance"},
-        ) == 1.0
-        assert prom_registry.get_sample_value(
-            "fathom_denials_total",
-            labels={"rule": "deny-delete", "module": "governance"},
-        ) == 1.0
+        assert (
+            prom_registry.get_sample_value(
+                "fathom_rules_fired_total",
+                labels={"rule": "deny-delete", "module": "governance"},
+            )
+            == 1.0
+        )
+        assert (
+            prom_registry.get_sample_value(
+                "fathom_denials_total",
+                labels={"rule": "deny-delete", "module": "governance"},
+            )
+            == 1.0
+        )
 
 
 class TestCollectorIsProcessSafe:
@@ -701,9 +706,7 @@ class TestCollectorIsProcessSafe:
         first, second = MetricsCollector(enabled=True), MetricsCollector(enabled=True)
         assert first.evaluations_total is second.evaluations_total
 
-    def test_counts_from_two_collectors_aggregate(
-        self, prom_registry: CollectorRegistry
-    ) -> None:
+    def test_counts_from_two_collectors_aggregate(self, prom_registry: CollectorRegistry) -> None:
         """Two Engines in one process report into the same exposition series."""
         MetricsCollector(enabled=True).record_fact_asserted("request")
         MetricsCollector(enabled=True).record_fact_asserted("request")

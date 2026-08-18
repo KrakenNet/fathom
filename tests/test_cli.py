@@ -549,10 +549,7 @@ class TestTestCommandExitCodes:
         tests_dir = tmp_path / "cases"
         tests_dir.mkdir()
         (tests_dir / "cases.yaml").write_text(
-            "tests:\n"
-            "  - name: read-allowed\n"
-            "    facts: []\n"
-            "    expected_decision: allow\n",
+            "tests:\n  - name: read-allowed\n    facts: []\n    expected_decision: allow\n",
             encoding="utf-8",
         )
 
@@ -697,10 +694,7 @@ class TestCompileMatchesTheEngine:
         for sub in ("templates", "modules", "rules"):
             (root / sub).mkdir(parents=True)
         (root / "templates" / "t.yaml").write_text(
-            "templates:\n"
-            "  - name: agent\n"
-            "    slots:\n"
-            "      - {name: id, type: string}\n"
+            "templates:\n  - name: agent\n    slots:\n      - {name: id, type: string}\n"
         )
         (root / "modules" / "m.yaml").write_text(
             "modules:\n  - name: gov\n\nfocus_order:\n  - gov\n"
@@ -727,9 +721,7 @@ class TestCompileMatchesTheEngine:
         assert result.exit_code == 0, result.output
         assert '(agent (id "alice@example.com"))' in result.output
 
-    def test_string_slot_literal_is_quoted_for_a_single_rules_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_string_slot_literal_is_quoted_for_a_single_rules_file(self, tmp_path: Path) -> None:
         """Templates live in the sibling `templates/` dir of the ruleset."""
         pack = self._pack(tmp_path / "pack")
         result = runner.invoke(app, ["compile", str(pack / "rules" / "r.yaml")])

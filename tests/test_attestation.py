@@ -321,9 +321,7 @@ class TestEngineBindsInputFacts:
                 },
             },
         ]
-        expected = hashlib.sha256(
-            json.dumps(expected_facts, sort_keys=True).encode()
-        ).hexdigest()
+        expected = hashlib.sha256(json.dumps(expected_facts, sort_keys=True).encode()).hexdigest()
         assert payload["input_hash"] == expected
 
     def test_input_hash_binds_the_template_not_just_the_slots(
@@ -343,9 +341,7 @@ class TestEngineBindsInputFacts:
         (pack / "templates").mkdir(parents=True)
         (pack / "rules").mkdir()
         (pack / "modules").mkdir()
-        (pack / "modules" / "m.yaml").write_text(
-            "modules:\n  - name: m\n\nfocus_order:\n  - m\n"
-        )
+        (pack / "modules" / "m.yaml").write_text("modules:\n  - name: m\n\nfocus_order:\n  - m\n")
         (pack / "templates" / "t.yaml").write_text(
             "templates:\n"
             "  - name: trigger\n"
@@ -367,7 +363,7 @@ class TestEngineBindsInputFacts:
             "      - template: trigger\n"
             "        conditions:\n"
             "          - slot: go\n"
-            "            expression: \"equals(yes)\"\n"
+            '            expression: "equals(yes)"\n'
             "    then:\n"
             "      action: allow\n"
             "      reason: ok\n"

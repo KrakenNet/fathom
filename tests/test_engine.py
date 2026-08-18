@@ -124,8 +124,7 @@ def test_load_templates_is_load_order_independent(tmp_path: Path) -> None:
     templates_dir.mkdir()
     for name in ["zeta", "mid", "alpha"]:
         (templates_dir / f"{name}.yaml").write_text(
-            f"templates:\n  - name: {name}\n    slots:\n"
-            "      - name: id\n        type: symbol\n"
+            f"templates:\n  - name: {name}\n    slots:\n      - name: id\n        type: symbol\n"
         )
     engine = Engine()
     engine.load_templates(str(templates_dir))

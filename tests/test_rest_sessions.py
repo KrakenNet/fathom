@@ -353,9 +353,7 @@ class TestHandlersRunInThreadpool:
 class TestErrorEnvelope:
     """Every error body is {"error", "detail", "field"} (ErrorResponse)."""
 
-    def test_unauthorized_uses_the_envelope(
-        self, ruleset_root: Path, client: TestClient
-    ) -> None:
+    def test_unauthorized_uses_the_envelope(self, ruleset_root: Path, client: TestClient) -> None:
         response = client.post("/v1/evaluate", json={"facts": [], "ruleset": "strict"})
         assert response.status_code == 401
         assert set(response.json()) == {"error", "detail", "field"}

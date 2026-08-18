@@ -75,9 +75,7 @@ class AttestationService:
                 "the constant hash of the empty list and binds no inputs"
             )
         # SHA-256 hash of input facts for integrity
-        input_hash = hashlib.sha256(
-            json.dumps(input_facts, sort_keys=True).encode()
-        ).hexdigest()
+        input_hash = hashlib.sha256(json.dumps(input_facts, sort_keys=True).encode()).hexdigest()
 
         payload = {
             "iss": "fathom",

@@ -735,8 +735,7 @@ class Engine:
                     key = f"{ruleset.module}::{rule_defn.name}"
                     if key in self._rule_registry:
                         raise CompilationError(
-                            "[fathom.engine] load rules failed: "
-                            f"duplicate rule name '{key}'",
+                            f"[fathom.engine] load rules failed: duplicate rule name '{key}'",
                             file=str(file),
                             construct=f"rule:{key}",
                         )
@@ -1214,9 +1213,7 @@ class Engine:
                 self._metrics.record_fact_asserted(template)
                 self._publish_working_memory([template])
 
-    def _retract_local_handles(
-        self, handles: list[tuple[str, Any, dict[str, Any]]]
-    ) -> None:
+    def _retract_local_handles(self, handles: list[tuple[str, Any, dict[str, Any]]]) -> None:
         """Retract exactly the facts named by *handles* (see :meth:`_assert_local`)."""
         if not handles:
             return

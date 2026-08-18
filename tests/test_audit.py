@@ -311,9 +311,7 @@ class TestAuditLogRecord:
         sink = ListSink()
         log = AuditLog(sink)
         facts = [{"agent": "a1", "action": "read"}]
-        log.record(
-            _make_result(), session_id="s", input_facts=facts, log_level=LogLevel.FULL
-        )
+        log.record(_make_result(), session_id="s", input_facts=facts, log_level=LogLevel.FULL)
         assert sink.records[0].input_facts == facts
 
     def test_input_facts_dropped_below_full(self) -> None:
@@ -662,9 +660,7 @@ class TestThenLogLevel:
         e.assert_fact("agent", {"id": "alice"})
         e.evaluate()
         assert len(sink.records) == 1
-        assert sink.records[0].input_facts == [
-            {"template": "agent", "slots": {"id": "alice"}}
-        ]
+        assert sink.records[0].input_facts == [{"template": "agent", "slots": {"id": "alice"}}]
 
     def test_default_decision_still_writes_a_record(self, tmp_path: Any) -> None:
         """No rule fired — there is no `then.log` to honour, so log at summary."""

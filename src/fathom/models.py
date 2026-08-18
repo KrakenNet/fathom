@@ -92,8 +92,7 @@ def _validate_expression(expr: str) -> str:
     paren_idx = expr.find("(")
     if paren_idx == -1 or not expr.endswith(")"):
         raise ValueError(
-            f"ConditionEntry.expression {expr!r} is malformed "
-            "(expected 'operator(argument)')"
+            f"ConditionEntry.expression {expr!r} is malformed (expected 'operator(argument)')"
         )
     op = expr[:paren_idx].strip()
     if not _OPERATOR_NAME_RE.match(op):
@@ -122,9 +121,7 @@ def _validate_expression(expr: str) -> str:
         elif ch == ")":
             depth -= 1
             if depth < 0:
-                raise ValueError(
-                    f"ConditionEntry.expression {expr!r} has unbalanced parentheses"
-                )
+                raise ValueError(f"ConditionEntry.expression {expr!r} has unbalanced parentheses")
             if depth == 0 and idx != last_idx:
                 raise ValueError(
                     f"ConditionEntry.expression {expr!r} closes its argument before "

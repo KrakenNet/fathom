@@ -315,9 +315,7 @@ async def request_validation_error_handler(
     # that offset as `"field": "1"` presents a position as a field name, so
     # drop non-identifier parts and report no field instead.
     loc = ".".join(
-        str(part)
-        for part in first.get("loc", ())
-        if part != "body" and not isinstance(part, int)
+        str(part) for part in first.get("loc", ()) if part != "body" and not isinstance(part, int)
     )
     body = ErrorResponse(
         error="validation_error",

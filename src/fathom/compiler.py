@@ -202,9 +202,7 @@ class Compiler:
         # LHS: fact patterns and test CEs
         all_test_ces: list[str] = []
         for pattern_index, pattern in enumerate(defn.when):
-            lhs, test_ces = self._compile_fact_pattern(
-                pattern, aliases, pattern_index, templates
-            )
+            lhs, test_ces = self._compile_fact_pattern(pattern, aliases, pattern_index, templates)
             lines.append(f"    {lhs}")
             all_test_ces.extend(test_ces)
 
@@ -1036,8 +1034,7 @@ class Compiler:
         if _QUOTED_ARG_RE.match(arg) or _ARG_TOKEN_RE.match(arg):
             return arg
         raise CompilationError(
-            "[fathom.compiler] compile rule failed: "
-            f"invalid argument {arg!r} for operator {op!r}",
+            f"[fathom.compiler] compile rule failed: invalid argument {arg!r} for operator {op!r}",
             detail="Operator arguments must be a single token or a quoted string",
         )
 

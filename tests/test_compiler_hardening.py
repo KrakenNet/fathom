@@ -284,7 +284,7 @@ class TestIdentifierHardening:
 
     def test_expression_rejects_early_close(self) -> None:
         with pytest.raises(PydanticValidationError, match="(?i)closes its argument"):
-            ConditionEntry(slot="id", expression='equals(a1)) (admin (level 9)')
+            ConditionEntry(slot="id", expression="equals(a1)) (admin (level 9)")
 
     def test_expression_accepts_regex_and_quoted_arguments(self) -> None:
         assert ConditionEntry(slot="id", expression="matches(^(a|b)$)").expression
@@ -320,9 +320,12 @@ class TestIdentifierHardening:
         """Accepting them is only safe because they land inside a CLIPS string."""
         rule = RuleDefinition(
             name="t",
-            when=[FactPattern(template="agent", conditions=[
-                ConditionEntry(slot="body", expression=expression)
-            ])],
+            when=[
+                FactPattern(
+                    template="agent",
+                    conditions=[ConditionEntry(slot="body", expression=expression)],
+                )
+            ],
             then=ThenBlock(action="deny", reason="x"),
         )
         clips = Compiler().compile_rule(rule, "gov")
@@ -466,9 +469,7 @@ class TestLiteralEmission:
             when=[
                 FactPattern(
                     template="user",
-                    conditions=[
-                        ConditionEntry(slot="id", expression="equals(alice@example.com)")
-                    ],
+                    conditions=[ConditionEntry(slot="id", expression="equals(alice@example.com)")],
                 )
             ],
             then=ThenBlock(action="allow", reason="ok"),

@@ -184,8 +184,7 @@ def _scan(
                 return _fail(f"malformed line {lineno}: invalid JSON (torn write?)", lineno)
             if not isinstance(obj, dict) or set(obj) != _LINE_FIELDS:
                 return _fail(
-                    f"malformed line {lineno}: line fields must be exactly "
-                    f"{sorted(_LINE_FIELDS)}",
+                    f"malformed line {lineno}: line fields must be exactly {sorted(_LINE_FIELDS)}",
                     lineno,
                 )
             if obj["v"] != FORMAT_VERSION:

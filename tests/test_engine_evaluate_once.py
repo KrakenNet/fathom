@@ -135,12 +135,7 @@ class TestBudgetExhaustionLeavesNoFactsBehind:
     """
 
     SELF_TRIGGERING = {
-        "templates": (
-            "templates:\n"
-            "  - name: ctr\n"
-            "    slots:\n"
-            "      - {name: n, type: integer}\n"
-        ),
+        "templates": ("templates:\n  - name: ctr\n    slots:\n      - {name: n, type: integer}\n"),
         "modules": "modules:\n  - name: gov\n\nfocus_order:\n  - gov\n",
         "rules": (
             "module: gov\n"
@@ -168,9 +163,7 @@ class TestBudgetExhaustionLeavesNoFactsBehind:
             (root / sub / f"{sub}.yaml").write_text(content)
         return root
 
-    def test_working_memory_is_empty_after_the_budget_is_exhausted(
-        self, tmp_path: Path
-    ) -> None:
+    def test_working_memory_is_empty_after_the_budget_is_exhausted(self, tmp_path: Path) -> None:
         from fathom.errors import EvaluationLimitError
 
         engine = Engine.from_rules(str(self._pack(tmp_path)), run_limit=5_000)

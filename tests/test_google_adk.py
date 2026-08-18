@@ -62,7 +62,6 @@ def _make_tool(name: str = TOOL_NAME) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 
 
-
 def _scoped_fact(engine: MagicMock) -> tuple[str, dict]:
     """Return the single ``(template, slots)`` pair passed to ``evaluate_once``.
 

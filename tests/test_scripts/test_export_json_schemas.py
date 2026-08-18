@@ -37,10 +37,7 @@ def test_committed_schemas_are_in_sync(tmp_path: Path) -> None:
         assert committed.exists(), f"{generated.name} is not published"
         assert json.loads(generated.read_text(encoding="utf-8")) == json.loads(
             committed.read_text(encoding="utf-8")
-        ), (
-            f"{committed} is stale — run "
-            f"`python scripts/export_json_schemas.py {published}`"
-        )
+        ), f"{committed} is stale — run `python scripts/export_json_schemas.py {published}`"
 
 
 def test_schemas_forbid_unknown_keys() -> None:

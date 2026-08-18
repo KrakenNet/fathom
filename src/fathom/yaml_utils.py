@@ -131,9 +131,7 @@ def _validate_rule_file(data: dict[str, Any], file_path: Path) -> list[str]:
     errors: list[str] = []
 
     if "module" not in data:
-        errors.append(
-            f"{file_path}: rule file must contain a top-level 'module' key"
-        )
+        errors.append(f"{file_path}: rule file must contain a top-level 'module' key")
         return errors
 
     try:

@@ -54,7 +54,6 @@ AGENT_ID = "agent-007"
 # ---------------------------------------------------------------------------
 
 
-
 def _scoped_fact(engine: MagicMock) -> tuple[str, dict]:
     """Return the single ``(template, slots)`` pair passed to ``evaluate_once``.
 

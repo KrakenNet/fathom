@@ -506,9 +506,7 @@ class TestFleetEngineValidateBeforeWrite:
         assert engine.query("shared_status") == []
 
     @pytest.mark.asyncio
-    async def test_failed_duplicate_assert_keeps_the_committed_fact(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_failed_duplicate_assert_keeps_the_committed_fact(self, tmp_path: Path) -> None:
         """A store blip on a repeated assert must not destroy the good fact.
 
         CLIPS de-duplicates identical facts, so the second assert creates

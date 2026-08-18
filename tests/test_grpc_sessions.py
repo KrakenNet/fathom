@@ -157,9 +157,7 @@ class TestRulesetLessRpcCannotPoisonASessionId:
     this: its ruleset-less routes 404 on an unknown session.
     """
 
-    def test_unknown_session_on_a_ruleset_less_rpc_is_not_found(
-        self, ruleset_root: Path
-    ) -> None:
+    def test_unknown_session_on_a_ruleset_less_rpc_is_not_found(self, ruleset_root: Path) -> None:
         svc = FathomServicer()
         ctx = _FakeContext()
 

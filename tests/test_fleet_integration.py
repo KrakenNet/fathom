@@ -95,9 +95,7 @@ def running_container(
     for key, value in (env or {}).items():
         cmd += ["-e", f"{key}={value}"]
     cmd.append(image)
-    container_id = subprocess.run(
-        cmd, capture_output=True, text=True, check=True
-    ).stdout.strip()
+    container_id = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
     try:
         published = subprocess.run(
             ["docker", "port", container_id, str(container_port)],
@@ -137,9 +135,7 @@ def postgres_dsn() -> Iterator[str]:
         env={"POSTGRES_PASSWORD": POSTGRES_PASSWORD},
     ) as (container_id, host_port):
         wait_until(lambda: exec_ok(container_id, "pg_isready", "-U", "postgres"))
-        yield (
-            f"postgresql://postgres:{POSTGRES_PASSWORD}@127.0.0.1:{host_port}/postgres"
-        )
+        yield (f"postgresql://postgres:{POSTGRES_PASSWORD}@127.0.0.1:{host_port}/postgres")
 
 
 def seed_shared_status(engine: Engine) -> None:
@@ -199,9 +195,7 @@ class TestFleetEngineOverRedis:
             await store.close()
 
     @pytest.mark.asyncio
-    async def test_invalid_fact_never_reaches_redis(
-        self, redis_port: int, tmp_path: Path
-    ) -> None:
+    async def test_invalid_fact_never_reaches_redis(self, redis_port: int, tmp_path: Path) -> None:
         from fathom.errors import ValidationError
         from fathom.fleet import FleetEngine
         from fathom.fleet_redis import RedisFactStore

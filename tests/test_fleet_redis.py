@@ -33,6 +33,7 @@ def redis_port() -> Iterator[int]:
         wait_until(lambda: exec_ok(container_id, "redis-cli", "ping"))
         yield host_port
 
+
 # Round-trip cases the pre-0.8 asymmetric encoding corrupted: a str that
 # parses as JSON came back as int/bool/None/dict.
 ROUND_TRIP_DATA: dict[str, Any] = {
@@ -69,9 +70,7 @@ class TestRedisRoundTrip:
     """query() must return exactly what assert_fact() was given."""
 
     @pytest.mark.asyncio
-    async def test_query_returns_written_values_unchanged(
-        self, store: RedisFactStore
-    ) -> None:
+    async def test_query_returns_written_values_unchanged(self, store: RedisFactStore) -> None:
         fact_id = await store.assert_fact("agent", ROUND_TRIP_DATA)
         results = await store.query("agent")
 
@@ -81,9 +80,7 @@ class TestRedisRoundTrip:
             assert type(results[0][key]) is type(value), key
 
     @pytest.mark.asyncio
-    async def test_filter_matches_the_string_that_was_written(
-        self, store: RedisFactStore
-    ) -> None:
+    async def test_filter_matches_the_string_that_was_written(self, store: RedisFactStore) -> None:
         await store.assert_fact("agent", {"id": "123", "name": "alice"})
 
         assert await store.count("agent", {"id": "123"}) == 1
@@ -93,9 +90,7 @@ class TestRedisRoundTrip:
         assert matched[0]["name"] == "alice"
 
     @pytest.mark.asyncio
-    async def test_legacy_unencoded_string_still_decodes(
-        self, store: RedisFactStore
-    ) -> None:
+    async def test_legacy_unencoded_string_still_decodes(self, store: RedisFactStore) -> None:
         """Hashes written by a pre-0.8 release stored plain strings raw."""
         fact_id = "legacydeadbeef"
         await store._client.hset(  # type: ignore[misc]
@@ -111,9 +106,7 @@ class TestRedisRetract:
     """retract() must remove the facts a caller identifies by value."""
 
     @pytest.mark.asyncio
-    async def test_retract_by_string_id_removes_the_fact(
-        self, store: RedisFactStore
-    ) -> None:
+    async def test_retract_by_string_id_removes_the_fact(self, store: RedisFactStore) -> None:
         await store.assert_fact("agent", {"id": "123", "name": "alice"})
         await store.assert_fact("agent", {"id": "456", "name": "bob"})
 
@@ -143,9 +136,7 @@ class TestRedisSubscribe:
     """Change notifications reach subscribers via Redis Streams."""
 
     @pytest.mark.asyncio
-    async def test_subscriber_receives_assert_and_retract(
-        self, store: RedisFactStore
-    ) -> None:
+    async def test_subscriber_receives_assert_and_retract(self, store: RedisFactStore) -> None:
         received: list[FactChangeNotification] = []
 
         async def on_change(notification: FactChangeNotification) -> None:
@@ -191,9 +182,7 @@ class TestRedisEncoding:
     """The hash payload itself is JSON on every field."""
 
     @pytest.mark.asyncio
-    async def test_every_field_is_json_encoded_on_disk(
-        self, store: RedisFactStore
-    ) -> None:
+    async def test_every_field_is_json_encoded_on_disk(self, store: RedisFactStore) -> None:
         fact_id = await store.assert_fact("agent", {"id": "123", "attempts": 3})
         raw = await store._client.hgetall(store._fact_key("agent", fact_id))  # type: ignore[misc]
         decoded = {

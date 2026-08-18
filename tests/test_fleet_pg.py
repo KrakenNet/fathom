@@ -58,9 +58,7 @@ class TestPostgresAssertFact:
     """assert_fact must commit the row and announce it on the channel."""
 
     @pytest.mark.asyncio
-    async def test_assert_commits_and_is_queryable(
-        self, store: PostgresFactStore
-    ) -> None:
+    async def test_assert_commits_and_is_queryable(self, store: PostgresFactStore) -> None:
         fact_id = await store.assert_fact("agent", {"id": "a1", "clearance": "secret"})
 
         results = await store.query("agent")
@@ -94,9 +92,7 @@ class TestPostgresAssertFact:
         self, store: PostgresFactStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failing NOTIFY must roll the INSERT back, not commit it silently."""
-        monkeypatch.setattr(
-            PostgresFactStore, "_channel_for", lambda self, template: ""
-        )
+        monkeypatch.setattr(PostgresFactStore, "_channel_for", lambda self, template: "")
 
         with pytest.raises(FleetError):
             await store.assert_fact("agent", {"id": "a1"})
@@ -137,9 +133,7 @@ class TestPostgresRetract:
         assert await store.count("agent") == 1
 
     @pytest.mark.asyncio
-    async def test_retract_notifies_subscribers(
-        self, store: PostgresFactStore
-    ) -> None:
+    async def test_retract_notifies_subscribers(self, store: PostgresFactStore) -> None:
         received: list[FactChangeNotification] = []
 
         async def on_change(notification: FactChangeNotification) -> None:
@@ -169,9 +163,7 @@ class TestPostgresQueryAndCount:
         assert results[0]["id"] == "a1"
 
     @pytest.mark.asyncio
-    async def test_count_with_and_without_filter(
-        self, store: PostgresFactStore
-    ) -> None:
+    async def test_count_with_and_without_filter(self, store: PostgresFactStore) -> None:
         await store.assert_fact("agent", {"id": "a1", "clearance": "secret"})
         await store.assert_fact("agent", {"id": "a2", "clearance": "secret"})
 
@@ -214,9 +206,7 @@ class TestPostgresNotifyPayload:
         conn = await asyncpg.connect(dsn=store._dsn)
         try:
 
-            async def on_notify(
-                _conn: object, _pid: int, _channel: str, payload: str
-            ) -> None:
+            async def on_notify(_conn: object, _pid: int, _channel: str, payload: str) -> None:
                 received.append(payload)
 
             await conn.add_listener(store._channel_for("agent"), on_notify)
