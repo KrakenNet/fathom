@@ -37,7 +37,7 @@ def _make_engine(
         reason=reason,
         rule_trace=rule_trace or [],
     )
-    engine.evaluate.return_value = result
+    engine.evaluate_once.return_value = result
     return engine
 
 
@@ -50,6 +50,19 @@ AGENT_ID = "agent-007"
 # ---------------------------------------------------------------------------
 # 1. _build_tool_request_facts
 # ---------------------------------------------------------------------------
+
+
+
+def _scoped_fact(engine: MagicMock) -> tuple[str, dict]:
+    """Return the single ``(template, slots)`` pair passed to ``evaluate_once``.
+
+    Adapters go through :meth:`Engine.evaluate_once` so the request's fact is
+    asserted, evaluated and withdrawn under one lock with refraction reset.
+    """
+    engine.evaluate_once.assert_called_once()
+    facts = engine.evaluate_once.call_args[0][0]
+    assert len(facts) == 1, facts
+    return facts[0]
 
 
 class TestBuildToolRequestFacts:
@@ -85,8 +98,7 @@ class TestEvaluateToolCall:
     def test_allow_does_not_raise(self) -> None:
         engine = _make_engine(decision="allow")
         _evaluate_tool_call(engine, AGENT_ID, SERIALIZED_TOOL, INPUT_JSON)
-        engine.assert_fact.assert_called_once()
-        engine.evaluate.assert_called_once()
+        engine.evaluate_once.assert_called_once()
 
     def test_deny_raises_policy_violation(self) -> None:
         engine = _make_engine(
@@ -144,8 +156,7 @@ class TestSyncHandler:
         engine = _make_engine(decision="allow")
         handler = FathomCallbackHandler(engine=engine, agent_id=AGENT_ID)
         handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
-        engine.assert_fact.assert_called_once()
-        engine.evaluate.assert_called_once()
+        engine.evaluate_once.assert_called_once()
 
     def test_on_tool_start_deny_raises(self) -> None:
         engine = _make_engine(decision="deny", reason="forbidden", rule_trace=["deny-rule"])
@@ -175,9 +186,9 @@ class TestSyncHandler:
         engine = _make_engine(decision="allow")
         handler = FathomCallbackHandler(engine=engine, agent_id=AGENT_ID)
         handler.on_tool_start({"name": "calculator"}, '{"expr": "1+1"}')
-        call_args = engine.assert_fact.call_args
-        assert call_args[0][0] == "tool_request"
-        fact = call_args[0][1]
+        call_args = _scoped_fact(engine)
+        assert call_args[0] == "tool_request"
+        fact = call_args[1]
         assert fact["tool_name"] == "calculator"
         assert fact["agent_id"] == AGENT_ID
 
@@ -195,8 +206,7 @@ class TestAsyncHandler:
             engine = _make_engine(decision="allow")
             handler = FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
             await handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
-            engine.assert_fact.assert_called_once()
-            engine.evaluate.assert_called_once()
+            engine.evaluate_once.assert_called_once()
 
         asyncio.run(_run())
 
@@ -260,14 +270,14 @@ class TestFathomGuard:
     def test_missing_tool_name_defaults_unknown(self) -> None:
         engine = _make_engine(decision="allow")
         result = fathom_guard({}, engine, AGENT_ID)
-        call_args = engine.assert_fact.call_args
-        assert call_args[0][1]["tool_name"] == "unknown"
+        call_args = _scoped_fact(engine)
+        assert call_args[1]["tool_name"] == "unknown"
         assert result["fathom_decision"] == "allow"
 
-    def test_none_decision_defaults_allow(self) -> None:
+    def test_none_decision_fails_closed_to_deny(self) -> None:
         engine = _make_engine(decision=None)  # type: ignore[arg-type]
         result = fathom_guard({"tool_name": "t"}, engine, AGENT_ID)
-        assert result["fathom_decision"] == "allow"
+        assert result["fathom_decision"] == "deny"
 
     def test_none_reason_defaults_empty_string(self) -> None:
         engine = _make_engine(decision="allow", reason=None)
@@ -277,7 +287,7 @@ class TestFathomGuard:
     def test_asserts_correct_fact(self) -> None:
         engine = _make_engine(decision="allow")
         fathom_guard({"tool_name": "calc", "arguments": "1+1"}, engine, "a1")
-        engine.assert_fact.assert_called_once_with(
+        assert _scoped_fact(engine) == (
             "tool_request",
             {"tool_name": "calc", "arguments": "1+1", "agent_id": "a1"},
         )

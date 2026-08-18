@@ -41,7 +41,7 @@ def _make_engine(
         reason=reason,
         rule_trace=rule_trace or [],
     )
-    engine.evaluate.return_value = result
+    engine.evaluate_once.return_value = result
     return engine
 
 
@@ -54,6 +54,19 @@ AGENT_ID = "agent-007"
 # ---------------------------------------------------------------------------
 # 1. _build_tool_request_facts
 # ---------------------------------------------------------------------------
+
+
+
+def _scoped_fact(engine: MagicMock) -> tuple[str, dict]:
+    """Return the single ``(template, slots)`` pair passed to ``evaluate_once``.
+
+    Adapters go through :meth:`Engine.evaluate_once` so the request's fact is
+    asserted, evaluated and withdrawn under one lock with refraction reset.
+    """
+    engine.evaluate_once.assert_called_once()
+    facts = engine.evaluate_once.call_args[0][0]
+    assert len(facts) == 1, facts
+    return facts[0]
 
 
 class TestBuildToolRequestFacts:
@@ -89,8 +102,7 @@ class TestEvaluateToolCall:
     def test_allow_does_not_raise(self) -> None:
         engine = _make_engine(decision="allow")
         _evaluate_tool_call(engine, AGENT_ID, TOOL_NAME, INPUT_JSON)
-        engine.assert_fact.assert_called_once()
-        engine.evaluate.assert_called_once()
+        engine.evaluate_once.assert_called_once()
 
     def test_deny_raises_policy_violation(self) -> None:
         engine = _make_engine(
@@ -148,8 +160,7 @@ class TestBeforeToolCallHook:
         engine = _make_engine(decision="allow")
         hook = fathom_before_tool_call(engine=engine, agent_id=AGENT_ID)
         hook(TOOL_NAME, INPUT_JSON)
-        engine.assert_fact.assert_called_once()
-        engine.evaluate.assert_called_once()
+        engine.evaluate_once.assert_called_once()
 
     def test_deny_raises(self) -> None:
         engine = _make_engine(decision="deny", reason="forbidden", rule_trace=["deny-rule"])
@@ -172,9 +183,9 @@ class TestBeforeToolCallHook:
         engine = _make_engine(decision="allow")
         hook = fathom_before_tool_call(engine=engine, agent_id=AGENT_ID)
         hook("calculator", '{"expr": "1+1"}')
-        call_args = engine.assert_fact.call_args
-        assert call_args[0][0] == "tool_request"
-        fact = call_args[0][1]
+        call_args = _scoped_fact(engine)
+        assert call_args[0] == "tool_request"
+        fact = call_args[1]
         assert fact["tool_name"] == "calculator"
         assert fact["agent_id"] == AGENT_ID
 
