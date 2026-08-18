@@ -96,3 +96,25 @@ class TestResolveRuleset:
     def test_missing_root_raises(self, tmp_path: Path) -> None:
         with pytest.raises(PathJailError, match="ruleset root"):
             resolve_ruleset(str(tmp_path / "missing"), "x.yaml")
+
+    def test_rejects_sibling_root_sharing_a_name_prefix(self, tmp_path: Path) -> None:
+        """``/…/rules-evil`` must not pass as a descendant of ``/…/rules``.
+
+        The prefix gate is ``startswith(root + os.sep)``, not a bare
+        ``startswith(root)``. Without the separator a sibling directory whose
+        name merely begins with the root's name would satisfy the check and
+        escape the jail.
+        """
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        evil = tmp_path / "rules-evil"
+        evil.mkdir()
+        (evil / "leak.yaml").write_text("")
+        with pytest.raises(PathJailError, match="invalid ruleset path"):
+            resolve_ruleset(str(rules_dir), "../rules-evil/leak.yaml")
+
+    def test_root_itself_resolves(self, tmp_path: Path) -> None:
+        """The root directory is a legitimate ruleset path, not an escape."""
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        assert resolve_ruleset(str(rules_dir), ".") == rules_dir.resolve()

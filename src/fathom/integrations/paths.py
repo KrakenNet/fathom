@@ -3,6 +3,13 @@
 Every user-facing path is interpreted relative to the server's configured
 ``FATHOM_RULESET_ROOT``. Resolved paths (after symlink resolution) must
 remain descendants of the root.
+
+:func:`resolve_ruleset` is the *only* barrier between a request-supplied
+ruleset name and the ``open()`` calls in :mod:`fathom.compiler`: both the REST
+(``rest.py``) and gRPC (``grpc_server.py``) transports funnel through it before
+handing anything to :meth:`fathom.engine.Engine.from_rules`. Keep it written in
+a form static analysis recognises as sanitizing — see the comment on the
+``startswith`` gate below.
 """
 
 from __future__ import annotations
@@ -40,10 +47,20 @@ def resolve_ruleset(root: str, user_path: str) -> Path:
     if candidate.is_absolute() or candidate.drive:
         raise PathJailError("invalid ruleset path")
 
+    # Normalise with ``os.path.realpath`` and gate on ``startswith`` rather than
+    # ``Path.relative_to``/``os.path.commonpath``. All three are equivalent here,
+    # but this is the shape CodeQL's path-injection query recognises as a
+    # sanitizing barrier, so the check registers as one for every downstream
+    # ``open()`` in the compiler instead of being flagged at each sink.
+    root_str = str(root_path)
     try:
-        resolved = (root_path / candidate).resolve(strict=False)
-        if os.path.commonpath([str(root_path), str(resolved)]) != str(root_path):
-            raise PathJailError("invalid ruleset path")
+        resolved_str = os.path.realpath(os.path.join(root_str, str(candidate)))
     except (ValueError, OSError):
         raise PathJailError("invalid ruleset path") from None
-    return resolved
+
+    # ``startswith(root + sep)`` alone would reject the root itself, which is a
+    # legitimate ruleset directory, so allow the exact match too. The separator
+    # matters: without it ``/srv/rules-evil`` passes a bare ``/srv/rules`` prefix.
+    if resolved_str != root_str and not resolved_str.startswith(root_str + os.sep):
+        raise PathJailError("invalid ruleset path")
+    return Path(resolved_str)

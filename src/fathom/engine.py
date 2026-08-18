@@ -499,7 +499,7 @@ class Engine:
         Discovery strategies (tried in order):
 
         1. **Subdirectory convention** — if *path* contains ``templates/``,
-           ``modules/``, ``functions``, or ``rules/`` subdirectories, each
+           ``modules/``, ``functions/``, or ``rules/`` subdirectories, each
            is loaded with the corresponding ``load_*`` method.
         2. **Key inspection fallback** — if no recognised subdirectories
            exist, every ``*.yaml`` file under *path* is opened and its
