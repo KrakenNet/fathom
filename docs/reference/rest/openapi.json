@@ -74,6 +74,36 @@
         "title": "CompileResponse",
         "type": "object"
       },
+      "ErrorResponse": {
+        "description": "REST API error response body.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          }
+        },
+        "required": [
+          "error",
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "EvaluateRequest": {
         "description": "REST API request body for the evaluate endpoint.",
         "properties": {
@@ -81,6 +111,7 @@
             "items": {
               "$ref": "#/components/schemas/FactInput"
             },
+            "maxItems": 500,
             "title": "Facts",
             "type": "array"
           },
@@ -373,7 +404,7 @@
     },
     "/v1/compile": {
       "post": {
-        "description": "Compile YAML content into CLIPS constructs.",
+        "description": "Compile YAML content into CLIPS constructs.\n\nRule literals are emitted according to the declared slot type, so this\nendpoint compiles against the templates of the engine mounted on\n``app.state.engine`` when one is configured. Without an engine there is\nno type context available and literals fall back to the untyped form \u2014\nwhich may differ from what ``Engine.from_rules`` builds for the same\nYAML. Post the templates alongside the rules, or use ``fathom compile``\nagainst the ruleset directory, when the exact form matters.\n\nDeclared ``def`` so compilation runs in the threadpool, not on\nthe event loop.",
         "operationId": "compile_yaml_v1_compile_post",
         "parameters": [
           {
@@ -414,15 +445,75 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
         "summary": "Compile Yaml"
@@ -430,7 +521,7 @@
     },
     "/v1/evaluate": {
       "post": {
-        "description": "Evaluate facts against a ruleset (stateless or stateful).",
+        "description": "Evaluate facts against a ruleset (stateless or stateful).\n\nRequest-scoped: the supplied facts are asserted, evaluated, then\nwithdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the\nsame session can never change this one's decision.\n\nDeclared ``def`` (not ``async def``) on purpose: CLIPS evaluation is\nblocking CPU work, so Starlette must run it in the threadpool rather\nthan on the event loop, where one large request stalls every other\nconnection.",
         "operationId": "evaluate_v1_evaluate_post",
         "parameters": [
           {
@@ -471,15 +562,75 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
         "summary": "Evaluate"
@@ -487,7 +638,7 @@
     },
     "/v1/facts": {
       "delete": {
-        "description": "Retract facts matching template + optional filter from working memory.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404. Retract is by\ntemplate + filter (matches the gRPC surface), not by fact index.",
+        "description": "Retract facts matching template + optional filter from working memory.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404. Retract is by\ntemplate + filter (matches the gRPC surface), not by fact index.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
         "operationId": "retract_facts_v1_facts_delete",
         "parameters": [
           {
@@ -528,21 +679,81 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
         "summary": "Retract Facts"
       },
       "post": {
-        "description": "Assert a single fact into a session's working memory.\n\nUnlike ``/v1/evaluate``, this endpoint does **not** create sessions on\nthe fly \u2014 the ``session_id`` must reference a session previously\ncreated via ``/v1/evaluate``. Unknown session ids return 404.",
+        "description": "Assert a single fact into a session's working memory.\n\nUnlike ``/v1/evaluate``, this endpoint does **not** create sessions on\nthe fly \u2014 the ``session_id`` must reference a session previously\ncreated via ``/v1/evaluate``. Unknown session ids return 404.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
         "operationId": "assert_fact_v1_facts_post",
         "parameters": [
           {
@@ -583,15 +794,75 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
         "summary": "Assert Fact"
@@ -664,7 +935,7 @@
     },
     "/v1/query": {
       "post": {
-        "description": "Query a session's working memory for facts matching template + filter.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404.",
+        "description": "Query a session's working memory for facts matching template + filter.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
         "operationId": "query_facts_v1_query_post",
         "parameters": [
           {
@@ -705,15 +976,75 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
         "summary": "Query Facts"

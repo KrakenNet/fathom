@@ -99,7 +99,12 @@ keys:
   expected_decision: allow
 ```
 
-The command exits non-zero if any case fails.
+The command exits non-zero if any case fails. It also exits non-zero,
+rather than silently reporting success, when the suite could not be run at
+all: when the test path contains no test cases (an empty directory, or files
+that parse to nothing), and when a test file cannot be read or is not a list
+of test cases. A suite that quietly matches zero cases used to exit 0, which
+made a mis-typed path look like a passing run.
 
 ## bench
 

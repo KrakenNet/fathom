@@ -20,6 +20,6 @@ HIPAA Privacy and Security Rule rule pack.
 
 | Name | Salience | Action | Reason | Source |
 |---|---|---|---|---|
-| `minimum-necessary` | 100 | `deny` | PHI access denied: minimum necessary justification required (164.502(b)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
-| `transmission-security` | 100 | `deny` | PHI transfer blocked: transmission must be encrypted (164.312(e)(1)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
-| `breach-trigger` | 200 | `escalate` | Bulk PHI access detected: breach notification evaluation required (164.402) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `minimum-necessary` | 50 | `deny` | PHI access denied: minimum necessary justification required (164.502(b)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `transmission-security` | 50 | `deny` | PHI transfer blocked: transmission must be encrypted (164.312(e)(1)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `breach-trigger` | 200 | `escalate` | Bulk PHI access detected: more than 10 reads in 300s, breach notification evaluation required (164.402) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |

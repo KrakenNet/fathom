@@ -101,9 +101,69 @@ the enclosing pattern.
 
 ## Supported operators in `expression`
 
-Syntax: `operator(arg)`. `arg` may be a literal or a cross-fact reference
-`$alias.field` (resolved via `_resolve_cross_refs` to `?alias-field`).
-Source: `_compile_condition` docstring in `src/fathom/compiler.py`.
+### Grammar
+
+An `expression` is exactly one operator application:
+
+```
+expression := operator "(" argument ")"
+operator   := [A-Za-z_][A-Za-z0-9_]*
+```
+
+**Lexing.** The operator is everything before the *first* `(`; the argument
+is everything between that `(` and the *final* `)` of the string. The
+expression must end with `)`.
+
+**Balance.** For every operator except `contains` and `matches`, the
+parentheses in the argument must balance and may close only on that final
+character. This is what stops an argument from closing the pattern early and
+smuggling extra conditional elements into the generated `defrule`
+(`equals(a1)) (admin (level 9)` is rejected). Text inside a double-quoted
+CLIPS string does not count toward the balance, and `\` escapes the next
+character.
+
+`contains` and `matches` are exempt: the compiler emits their argument as an
+escaped, quoted CLIPS string (`(str-index "…" ?v)` and
+`(fathom-matches ?v "…")`), so it cannot break out whatever it holds. Bare
+parentheses are therefore legal in those two — `matches([)])` and
+`contains(a :-) b)` are valid — which matters because `(` and `)` are
+literal inside a regex character class.
+
+**Argument forms.** An argument is one of:
+
+- a **cross-fact reference**, `$alias.field`, resolved to the CLIPS variable
+  `?alias-field`. The alias must be declared as `alias:` on another pattern
+  in the same rule (see **Aliases** below);
+- a **list**, `[a, b, c]`, for `in` and `not_in` only;
+- a **literal**, everything else.
+
+**How a literal is emitted** depends on the declared type of the slot it is
+compared against, which is why compiling a rule file in isolation can differ
+from compiling it as part of a ruleset:
+
+| Slot type | Emitted as | Example |
+|---|---|---|
+| `string` | quoted CLIPS string, escaped | `equals(a@b.com)` → `(id "a@b.com")` |
+| `symbol`, `integer`, `float`, `boolean` | bare CLIPS token | `equals(admin)` → `(role admin)` |
+
+An unquoted literal in a `string` slot is rejected by CLIPS at load time
+(`[CSTRNCHK1]`), so always compile against the templates — `fathom compile`
+on a ruleset directory, or on a rule file whose sibling `templates/`
+directory is present, does this for you.
+
+**Aliases.** `alias:` on a fact pattern names it for `$alias.field`
+references. An alias must start with `$` followed by a CLIPS identifier, may
+not be `$p<number>` (that namespace is generated for unaliased patterns),
+and may not be reused by two patterns in the same rule.
+
+**Stability.** The operator set and this grammar are covered by the 1.0
+compatibility promise. The generated CLIPS *variable names*
+(`?s_<index>_<slot>`, `?<alias>-<slot>`) are an implementation detail and
+may change in a minor release — do not depend on them from a `test:` CE;
+use `bind:` to name a variable you need.
+
+Source: `_compile_condition` in `src/fathom/compiler.py` and
+`_validate_expression` in `src/fathom/models.py`.
 
 | Group          | Operator                                                                                                    |
 |----------------|-------------------------------------------------------------------------------------------------------------|
@@ -205,7 +265,7 @@ asserts in declared order. Indentation is four spaces.
     notify: [compliance, ops]
     attestation: true
     assert:
-      - template: audit-log
+      - template: audit_log
         slots:
           subject: "?amt"
 ```
@@ -215,7 +275,7 @@ asserts in declared order. Indentation is four spaces.
 ```
 (defrule finance::deny_large_transfer
     (declare (salience -10))
-    (transfer (amount ?amt&?s_amount&:(> ?s_amount 100)) (currency ?ccy))
+    (transfer (amount ?amt&?s_0_amount&:(> ?s_0_amount 100)) (currency ?ccy))
     (test (blocked-country ?amt))
     =>
     (assert (__fathom_decision
@@ -226,7 +286,8 @@ asserts in declared order. Indentation is four spaces.
         (notify "compliance, ops")
         (attestation TRUE)
         (metadata "")))
-    (assert (audit-log (subject ?amt))))
+    (assert (audit_log (subject ?amt)))
+)
 ```
 
 Notes on the shape:

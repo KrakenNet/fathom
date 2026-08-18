@@ -158,9 +158,16 @@ The original v1 design listed four framework adapters. All four are now shipped.
 | OpenAI Agents SDK tool guardrail | **Shipped** | `src/fathom/integrations/openai_agents.py` |
 | Google ADK before-tool callback | **Shipped** | `src/fathom/integrations/google_adk.py` |
 
-Each adapter follows the same pattern: intercept tool calls, assert a
-`tool_request` fact into Fathom, evaluate policy rules, and raise
-`PolicyViolation` (or return an error dict for ADK) on deny/escalate.
+Each adapter follows the same pattern: intercept tool calls, then evaluate a
+`tool_request` fact against the policy through `Engine.evaluate_once`, which
+asserts the fact, runs, and withdraws it again so one call cannot be decided
+on the previous call's working memory.
+
+The guard is **allowlist-only**: it permits the call when — and only when —
+the decision is exactly `allow`. Every other outcome (`deny`, `escalate`,
+`route`, `scope`, a missing decision, or any value a future release adds)
+raises `PolicyViolation`, or returns an error dict for ADK. A denylist of
+known-bad decisions would fail open on anything it had not heard of.
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
 `fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
 

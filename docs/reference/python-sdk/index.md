@@ -7,6 +7,8 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 - [`Engine`](engine.md)
 - [`CompilationError`](compilationerror.md)
 - [`EvaluationError`](evaluationerror.md)
+- [`EvaluationLimitError`](evaluationlimiterror.md)
+- [`ScopeError`](scopeerror.md)
 - [`ValidationError`](validationerror.md)
 - [`AssertSpec`](assertspec.md)
 - [`AssertedFact`](assertedfact.md)
