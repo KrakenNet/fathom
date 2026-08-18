@@ -75,7 +75,7 @@ rules:
 
 ## 5. Load and evaluate
 
-```python
+```python no-verify
 from fathom.engine import Engine
 
 engine = Engine()
