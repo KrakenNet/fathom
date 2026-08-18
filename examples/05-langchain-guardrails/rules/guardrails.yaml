@@ -14,8 +14,6 @@ rules:
   # Hard block: no agent may shell out, no matter the trust tier.
   - name: no-shell-tools
     salience: 5
-    metadata:
-      control: TOOLS-001
     when:
       - template: tool_request
         conditions:
@@ -25,12 +23,12 @@ rules:
       action: deny
       reason: "Shell execution tools are blocked for all agents"
       log: full
+      metadata:
+        control: TOOLS-001
 
   # Hard block: never delete data via the agent.
   - name: no-delete-actions
     salience: 5
-    metadata:
-      control: TOOLS-002
     when:
       - template: tool_request
         conditions:
@@ -40,12 +38,12 @@ rules:
       action: deny
       reason: "Destructive deletion tools are blocked"
       log: full
+      metadata:
+        control: TOOLS-002
 
   # Block: untrusted agents may not call any tool.
   - name: untrusted-no-tools
     salience: 15
-    metadata:
-      control: TOOLS-003
     when:
       - template: tool_request
         alias: $req
@@ -64,13 +62,13 @@ rules:
       action: deny
       reason: "Untrusted agents cannot invoke tools"
       log: full
+      metadata:
+        control: TOOLS-003
 
   # Escalate: send_email and write_file always need human approval
   # for non-admin agents.
   - name: send-email-needs-elevation
     salience: 20
-    metadata:
-      control: TOOLS-004
     when:
       - template: tool_request
         alias: $req
@@ -89,6 +87,8 @@ rules:
       action: escalate
       reason: "Side-effecting tool requires human approval for non-admin agents"
       log: full
+      metadata:
+        control: TOOLS-004
 
   # Allow: read-only knowledge tools for any non-untrusted agent.
   - name: allow-readonly-tools

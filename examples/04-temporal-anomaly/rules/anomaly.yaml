@@ -16,9 +16,6 @@ rules:
   # Brute-force: more than 4 failed logins for the same user in 30s.
   - name: brute-force-login
     salience: 100
-    metadata:
-      detection: brute-force
-      window_seconds: 30
     when:
       - template: login_attempt
         alias: $a
@@ -31,12 +28,13 @@ rules:
       action: deny
       reason: "Brute-force suspected: more than 4 failed logins in 30 seconds"
       log: full
+      metadata:
+        detection: brute-force
+        window_seconds: "30"
 
   # Multi-IP: same user has logged in from more than 2 distinct IPs (any time).
   - name: account-shared-across-ips
     salience: 90
-    metadata:
-      detection: account-sharing
     when:
       - template: login_attempt
         alias: $a
@@ -49,12 +47,12 @@ rules:
       action: escalate
       reason: "Same user authenticating from more than 2 distinct IPs"
       log: full
+      metadata:
+        detection: account-sharing
 
   # Velocity: more than 9 sensitive actions per session in 10s.
   - name: session-velocity-burst
     salience: 80
-    metadata:
-      detection: action-burst
     when:
       - template: session
         alias: $s
@@ -67,3 +65,5 @@ rules:
       action: deny
       reason: "Export burst: more than 9 export actions in 10 seconds"
       log: full
+      metadata:
+        detection: action-burst

@@ -61,6 +61,80 @@ def _validate_slot_value(value: str) -> str:
     return value
 
 
+# ``ConditionEntry.expression`` is compiled into the enclosing fact pattern,
+# so an argument that closes the expression early can smuggle extra
+# conditional elements into the generated defrule. Require a single
+# ``operator(argument)`` form whose parentheses balance exactly once, on the
+# final character.
+_OPERATOR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Operators whose argument the compiler emits as an escaped, quoted CLIPS
+# string (``contains`` -> ``(str-index "..." ?v)``, ``matches`` ->
+# ``(fathom-matches ?v "...")``). Their argument cannot break out of the
+# generated construct no matter what it contains, so the paren-balance rule
+# below must not be applied to them: it is a defence against an argument
+# closing the expression early, which is impossible once the argument is
+# quoted and escaped.
+#
+# Applying it anyway rejected legitimate patterns — ``matches([)])`` and
+# ``matches([(])`` (parentheses inside a regex character class, where they
+# are literal) and ``contains(a :-) b)`` (free text) — all of which
+# previously compiled to a safely-quoted construct.
+_QUOTED_ARG_OPERATORS = frozenset({"contains", "matches"})
+
+# Variable namespace the compiler generates for patterns with no alias
+# (``f"p{pattern_index}"``). A user alias must not land in it.
+_RESERVED_ALIAS_RE = re.compile(r"^p\d+$")
+
+
+def _validate_expression(expr: str) -> str:
+    """Reject condition expressions that are not one ``operator(arg)`` form."""
+    paren_idx = expr.find("(")
+    if paren_idx == -1 or not expr.endswith(")"):
+        raise ValueError(
+            f"ConditionEntry.expression {expr!r} is malformed "
+            "(expected 'operator(argument)')"
+        )
+    op = expr[:paren_idx].strip()
+    if not _OPERATOR_NAME_RE.match(op):
+        raise ValueError(
+            f"ConditionEntry.expression {expr!r} has an invalid operator name {op!r} "
+            "(must match [A-Za-z_][A-Za-z0-9_]*)"
+        )
+    if op in _QUOTED_ARG_OPERATORS:
+        return expr
+    depth = 0
+    in_string = False
+    escaped = False
+    last_idx = len(expr) - 1
+    for idx in range(paren_idx, len(expr)):
+        ch = expr[idx]
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif ch == '"':
+            in_string = not in_string
+        elif in_string:
+            continue
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                raise ValueError(
+                    f"ConditionEntry.expression {expr!r} has unbalanced parentheses"
+                )
+            if depth == 0 and idx != last_idx:
+                raise ValueError(
+                    f"ConditionEntry.expression {expr!r} closes its argument before "
+                    "the end of the expression"
+                )
+    if depth != 0 or in_string:
+        raise ValueError(f"ConditionEntry.expression {expr!r} has unbalanced parentheses")
+    return expr
+
+
 # --- Core Models (Section 3) ---
 
 
@@ -76,15 +150,46 @@ class SlotType(StrEnum):
 class SlotDefinition(BaseModel):
     """Definition of a single slot within a template."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     type: SlotType
     required: bool = False
     allowed_values: list[str] | None = None
     default: str | float | int | None = None
 
+    @field_validator("name")
+    @classmethod
+    def _name_must_be_clips_ident(cls, v: str) -> str:
+        return _validate_clips_ident(v, "SlotDefinition.name")
+
+    @model_validator(mode="after")
+    def _unquoted_literals_must_be_safe(self) -> SlotDefinition:
+        """Guard the deftemplate literals the compiler emits unquoted.
+
+        STRING slots get their ``allowed-strings`` and ``default`` values
+        escaped and quoted; every other type is interpolated verbatim.
+        """
+        if self.type is SlotType.STRING:
+            return self
+        if self.type is SlotType.SYMBOL:
+            for value in self.allowed_values or []:
+                _validate_clips_ident(value, "SlotDefinition.allowed_values entry")
+        if isinstance(self.default, str):
+            if self.type is SlotType.SYMBOL:
+                _validate_clips_ident(self.default, "SlotDefinition.default")
+            else:
+                raise ValueError(
+                    f"SlotDefinition.default {self.default!r} must be numeric for a "
+                    f"'{self.type.value}' slot"
+                )
+        return self
+
 
 class TemplateDefinition(BaseModel):
     """YAML template definition compiled to a CLIPS deftemplate."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""
@@ -100,6 +205,8 @@ class TemplateDefinition(BaseModel):
 
 class ConditionEntry(BaseModel):
     """A single slot condition within a fact pattern."""
+
+    model_config = ConfigDict(extra="forbid")
 
     slot: str = ""
     expression: str = ""
@@ -127,11 +234,27 @@ class ConditionEntry(BaseModel):
         ),
     )
 
+    @field_validator("slot")
+    @classmethod
+    def _slot_must_be_clips_ident(cls, v: str) -> str:
+        if v:
+            _validate_clips_ident(v, "ConditionEntry.slot")
+        return v
+
+    @field_validator("expression")
+    @classmethod
+    def _expression_must_be_operator_form(cls, v: str) -> str:
+        if v:
+            _validate_expression(v)
+        return v
+
     @field_validator("bind")
     @classmethod
-    def _bind_must_start_with_question_mark(cls, v: str | None) -> str | None:
-        if v is not None and not v.startswith("?"):
-            raise ValueError(f"ConditionEntry.bind must start with '?' (got {v!r})")
+    def _bind_must_be_slot_variable(cls, v: str | None) -> str | None:
+        if v is not None and not _SLOT_VAR_RE.match(v):
+            raise ValueError(
+                f"ConditionEntry.bind must be '?' followed by a CLIPS identifier (got {v!r})"
+            )
         return v
 
     @field_validator("test")
@@ -165,9 +288,46 @@ class ConditionEntry(BaseModel):
 class FactPattern(BaseModel):
     """A fact pattern in a rule's ``when`` clause."""
 
+    model_config = ConfigDict(extra="forbid")
+
     template: str
     alias: str | None = None
     conditions: list[ConditionEntry]
+
+    @field_validator("template")
+    @classmethod
+    def _template_must_be_clips_ident(cls, v: str) -> str:
+        return _validate_clips_ident(v, "FactPattern.template")
+
+    @field_validator("alias")
+    @classmethod
+    def _alias_must_be_clips_ident(cls, v: str | None) -> str | None:
+        """The alias is interpolated into generated CLIPS variable names.
+
+        ``compiler._compile_condition`` emits ``?{alias}-{slot}``, so an
+        unvalidated alias is a construct-injection hole of exactly the same
+        shape as the ``template`` one above:
+        ``alias='$v-level)) (test (system "touch /tmp/PWNED")) (agent (level ?zz'``
+        compiled cleanly into extra conditional elements.
+
+        The reserved ``p<N>`` forms are refused because that is the
+        namespace used for UNALIASED patterns (``f"p{pattern_index}"``).
+        Sharing it silently joined two unrelated patterns on one variable:
+        pattern 0 aliased ``$p1`` and an unaliased pattern 1 both emitted
+        ``?p1-level``.
+        """
+        if v is None:
+            return v
+        if not v.startswith("$"):
+            raise ValueError(f"FactPattern.alias must start with '$' (got {v!r})")
+        _validate_clips_ident(v[1:], "FactPattern.alias")
+        if _RESERVED_ALIAS_RE.match(v[1:]):
+            raise ValueError(
+                f"FactPattern.alias {v!r} is reserved: '$p<number>' is the "
+                "namespace generated for unaliased patterns, and reusing it "
+                "silently joins two patterns on the same CLIPS variable"
+            )
+        return v
 
 
 class ActionType(StrEnum):
@@ -200,6 +360,10 @@ class AssertSpec(BaseModel):
         >>> spec.template
         'decision'
     """
+
+    # Same as every other YAML-authoring model: a typo in an `asserts`
+    # entry must be an error, not silently dropped.
+    model_config = ConfigDict(extra="forbid")
 
     template: str
     slots: dict[str, str] = Field(default_factory=dict)
@@ -238,7 +402,7 @@ class AssertedFact(BaseModel):
 class ThenBlock(BaseModel):
     """The ``then`` clause of a rule defining the decision and metadata."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     action: ActionType | None = None
     reason: str = ""
@@ -270,6 +434,8 @@ class ThenBlock(BaseModel):
 class RuleDefinition(BaseModel):
     """A single rule with conditions and an action."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     description: str = ""
     salience: int = 0
@@ -284,6 +450,8 @@ class RuleDefinition(BaseModel):
 
 class RulesetDefinition(BaseModel):
     """A named ruleset containing rules scoped to a module."""
+
+    model_config = ConfigDict(extra="forbid")
 
     ruleset: str
     version: str = "1.0"
@@ -304,6 +472,8 @@ class RulesetDefinition(BaseModel):
 class ModuleDefinition(BaseModel):
     """CLIPS module definition with optional priority."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     description: str = ""
     priority: int = 0
@@ -316,6 +486,8 @@ class ModuleDefinition(BaseModel):
 
 class FunctionDefinition(BaseModel):
     """YAML function definition (classification or raw CLIPS)."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""
@@ -333,9 +505,23 @@ class FunctionDefinition(BaseModel):
 class HierarchyDefinition(BaseModel):
     """Ordered classification hierarchy (e.g. clearance levels)."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     levels: list[str]
     compartments: list[str] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_must_be_clips_ident(cls, v: str) -> str:
+        return _validate_clips_ident(v, "HierarchyDefinition.name")
+
+    @field_validator("levels", "compartments")
+    @classmethod
+    def _members_must_be_clips_idents(cls, v: list[str] | None) -> list[str] | None:
+        for member in v or []:
+            _validate_clips_ident(member, "HierarchyDefinition member")
+        return v
 
 
 class EvaluationResult(BaseModel):
@@ -378,7 +564,24 @@ class FactInput(BaseModel):
 class EvaluateRequest(BaseModel):
     """REST API request body for the evaluate endpoint."""
 
-    facts: list[FactInput]
+    #: The CLIPS join is quadratic in the number of facts, so the byte cap on
+    #: the request body (``FATHOM_MAX_REQUEST_BYTES``) does not bound the CPU
+    #: this endpoint can be made to burn.
+    #:
+    #: The cap must stay BELOW what ``Engine``'s activation budget can serve,
+    #: or the endpoint advertises a limit it cannot honour. With the default
+    #: ``run_limit`` of 100_000 and a two-template join, n facts produce about
+    #: ``(n/2)**2`` activations, so the budget is exhausted at ~632 facts. A
+    #: cap of 1000 meant every request between ~632 and 1000 mixed facts got
+    #: a 503 despite being inside the documented limit — measured on
+    #: ``examples/01-hello-allow-deny``: 600 facts -> 200, 640 -> 503.
+    #:
+    #: 500 facts is ~62_500 activations, comfortably inside the budget, and
+    #: still generous for real callers (~0.04s on the reference ruleset).
+    #: Raising this REQUIRES raising ``_DEFAULT_RUN_LIMIT`` in step; a deeper
+    #: join (three templates) is cubic and can exhaust the budget below even
+    #: this cap, which is why the budget exists.
+    facts: list[FactInput] = Field(max_length=500)
     ruleset: str
     session_id: str | None = None
 

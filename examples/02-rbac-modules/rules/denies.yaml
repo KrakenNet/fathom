@@ -5,8 +5,6 @@ version: "1.0"
 rules:
   - name: guests-cannot-write
     salience: 10
-    metadata:
-      control: RBAC-001
     when:
       - template: user
         conditions:
@@ -20,11 +18,11 @@ rules:
       action: deny
       reason: "Guests may only read"
       log: full
+      metadata:
+        control: RBAC-001
 
   - name: viewers-cannot-delete-or-configure
     salience: 10
-    metadata:
-      control: RBAC-002
     when:
       - template: user
         conditions:
@@ -38,6 +36,8 @@ rules:
       action: deny
       reason: "Viewers may not delete or configure"
       log: full
+      metadata:
+        control: RBAC-002
 
   - name: editors-cannot-configure
     salience: 10

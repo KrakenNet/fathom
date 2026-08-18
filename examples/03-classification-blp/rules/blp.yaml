@@ -18,8 +18,6 @@ version: "1.0"
 rules:
   - name: deny-read-up
     salience: 10
-    metadata:
-      property: simple-security
     when:
       - template: access_request
         alias: $req
@@ -44,11 +42,11 @@ rules:
       action: deny
       reason: "Read-up violation: subject clearance below resource classification"
       log: full
+      metadata:
+        property: simple-security
 
   - name: deny-write-down
     salience: 10
-    metadata:
-      property: star-property
     when:
       - template: access_request
         alias: $req
@@ -73,6 +71,8 @@ rules:
       action: deny
       reason: "Write-down violation: subject clearance exceeds resource classification"
       log: full
+      metadata:
+        property: star-property
 
   - name: allow-read
     salience: 100

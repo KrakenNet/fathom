@@ -75,7 +75,7 @@ class TestConditionEntry:
         with pytest.raises(ValidationError) as exc_info:
             ConditionEntry(slot="id", bind="sid")
 
-        assert "must start with '?'" in str(exc_info.value)
+        assert "must be '?' followed by a CLIPS identifier" in str(exc_info.value)
 
     def test_bind_with_expression_validates(self) -> None:
         """``bind`` and ``expression`` coexist on one entry (AC-2.3)."""
