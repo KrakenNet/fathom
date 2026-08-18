@@ -23,6 +23,12 @@ on:
   push:
     branches: [main]
 
+# CodeQL actions/missing-workflow-permissions: without an explicit block the
+# GITHUB_TOKEN inherits the repository default, which can be write-all. These
+# jobs only ever read the checkout.
+permissions:
+  contents: read
+
 jobs:
   # ---- REQUIRED: does the documentation build? -------------------------
   docs:

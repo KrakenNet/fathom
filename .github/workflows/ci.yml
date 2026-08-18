@@ -9,6 +9,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# CodeQL actions/missing-workflow-permissions: without an explicit block the
+# GITHUB_TOKEN inherits the repository default, which can be write-all. These
+# jobs only ever read the checkout.
+permissions:
+  contents: read
+
 jobs:
   changes:
     runs-on: ubuntu-latest

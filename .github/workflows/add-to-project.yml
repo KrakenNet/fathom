@@ -2,6 +2,11 @@ name: Add issues to project
 on:
   issues:
     types: [opened, reopened]
+
+# The action authenticates with ADD_TO_PROJECT_PAT, so the GITHUB_TOKEN needs
+# nothing at all.
+permissions: {}
+
 jobs:
   add-to-project:
     runs-on: ubuntu-latest
