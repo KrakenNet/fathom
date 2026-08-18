@@ -403,3 +403,188 @@ async def test_fleet_assert_fact_session_scope_local_only(tmp_path: Path) -> Non
     assert await store.count("local_note") == 0
     # But the session sees it.
     assert eng_a.query("local_note") == [{"text": "hi"}]
+
+
+# ---------------------------------------------------------------------------
+# Validate-before-write and sync resilience
+# ---------------------------------------------------------------------------
+
+
+def _seed_shared_status(engine: Any) -> None:
+    """Register a fleet-scoped ``shared_status`` template with allowed values."""
+    from fathom.models import SlotDefinition, SlotType, TemplateDefinition
+
+    engine._template_registry["shared_status"] = TemplateDefinition(
+        name="shared_status",
+        scope="fleet",
+        slots=[
+            SlotDefinition(
+                name="status",
+                type=SlotType.STRING,
+                required=True,
+                allowed_values=["online", "offline"],
+            )
+        ],
+    )
+    engine._safe_build(
+        "(deftemplate shared_status (slot status (type STRING)))",
+        context="shared_status",
+    )
+
+
+class TestFleetEngineValidateBeforeWrite:
+    """FleetEngine.assert_fact must not publish facts the local engine rejects."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_fact_never_reaches_store(self, tmp_path: Path) -> None:
+        from fathom.errors import ValidationError
+
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        store = InMemoryFactStore()
+        fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
+        engine = fleet.create_session("A")
+        _seed_shared_status(engine)
+
+        with pytest.raises(ValidationError):
+            await fleet.assert_fact("A", "shared_status", {"status": "BOGUS"})
+
+        assert await store.query("shared_status") == []
+        assert engine.query("shared_status") == []
+
+    @pytest.mark.asyncio
+    async def test_store_failure_rolls_back_local_assert(self, tmp_path: Path) -> None:
+        class FailingStore(InMemoryFactStore):
+            async def assert_fact(self, template: str, data: dict[str, Any]) -> str:
+                raise RuntimeError("store is down")
+
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        fleet = FleetEngine(fact_store=FailingStore(), rules_path=str(rules_dir))
+        engine = fleet.create_session("A")
+        _seed_shared_status(engine)
+
+        with pytest.raises(RuntimeError, match="store is down"):
+            await fleet.assert_fact("A", "shared_status", {"status": "online"})
+
+        assert engine.query("shared_status") == []
+
+    @pytest.mark.asyncio
+    async def test_rollback_removes_a_coerced_value(self, tmp_path: Path) -> None:
+        """A rollback-by-value filter misses what FactManager coerced on the way in.
+
+        ``{"status": 123}`` is coerced to ``"123"`` for a STRING slot, so a
+        retract filtered on the RAW caller dict matched nothing, returned 0,
+        and was silently ignored — leaving the node holding a fleet fact the
+        store had rejected. The rollback now retracts by fact handle.
+        """
+
+        class FailingStore(InMemoryFactStore):
+            async def assert_fact(self, template: str, data: dict[str, Any]) -> str:
+                raise RuntimeError("store is down")
+
+        from fathom.models import SlotDefinition, SlotType, TemplateDefinition
+
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        fleet = FleetEngine(fact_store=FailingStore(), rules_path=str(rules_dir))
+        engine = fleet.create_session("A")
+        # No allowed_values, so 123 passes validation and is COERCED to "123".
+        engine._template_registry["shared_status"] = TemplateDefinition(
+            name="shared_status",
+            scope="fleet",
+            slots=[SlotDefinition(name="status", type=SlotType.STRING, required=True)],
+        )
+        engine._safe_build(
+            "(deftemplate shared_status (slot status (type STRING)))",
+            context="shared_status",
+        )
+
+        with pytest.raises(RuntimeError, match="store is down"):
+            await fleet.assert_fact("A", "shared_status", {"status": 123})
+
+        assert engine.query("shared_status") == []
+
+    @pytest.mark.asyncio
+    async def test_failed_duplicate_assert_keeps_the_committed_fact(
+        self, tmp_path: Path
+    ) -> None:
+        """A store blip on a repeated assert must not destroy the good fact.
+
+        CLIPS de-duplicates identical facts, so the second assert creates
+        nothing — and a rollback-by-value filter then deleted the ORIGINAL,
+        still-committed fact. The node silently diverged from the store.
+        """
+
+        class FlakyStore(InMemoryFactStore):
+            fail = False
+
+            async def assert_fact(self, template: str, data: dict[str, Any]) -> str:
+                if self.fail:
+                    raise RuntimeError("store is down")
+                return await super().assert_fact(template, data)
+
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        store = FlakyStore()
+        fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
+        engine = fleet.create_session("A")
+        _seed_shared_status(engine)
+
+        await fleet.assert_fact("A", "shared_status", {"status": "online"})
+        assert engine.query("shared_status") == [{"status": "online"}]
+        assert len(await store.query("shared_status")) == 1
+
+        store.fail = True
+        with pytest.raises(RuntimeError, match="store is down"):
+            await fleet.assert_fact("A", "shared_status", {"status": "online"})
+
+        # The fact the store still holds must still be in local working memory.
+        assert engine.query("shared_status") == [{"status": "online"}]
+        assert len(await store.query("shared_status")) == 1
+
+
+class TestFleetScopeGuardIsSymmetric:
+    """`retract` must refuse a fleet template just as `assert_fact` does."""
+
+    def test_local_retract_of_a_fleet_fact_is_refused(self, tmp_path: Path) -> None:
+        from fathom.engine import Engine
+        from fathom.errors import ScopeError
+
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        engine = Engine()
+        _seed_shared_status(engine)
+        engine._assert_local("shared_status", {"status": "online"})
+
+        with pytest.raises(ScopeError, match="fleet-scoped"):
+            engine.retract("shared_status")
+
+        # Refused, not partially applied.
+        assert engine.query("shared_status") == [{"status": "online"}]
+
+
+class TestSyncFleetFactsResilience:
+    """One unsyncable row must not abort the rest of the sync."""
+
+    @pytest.mark.asyncio
+    async def test_poison_fact_skipped_valid_facts_land(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        store = InMemoryFactStore()
+        fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
+
+        # A poisoned row published by some other node, followed by a valid one.
+        await store.assert_fact("shared_status", {"status": "BOGUS"})
+        await store.assert_fact("shared_status", {"status": "online"})
+
+        peer = fleet.create_session("B")
+        _seed_shared_status(peer)
+
+        with caplog.at_level("WARNING", logger="fathom.fleet"):
+            await fleet.sync_fleet_facts(peer)
+
+        assert peer.query("shared_status") == [{"status": "online"}]
+        assert any("skipping unsyncable fleet fact" in r.message for r in caplog.records)

@@ -1,8 +1,17 @@
-"""FactStore protocol and in-memory implementation for Fathom fleet coordination."""
+"""FactStore protocol and in-memory implementation for Fathom fleet coordination.
+
+Known limitation: fleet retraction does not propagate. :class:`FleetEngine`
+exposes no ``retract`` method and never calls :meth:`FactStore.subscribe`, and
+:meth:`FleetEngine.sync_fleet_facts` only ever asserts. A fact removed from the
+shared store (explicitly, or by Redis TTL expiry) therefore stays in the working
+memory of every session that already synced it. Callers that need removal to
+reach peers must recreate the affected sessions.
+"""
 
 from __future__ import annotations
 
 import contextlib
+import logging
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
@@ -10,6 +19,8 @@ from typing import Any, Protocol, runtime_checkable
 
 from fathom.engine import Engine
 from fathom.models import FactChangeNotification
+
+logger = logging.getLogger(__name__)
 
 # Type aliases for fleet protocol types
 FactFilter = dict[str, Any]
@@ -188,21 +199,46 @@ class FleetEngine:
             )
 
         if tmpl_def.scope == "fleet":
-            # Write-through: store first (authoritative), then local assert.
-            fact_id = await self._fact_store.assert_fact(template, data)
-            engine._fact_manager.assert_fact(template, data)
-            return fact_id
+            # Validate locally FIRST: a fact this engine rejects must never reach
+            # the shared store, where it would abort every peer's sync.
+            handles = engine._assert_local(template, data)
+            try:
+                return await self._fact_store.assert_fact(template, data)
+            except Exception:
+                # The store write failed after the local assert; undo it so this
+                # session does not hold a fleet fact the store never accepted.
+                #
+                # Roll back BY HANDLE, never by value. A retract-by-value
+                # filter is wrong twice over: it misses a value FactManager
+                # coerced on the way in (int 123 -> "123" for a STRING slot),
+                # silently leaving the rejected fact behind; and when CLIPS
+                # de-duplicated this assert onto an identical fact that was
+                # already committed, it deletes THAT one — silent local data
+                # loss on a transient store blip during a repeated heartbeat.
+                # `handles` is empty in the de-dup case, which is exactly
+                # right: we created nothing, so we withdraw nothing.
+                try:
+                    engine._retract_local_handles(handles)
+                except Exception:
+                    logger.warning(
+                        "failed to roll back local assert of '%s' after fact store error",
+                        template,
+                        exc_info=True,
+                    )
+                raise
 
-        # session scope — local-only. Bypass Engine.assert_fact (which now
-        # raises on fleet templates) and go straight through the fact manager.
-        engine._fact_manager.assert_fact(template, data)
+        # session scope — local-only, so the public Engine entry point applies
+        # (its fleet-scope guard cannot trigger here) and metrics stay accurate.
+        engine.assert_fact(template, data)
         return None
 
     async def sync_fleet_facts(self, session: Engine) -> None:
         """Pull fleet-scoped facts from the :class:`FactStore` into *session*.
 
         Queries the fact store for every fleet-scoped template and
-        asserts matching facts into the session's working memory.
+        asserts matching facts into the session's working memory. A fact the
+        session rejects is logged and skipped, so one malformed row in the
+        shared store cannot stop the rest of the fleet state from syncing.
         """
         # Discover fleet-scoped templates from the session's loaded templates
         for tmpl_name, tmpl_def in session.template_registry.items():
@@ -213,10 +249,18 @@ class FleetEngine:
             for fact in facts:
                 # Remove fact_id metadata before asserting into CLIPS
                 data = {k: v for k, v in fact.items() if k != "fact_id"}
-                # Pulled from the authoritative FactStore; bypass the Engine-level
-                # scope guard since this is the legitimate path for fleet facts into
-                # a local engine.
-                session._fact_manager.assert_fact(tmpl_name, data)
+                try:
+                    # Pulled from the authoritative FactStore; bypass the Engine-level
+                    # scope guard since this is the legitimate path for fleet facts into
+                    # a local engine. Still takes the engine lock and records the metric.
+                    session._assert_local(tmpl_name, data)
+                except Exception:
+                    logger.warning(
+                        "skipping unsyncable fleet fact %s of template '%s'",
+                        fact.get("fact_id", "<unknown>"),
+                        tmpl_name,
+                        exc_info=True,
+                    )
 
     async def query(
         self,
