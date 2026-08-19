@@ -178,12 +178,17 @@ Entry points:
 
 ## Performance Targets
 
-| Operation              | Target  |
-| ---------------------- | ------- |
-| Single rule evaluation | < 100µs |
-| 100-rule evaluation    | < 500µs |
-| Fact assertion         | < 10µs  |
-| YAML compilation       | < 50ms  |
+| Operation              | Target         |
+| ---------------------- | -------------- |
+| Single rule evaluation | < 100µs        |
+| 100-rule evaluation    | < 500µs        |
+| Fact assertion         | < 25µs         |
+| YAML compilation       | < 2ms per rule |
+
+Measured by `scripts/benchmark.py` and enforced on every pull request by CI's
+`bench` job, which fails the build if a median regresses past its target.
+Compilation is stated per rule because it scales with pack size: the packaged
+SSVC pack is 144 rules.
 
 ## Related Projects
 

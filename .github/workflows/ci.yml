@@ -266,3 +266,52 @@ jobs:
             sleep 2
           done
           test "$status" = "healthy"
+
+  # A dependency bump that introduces a known-vulnerable package is invisible
+  # until the next Dependabot alert fires -- which is after it has landed on
+  # main. This reviews the manifest/lock diff of the PR itself, so the alert
+  # arrives while the change is still a proposal. Pull-request only: the action
+  # needs a base and a head to diff, which a push to main does not give it.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          # `moderate` would fail on advisories we would not hold a release
+          # for; `high` is the line where a bump stops being routine.
+          fail-on-severity: high
+          # Advisory-only for licences: this repo is MIT, and a copyleft tool
+          # in a dev group is a judgement call, not a build break.
+          license-check: false
+
+  # README publishes four performance targets. Until now nothing measured
+  # them, so they were true only by luck -- and one ("YAML compilation
+  # < 50ms") was already false for the SSVC pack this repo ships. The
+  # benchmark now holds the numbers and this job enforces them.
+  #
+  # Gating is on medians, and every target has multiples of headroom over a
+  # local run, because a shared runner is not a quiet machine. A red bench is
+  # meant to mean "something got materially slower", never "the runner was
+  # busy".
+  bench:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Benchmark
+        run: uv run python scripts/benchmark.py
