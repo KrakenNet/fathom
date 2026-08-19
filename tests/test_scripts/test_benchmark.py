@@ -78,3 +78,27 @@ def test_benchmark_runs_and_reports() -> None:
     assert result.returncode == 0, result.stderr
     for operation in _load_module().TARGETS:
         assert operation in result.stdout
+
+
+def test_slack_scales_the_limit_but_not_the_published_target() -> None:
+    """CI gates at target x slack; README keeps saying the target."""
+    mod = _load_module()
+    target = mod.Target(100.0, "us", "< 100µs")
+    tight = mod.Result("x", 140.0, 150.0, target)
+    slack = mod.Result("x", 140.0, 150.0, target, 1.5)
+    assert not tight.passed
+    assert slack.passed
+    assert slack.limit == 150.0
+    assert slack.target.limit_us == 100.0
+
+
+def test_slack_below_one_is_rejected() -> None:
+    """A sub-1.0 slack would silently gate tighter than the published claim."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--iterations", "5", "--warmup", "1", "--slack", "0.5"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "below 1.0" in result.stderr

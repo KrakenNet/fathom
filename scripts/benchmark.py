@@ -19,6 +19,13 @@ Two properties this deliberately has:
   this code, and a max-based gate on a 25 microsecond budget would be red most
   mornings. The p95 is printed so a real regression stays visible in the log
   even while it is still under the bar.
+* **CI applies a slack factor.** The published targets describe a developer
+  machine, which is what a reader of README is holding. A GitHub runner
+  measured ~1.7x slower on the compilation case, so enforcing the published
+  numbers there verbatim would fail on the machine rather than on the code.
+  ``--slack`` multiplies every limit; CI passes 1.5 and prints it. A regression
+  large enough to matter clears that factor easily -- the last one found here
+  was 2x.
 """
 
 from __future__ import annotations
@@ -73,10 +80,16 @@ class Result(NamedTuple):
     median: float
     p95: float
     target: Target
+    slack: float = 1.0
+
+    @property
+    def limit(self) -> float:
+        """The target as enforced here: published limit times the slack factor."""
+        return self.target.limit_us * self.slack
 
     @property
     def passed(self) -> bool:
-        return self.median <= self.target.limit_us
+        return self.median <= self.limit
 
 
 def _write_pack(root: Path, rule_count: int) -> Path:
@@ -233,25 +246,26 @@ def _cases(iterations: int, workdir: Path) -> list[Case]:
     ]
 
 
-def run(iterations: int, warmup: int, workdir: Path) -> list[Result]:
+def run(iterations: int, warmup: int, workdir: Path, slack: float = 1.0) -> list[Result]:
     results = []
     for case in _cases(iterations, workdir):
         median, p95 = _measure(case, warmup)
-        results.append(Result(case.label, median, p95, TARGETS[case.target_key]))
+        results.append(Result(case.label, median, p95, TARGETS[case.target_key], slack))
     return results
 
 
-def _format(results: list[Result]) -> str:
+def _format(results: list[Result], slack: float) -> str:
     width = max(len(r.label) for r in results)
+    header = "limit" if slack == 1.0 else f"limit (target x{slack:g})"
     lines = [
-        f"{'Operation':<{width}} {'median':>18} {'p95':>18} {'target':>18}",
+        f"{'Operation':<{width}} {'median':>18} {'p95':>18} {header:>18}",
         f"{'-' * width} {'-' * 18} {'-' * 18} {'-' * 18}",
     ]
     for r in results:
         unit = r.target.unit
         lines.append(
             f"{r.label:<{width}} {r.median:>10.1f} {unit:<7} {r.p95:>10.1f} {unit:<7} "
-            f"{r.target.limit_us:>10.1f} {unit:<7} {'ok' if r.passed else 'MISS'}"
+            f"{r.limit:>10.1f} {unit:<7} {'ok' if r.passed else 'MISS'}"
         )
     return "\n".join(lines)
 
@@ -261,23 +275,37 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=2000)
     parser.add_argument("--warmup", type=int, default=50)
     parser.add_argument(
+        "--slack",
+        type=float,
+        default=1.0,
+        help=(
+            "multiply every published target by this before gating. CI passes 1.5 "
+            "because a shared runner is slower than the machine the targets describe."
+        ),
+    )
+    parser.add_argument(
         "--report-only",
         action="store_true",
         help="print the table but always exit 0 (for local profiling)",
     )
     args = parser.parse_args()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        results = run(args.iterations, args.warmup, Path(tmp))
+    if args.slack < 1.0:
+        raise SystemExit("--slack below 1.0 would gate tighter than the published target")
 
-    print(_format(results))
+    with tempfile.TemporaryDirectory() as tmp:
+        results = run(args.iterations, args.warmup, Path(tmp), args.slack)
+
+    print(_format(results, args.slack))
 
     missed = [r for r in results if not r.passed]
     if missed and not args.report_only:
         for r in missed:
             print(
                 f"::error::{r.label} median {r.median:.1f}{r.target.unit} exceeds the "
-                f"{r.target.limit_us:.1f}{r.target.unit} target published in README.md"
+                f"{r.limit:.1f}{r.target.unit} limit "
+                f"({r.target.limit_us:.1f}{r.target.unit} published in README.md"
+                f"{f', x{r.slack:g} slack' if r.slack != 1.0 else ''})"
             )
         return 1
     return 0

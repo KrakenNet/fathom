@@ -188,7 +188,9 @@ Entry points:
 Measured by `scripts/benchmark.py` and enforced on every pull request by CI's
 `bench` job, which fails the build if a median regresses past its target.
 Compilation is stated per rule because it scales with pack size: the packaged
-SSVC pack is 144 rules.
+SSVC pack is 144 rules. The numbers above are what the benchmark reports on a
+developer machine; CI enforces them with a 1.5x allowance (`--slack 1.5`)
+because a shared runner is roughly that much slower.
 
 ## Related Projects
 
