@@ -63,7 +63,10 @@ server = [
     "uvicorn>=0.20",
 ]
 mcp = [
-    "mcp>=1.0",
+    # Upper bound is real, not defensive: mcp 2.0 removed `mcp.server.fastmcp`,
+    # which `fathom.integrations.mcp_server` imports. The floor is the fix for
+    # GHSA-vj7q-gjh5-988w / GHSA-jpw9-pfvf-9f58 / GHSA-hvrp-rf83-w775.
+    "mcp>=1.28.1,<2",
 ]
 attestation = [
     "pyjwt[crypto]>=2.8",
@@ -142,6 +145,13 @@ dev = [
 
 [tool.uv]
 package = true
+
+# crewai pins `json-repair==0.25.2`, which is GHSA-xf7x-x43h-rpqh. crewai is an
+# optional extra whose adapter we exercise at import level only, so nothing here
+# calls json-repair; override the pin rather than lock a known-vulnerable
+# version into CI. Consumers installing `fathom-rules[crewai]` resolve crewai's
+# own pin -- this override applies to this repo's lock, not to the wheel.
+override-dependencies = ["json-repair>=0.60.1"]
 
 [tool.uv.sources]
 
