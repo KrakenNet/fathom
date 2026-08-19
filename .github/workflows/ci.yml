@@ -220,3 +220,49 @@ jobs:
 
       - name: Version sync
         run: uv run python scripts/check_version_sync.py
+
+  # The image had been broken since the Studio was moved into a uv workspace
+  # member (`uv sync` parses the dev group before `--no-dev` can exclude it,
+  # so the build died on a member that was never copied in) and nothing
+  # noticed, because nothing in CI had ever built it. Build it here, and
+  # exercise the three things the docs promise about it.
+  docker:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t fathom:ci .
+
+      - name: Smoke test the image
+        run: |
+          set -euo pipefail
+          # Non-default PORT: the CMD used to advertise ${PORT} and then
+          # hard-code 8080, so a run that honours it is the actual assertion.
+          cid="$(docker run -d -p 127.0.0.1:18080:9099 -e PORT=9099 fathom:ci)"
+          trap 'docker logs "$cid" || true; docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/health | grep -q '"status":"ok"'
+
+          # Never root.
+          test "$(docker exec "$cid" id -un)" = "fathom"
+
+          # /rules is the documented mount point and is created by root before
+          # the image drops privileges; the server user has to be able to use it.
+          docker exec "$cid" test -w /rules
+
+          # The declared HEALTHCHECK has to actually pass, not just exist.
+          for _ in $(seq 1 60); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "$cid")"
+            [ "$status" = "healthy" ] && break
+            [ "$status" = "unhealthy" ] && { echo "::error::HEALTHCHECK reports unhealthy"; exit 1; }
+            sleep 2
+          done
+          test "$status" = "healthy"
