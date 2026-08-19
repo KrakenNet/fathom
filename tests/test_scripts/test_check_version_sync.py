@@ -38,7 +38,14 @@ def test_fails_when_versions_differ(tmp_path: Path) -> None:
     assert "version" in result.stderr.lower()
 
 
-def _tree(tmp_path: Path, py: str, init: str, ts: str | None = None) -> Path:
+def _tree(
+    tmp_path: Path,
+    py: str,
+    init: str,
+    ts: str | None = None,
+    readme: str | None = None,
+    index: str | None = None,
+) -> Path:
     (tmp_path / "pyproject.toml").write_text(
         f'[project]\nname = "x"\nversion = "{py}"\n', encoding="utf-8"
     )
@@ -50,6 +57,18 @@ def _tree(tmp_path: Path, py: str, init: str, ts: str | None = None) -> Path:
         sdk.mkdir(parents=True)
         (sdk / "package.json").write_text(
             f'{{"name": "@fathom-rules/sdk", "version": "{ts}"}}\n', encoding="utf-8"
+        )
+    if readme is not None:
+        (tmp_path / "README.md").write_text(
+            f"# x\n\n**Current version:** {readme} <!-- x-release-please-version -->\n",
+            encoding="utf-8",
+        )
+    if index is not None:
+        docs = tmp_path / "docs"
+        docs.mkdir(parents=True, exist_ok=True)
+        (docs / "index.md").write_text(
+            f"# x\n\nCurrent release: `fathom-rules` {index} (requires Python 3.12+).\n",
+            encoding="utf-8",
         )
     return tmp_path
 
@@ -81,3 +100,34 @@ def test_reports_every_skewed_source_at_once(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "src/fathom/__init__.py=1.2.4" in result.stderr
     assert "packages/fathom-ts/package.json=0.1.0" in result.stderr
+
+
+def test_fails_when_readme_prose_version_lags(tmp_path: Path) -> None:
+    """The exact drift this was written for: prose said 0.7.0, PyPI had 0.7.4."""
+    result = run_script(_tree(tmp_path, "1.2.3", "1.2.3", readme="1.2.0"))
+    assert result.returncode == 1
+    assert "README.md=1.2.0" in result.stderr
+
+
+def test_fails_when_docs_index_prose_version_lags(tmp_path: Path) -> None:
+    result = run_script(_tree(tmp_path, "1.2.3", "1.2.3", index="1.2.0"))
+    assert result.returncode == 1
+    assert "docs/index.md=1.2.0" in result.stderr
+
+
+def test_passes_when_prose_versions_match(tmp_path: Path) -> None:
+    result = run_script(_tree(tmp_path, "1.2.3", "1.2.3", readme="1.2.3", index="1.2.3"))
+    assert result.returncode == 0, result.stderr
+
+
+def test_reworded_version_line_fails_loudly(tmp_path: Path) -> None:
+    """A prose file that no longer carries a version line is a broken gate.
+
+    Silently skipping it would leave the check passing forever after an
+    innocuous README rewrite -- which is how the drift started.
+    """
+    tree = _tree(tmp_path, "1.2.3", "1.2.3", readme="1.2.3")
+    (tree / "README.md").write_text("# x\n\nVersion: 1.2.3\n", encoding="utf-8")
+    result = run_script(tree)
+    assert result.returncode != 0
+    assert "no version line matching" in result.stderr

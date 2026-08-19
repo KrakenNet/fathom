@@ -9,6 +9,11 @@ Sources, all of which release-please writes on a release:
   ``npm-publish.yml`` fires on the same ``v*.*.*`` tag. It sat at 0.1.0 across
   every release before that was wired up, so each tag would have republished
   the same version.
+- ``README.md`` and ``docs/index.md`` — prose, but the first version number a
+  reader sees on GitHub and on the docs site. Both carried 0.7.0 while 0.7.4
+  was on PyPI. release-please rewrites them through the
+  ``x-release-please-version`` markers on those lines; this check is what
+  notices if a marker is dropped or a line is reworded out from under it.
 
 A source that is absent is skipped rather than fatal: the script is run
 against synthetic trees in the tests, and a missing file is not version skew.
@@ -46,6 +51,23 @@ def read_ts_sdk_version(root: Path) -> str | None:
     return version
 
 
+#: The version line each prose file publishes. Group 1 is the version.
+PROSE_SOURCES: dict[str, re.Pattern[str]] = {
+    "README.md": re.compile(r"^\*\*Current version:\*\*\s*(\S+)", re.M),
+    "docs/index.md": re.compile(r"^Current release: `fathom-rules`\s*(\S+)", re.M),
+}
+
+
+def read_prose_version(root: Path, name: str) -> str | None:
+    path = root / name
+    if not path.exists():
+        return None
+    match = PROSE_SOURCES[name].search(path.read_text(encoding="utf-8"))
+    if match is None:
+        raise SystemExit(f"no version line matching {PROSE_SOURCES[name].pattern!r} in {name}")
+    return match.group(1)
+
+
 def main() -> int:
     root = Path.cwd()
     expected = read_pyproject_version(root)
@@ -53,6 +75,7 @@ def main() -> int:
     others = {
         "src/fathom/__init__.py": read_init_version(root),
         "packages/fathom-ts/package.json": read_ts_sdk_version(root),
+        **{name: read_prose_version(root, name) for name in PROSE_SOURCES},
     }
     skewed = {
         name: found for name, found in others.items() if found is not None and found != expected
