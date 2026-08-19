@@ -29,27 +29,35 @@ REDIS_IMAGE = "redis:7-alpine"
 POSTGRES_IMAGE = "postgres:16-alpine"
 POSTGRES_PASSWORD = "fathom-test"
 
-DOCKER_REASON = "docker is not available on this host"
+DOCKER_REASON = "no Docker daemon able to run Linux containers on this host"
 
 
 @functools.cache
 def docker_available() -> bool:
-    """Return True if a usable Docker daemon is reachable.
+    """Return True if a reachable Docker daemon can run LINUX containers.
 
-    Cached, and evaluated lazily: probing at import time ran a `docker info`
-    subprocess (up to a 30s timeout) on EVERY collection of the test suite,
-    including runs that touch none of these tests.
+    ``docker info`` alone is not the question. The GitHub windows-latest runner
+    ships a daemon in Windows-container mode: `docker info` exits 0, so a
+    returncode-only probe declares Docker usable, and then every fixture dies
+    with exit 125 ("no matching manifest for windows/amd64") on the alpine
+    images below -- 26 errors instead of 26 skips. Ask for the daemon's OSType
+    instead, which is the property these tests actually depend on.
+
+    Cached, and evaluated lazily: probing at import time ran the subprocess
+    (up to a 30s timeout) on EVERY collection of the test suite, including
+    runs that touch none of these tests.
     """
     try:
         proc = subprocess.run(
-            ["docker", "info"],
+            ["docker", "info", "--format", "{{.OSType}}"],
             capture_output=True,
+            text=True,
             timeout=30,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False
-    return proc.returncode == 0
+    return proc.returncode == 0 and proc.stdout.strip() == "linux"
 
 
 class _NoDocker:
