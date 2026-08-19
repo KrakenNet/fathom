@@ -175,7 +175,9 @@ class PostgresFactStore:
             }
         )
         try:
-            await conn.execute(f'NOTIFY "{channel}", $1', payload)
+            # NOTIFY is a utility statement whose payload must be a literal, so
+            # it cannot take a bind parameter. pg_notify() is a normal function.
+            await conn.execute("SELECT pg_notify($1, $2)", channel, payload)
         except asyncpg.PostgresError as exc:
             raise FleetError(
                 f"Failed to send NOTIFY on channel {channel}: {exc}",
@@ -241,7 +243,9 @@ class PostgresFactStore:
         fact_id = uuid.uuid4().hex
         fact_uuid = uuid.UUID(fact_id)
         try:
-            async with self._pool.acquire() as conn:
+            async with self._pool.acquire() as conn, conn.transaction():
+                # INSERT and NOTIFY commit together: a notify failure must not
+                # leave a durable row that no subscriber was ever told about.
                 await conn.execute(_INSERT_SQL, fact_uuid, template, json.dumps(data))
                 notification = FactChangeNotification(
                     template=template, fact_id=fact_id, action="assert", data=data
@@ -296,26 +300,31 @@ class PostgresFactStore:
                 if not matching:
                     return 0
                 ids = [uuid.UUID(m["fact_id"]) for m in matching]
-                async with self._pool.acquire() as conn:
+                notifs = [
+                    FactChangeNotification(
+                        template=template,
+                        fact_id=m["fact_id"],
+                        action="retract",
+                        data={k: v for k, v in m.items() if k != "fact_id"},
+                    )
+                    for m in matching
+                ]
+                # DELETE and NOTIFY commit together, as in assert_fact.
+                async with self._pool.acquire() as conn, conn.transaction():
                     deleted = await conn.execute(
                         "DELETE FROM fleet_facts WHERE id = ANY($1::uuid[])", ids
                     )
-                    for m in matching:
-                        notif = FactChangeNotification(
-                            template=template,
-                            fact_id=m["fact_id"],
-                            action="retract",
-                            data={k: v for k, v in m.items() if k != "fact_id"},
-                        )
+                    for notif in notifs:
                         await self._notify_pg(conn, template, notif)
-                        await self._notify_subscribers(notif)
+                for notif in notifs:
+                    await self._notify_subscribers(notif)
                 # deleted is e.g. "DELETE 3"
                 return int(str(deleted).split()[-1]) if deleted else 0
             else:
                 # No filter — delete all for template
-                async with self._pool.acquire() as conn:
+                notifs = []
+                async with self._pool.acquire() as conn, conn.transaction():
                     rows = await conn.fetch(_DELETE_SQL, template)
-                    count = 0
                     for row in rows:
                         row_data: dict[str, Any] = (
                             json.loads(row["data"])
@@ -328,10 +337,11 @@ class PostgresFactStore:
                             action="retract",
                             data=row_data,
                         )
+                        notifs.append(notif)
                         await self._notify_pg(conn, template, notif)
-                        await self._notify_subscribers(notif)
-                        count += 1
-                return count
+                for notif in notifs:
+                    await self._notify_subscribers(notif)
+                return len(notifs)
         except (FleetError, FleetConnectionError):
             raise
         except OSError as exc:

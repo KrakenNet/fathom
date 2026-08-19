@@ -421,11 +421,12 @@ class TestParseModuleFileErrors:
 class TestParseModuleFileEdgeCases:
     """Edge case tests for module file parsing."""
 
-    def test_module_with_extra_keys_ignored(self, compiler: Compiler, tmp_path: Path) -> None:
+    def test_module_with_extra_keys_rejected(self, compiler: Compiler, tmp_path: Path) -> None:
+        """Unknown keys are a validation error, not silently dropped."""
         yaml_file = tmp_path / "extra.yaml"
         yaml_file.write_text("modules:\n  - name: test\n    extra_key: ignored\n")
-        modules, _focus_order = compiler.parse_module_file(yaml_file)
-        assert modules[0].name == "test"
+        with pytest.raises(CompilationError, match="(?i)invalid module"):
+            compiler.parse_module_file(yaml_file)
 
     @pytest.mark.parametrize("count", [1, 3, 5])
     def test_file_with_n_modules(self, compiler: Compiler, tmp_path: Path, count: int) -> None:

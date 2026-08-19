@@ -81,6 +81,58 @@ class TestResolveRuleset:
         with pytest.raises(PathJailError, match="invalid ruleset path"):
             resolve_ruleset(str(rules_dir), "link.yaml")
 
+    @pytest.mark.parametrize("user_path", ["a\x00b", "\x00", "ok.yaml\x00.txt"])
+    def test_rejects_embedded_null_byte(self, tmp_path: Path, user_path: str) -> None:
+        """A null byte must be a PathJailError, not a bare ValueError.
+
+        Both subclass ValueError, so a raw ValueError escapes every caller
+        (which catches only PathJailError) and becomes a 500 / UNKNOWN.
+        """
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        with pytest.raises(PathJailError, match="invalid ruleset path"):
+            resolve_ruleset(str(rules_dir), user_path)
+
     def test_missing_root_raises(self, tmp_path: Path) -> None:
         with pytest.raises(PathJailError, match="ruleset root"):
             resolve_ruleset(str(tmp_path / "missing"), "x.yaml")
+
+    def test_rejects_sibling_root_sharing_a_name_prefix(self, tmp_path: Path) -> None:
+        """``/…/rules-evil`` must not pass as a descendant of ``/…/rules``.
+
+        The prefix gate is ``startswith(root + os.sep)``, not a bare
+        ``startswith(root)``. Without the separator a sibling directory whose
+        name merely begins with the root's name would satisfy the check and
+        escape the jail.
+        """
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        evil = tmp_path / "rules-evil"
+        evil.mkdir()
+        (evil / "leak.yaml").write_text("")
+        with pytest.raises(PathJailError, match="invalid ruleset path"):
+            resolve_ruleset(str(rules_dir), "../rules-evil/leak.yaml")
+
+    @pytest.mark.parametrize("user_path", ["", "."])
+    def test_root_itself_resolves(self, tmp_path: Path, user_path: str) -> None:
+        """The root directory is a legitimate ruleset path, not an escape.
+
+        The transports spell "everything under the root" as an empty ruleset
+        name, which ``Path`` normalises to ``"."``.
+        """
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        assert resolve_ruleset(str(rules_dir), user_path) == rules_dir.resolve()
+
+    def test_rejects_traversal_that_lands_back_on_the_root(self, tmp_path: Path) -> None:
+        """``sub/..`` is the root, but only ``""``/``"."`` may say so.
+
+        The containment test is a strict-descendant check so that it stays a
+        single unqualified guard; the two root spellings are answered before
+        it. Anything else that normalises back to the root is rejected.
+        """
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "sub").mkdir()
+        with pytest.raises(PathJailError, match="invalid ruleset path"):
+            resolve_ruleset(str(rules_dir), "sub/..")

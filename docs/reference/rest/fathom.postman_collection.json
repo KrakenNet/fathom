@@ -110,7 +110,7 @@
                   "raw": "{\n  \"yaml_content\": \"string\"\n}"
                 },
                 "description": {
-                  "content": "Compile YAML content into CLIPS constructs.",
+                  "content": "Compile YAML content into CLIPS constructs.\n\nRule literals are emitted according to the declared slot type, so this\nendpoint compiles against the templates of the engine mounted on\n``app.state.engine`` when one is configured. Without an engine there is\nno type context available and literals fall back to the untyped form \u2014\nwhich may differ from what ``Engine.from_rules`` builds for the same\nYAML. Post the templates alongside the rules, or use ``fathom compile``\nagainst the ruleset directory, when the exact form matters.\n\nDeclared ``def`` so compilation runs in the threadpool, not on\nthe event loop.",
                   "type": "text/plain"
                 },
                 "header": [
@@ -188,7 +188,247 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
-                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 400,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Invalid request",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Request"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 401,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Missing or invalid token",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 404,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Not found",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Not Found"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 409,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Conflict",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Conflict"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 413,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Request body too large",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Request Entity Too Large"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
                   "code": 422,
                   "cookie": [],
                   "header": [
@@ -197,7 +437,7 @@
                       "value": "application/json"
                     }
                   ],
-                  "name": "Validation Error",
+                  "name": "Request body failed validation",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -233,6 +473,54 @@
                     }
                   },
                   "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Service unavailable",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"yaml_content\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "compile"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             }
@@ -261,7 +549,7 @@
                   "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
                 },
                 "description": {
-                  "content": "Evaluate facts against a ruleset (stateless or stateful).",
+                  "content": "Evaluate facts against a ruleset (stateless or stateful).\n\nRequest-scoped: the supplied facts are asserted, evaluated, then\nwithdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the\nsame session can never change this one's decision.\n\nDeclared ``def`` (not ``async def``) on purpose: CLIPS evaluation is\nblocking CPU work, so Starlette must run it in the threadpool rather\nthan on the event loop, where one large request stalls every other\nconnection.",
                   "type": "text/plain"
                 },
                 "header": [
@@ -339,7 +627,247 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
-                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 400,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Invalid request",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Request"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 401,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Missing or invalid token",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 404,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Not found",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Not Found"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 409,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Conflict",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Conflict"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 413,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Request body too large",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Request Entity Too Large"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
                   "code": 422,
                   "cookie": [],
                   "header": [
@@ -348,7 +876,7 @@
                       "value": "application/json"
                     }
                   ],
-                  "name": "Validation Error",
+                  "name": "Request body failed validation",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -384,6 +912,54 @@
                     }
                   },
                   "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Service unavailable",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"facts\": [\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    },\n    {\n      \"data\": {\n        \"<key>\": \"<value>\"\n      },\n      \"template\": \"string\"\n    }\n  ],\n  \"ruleset\": \"string\",\n  \"session_id\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "evaluate"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             }
@@ -412,7 +988,7 @@
                   "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
                 },
                 "description": {
-                  "content": "Retract facts matching template + optional filter from working memory.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404. Retract is by\ntemplate + filter (matches the gRPC surface), not by fact index.",
+                  "content": "Retract facts matching template + optional filter from working memory.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404. Retract is by\ntemplate + filter (matches the gRPC surface), not by fact index.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
                   "type": "text/plain"
                 },
                 "header": [
@@ -490,7 +1066,247 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
-                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 400,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Invalid request",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Request"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 401,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Missing or invalid token",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 404,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Not found",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Not Found"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 409,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Conflict",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Conflict"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 413,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Request body too large",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Request Entity Too Large"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
                   "code": 422,
                   "cookie": [],
                   "header": [
@@ -499,7 +1315,7 @@
                       "value": "application/json"
                     }
                   ],
-                  "name": "Validation Error",
+                  "name": "Request body failed validation",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -535,6 +1351,54 @@
                     }
                   },
                   "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Service unavailable",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             },
@@ -557,7 +1421,7 @@
                   "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
                 },
                 "description": {
-                  "content": "Assert a single fact into a session's working memory.\n\nUnlike ``/v1/evaluate``, this endpoint does **not** create sessions on\nthe fly \u2014 the ``session_id`` must reference a session previously\ncreated via ``/v1/evaluate``. Unknown session ids return 404.",
+                  "content": "Assert a single fact into a session's working memory.\n\nUnlike ``/v1/evaluate``, this endpoint does **not** create sessions on\nthe fly \u2014 the ``session_id`` must reference a session previously\ncreated via ``/v1/evaluate``. Unknown session ids return 404.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
                   "type": "text/plain"
                 },
                 "header": [
@@ -635,7 +1499,247 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
-                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 400,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Invalid request",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Request"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 401,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Missing or invalid token",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 404,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Not found",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Not Found"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 409,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Conflict",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Conflict"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 413,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Request body too large",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Request Entity Too Large"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
                   "code": 422,
                   "cookie": [],
                   "header": [
@@ -644,7 +1748,7 @@
                       "value": "application/json"
                     }
                   ],
-                  "name": "Validation Error",
+                  "name": "Request body failed validation",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -680,6 +1784,54 @@
                     }
                   },
                   "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Service unavailable",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"data\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "facts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             }
@@ -847,7 +1999,7 @@
                   "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
                 },
                 "description": {
-                  "content": "Query a session's working memory for facts matching template + filter.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404.",
+                  "content": "Query a session's working memory for facts matching template + filter.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
                   "type": "text/plain"
                 },
                 "header": [
@@ -925,7 +2077,247 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
-                  "body": "{\n  \"detail\": [\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    },\n    {\n      \"ctx\": {},\n      \"input\": \"\",\n      \"loc\": [\n        \"string\",\n        \"string\"\n      ],\n      \"msg\": \"string\",\n      \"type\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 400,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Invalid request",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Request"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 401,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Missing or invalid token",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 404,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Not found",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Not Found"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 409,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Conflict",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Conflict"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 413,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Request body too large",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Request Entity Too Large"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
                   "code": 422,
                   "cookie": [],
                   "header": [
@@ -934,7 +2326,7 @@
                       "value": "application/json"
                     }
                   ],
-                  "name": "Validation Error",
+                  "name": "Request body failed validation",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -970,6 +2362,54 @@
                     }
                   },
                   "status": "Unprocessable Entity (WebDAV) (RFC 4918)"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"detail\": \"string\",\n  \"error\": \"string\",\n  \"field\": \"string\"\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "Service unavailable",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"filter\": {\n    \"<key>\": \"<value>\"\n  },\n  \"session_id\": \"string\",\n  \"template\": \"string\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "v1",
+                        "query"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             }

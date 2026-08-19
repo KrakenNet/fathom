@@ -1,0 +1,74 @@
+[project]
+name = "fathom-studio"
+version = "0.1.0"
+description = "Fathom Policy Studio — a local FastAPI UI over the Fathom rules engine"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+    { name = "Kraken Networks", email = "info@krakennetworks.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: FastAPI",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fathom-rules[server,attestation]>=0.7.4",
+    "httpx>=0.24",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
+
+[project.urls]
+Homepage = "https://krakn.ai"
+Repository = "https://github.com/KrakenNet/fathom"
+
+[project.scripts]
+fathom-studio = "fathom_studio.app:main"
+
+[project.optional-dependencies]
+langchain = [
+    "fathom-rules[langchain]>=0.7.4",
+]
+
+[tool.uv.sources]
+fathom-rules = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fathom_studio"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/fathom_studio", "tests", "README.md"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 99
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fathom_studio"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers -ra"

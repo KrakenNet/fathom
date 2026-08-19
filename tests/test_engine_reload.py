@@ -372,3 +372,30 @@ def test_subscribe_reload_listener_exception_swallowed(tmp_path: Path) -> None:
     # Must not raise, and the healthy listener still fires.
     engine.reload_rules(_ruleset_yaml("rule-a", "alice"))
     assert calls == [None]
+
+
+def test_reload_registry_is_keyed_module_qualified(tmp_path: Path) -> None:
+    """After a swap the registry uses the same ``module::name`` keys as load_rules (C4)."""
+    engine = _engine_with_pack(tmp_path)
+    engine.reload_rules(_ruleset_yaml("rule-a", "alice"))
+    assert list(engine.rule_registry) == ["gov::rule-a"]
+
+
+def test_reload_rejects_duplicate_rule_names(tmp_path: Path) -> None:
+    """Two rules with one name in the reload payload must fail, not silently merge."""
+    engine = _engine_with_pack(tmp_path)
+    rule = {
+        "name": "same",
+        "when": [
+            {
+                "template": "agent",
+                "conditions": [{"slot": "id", "expression": "equals(alice)"}],
+            },
+        ],
+        "then": {"action": "deny", "reason": "dup"},
+    }
+    payload = yaml.safe_dump(
+        {"ruleset": "dup", "module": "gov", "rules": [rule, dict(rule)]}
+    ).encode("utf-8")
+    with pytest.raises(CompilationError, match="duplicate rule name 'gov::same'"):
+        engine.reload_rules(payload)

@@ -151,6 +151,25 @@ class RedisFactStore:
             return True
         return all(data.get(k) == v for k, v in fact_filter.items())
 
+    @staticmethod
+    def _encode_fields(data: dict[str, Any]) -> dict[str, str]:
+        """JSON-encode every slot value so reads round-trip to the written type."""
+        return {k: json.dumps(v) for k, v in data.items()}
+
+    @staticmethod
+    def _decode_fields(raw_data: dict[Any, Any]) -> dict[str, Any]:
+        """Inverse of :meth:`_encode_fields` for one Redis hash."""
+        data: dict[str, Any] = {}
+        for rk, rv in raw_data.items():
+            field = rk.decode() if isinstance(rk, bytes) else rk
+            val_str = rv.decode() if isinstance(rv, bytes) else rv
+            try:
+                data[field] = json.loads(val_str)
+            except (json.JSONDecodeError, TypeError):
+                # Written by a pre-0.8 release that stored strings unencoded.
+                data[field] = val_str
+        return data
+
     # ------------------------------------------------------------------
     # FactStore interface
     # ------------------------------------------------------------------
@@ -159,10 +178,9 @@ class RedisFactStore:
         """Assert a fact, store as Redis hash, and return the fact_id."""
         fact_id = uuid.uuid4().hex
         key = self._fact_key(template, fact_id)
-        # Store each field as a hash entry; complex values are JSON-encoded
-        mapping: dict[str, str] = {}
-        for k, v in data.items():
-            mapping[k] = json.dumps(v) if not isinstance(v, str) else v
+        # Store each field as a hash entry; every value is JSON-encoded so the
+        # decode in query()/retract() is symmetric and type-preserving.
+        mapping: dict[str, str] = self._encode_fields(data)
 
         async def _do_assert() -> None:
             await self._client.hset(key, mapping=mapping)  # type: ignore[misc]
@@ -192,14 +210,7 @@ class RedisFactStore:
                     # Key expired or was deleted; clean up index
                     await self._client.srem(index_key, fid)  # type: ignore[misc]
                     continue
-                data: dict[str, Any] = {}
-                for rk, rv in raw_data.items():
-                    field = rk.decode() if isinstance(rk, bytes) else rk
-                    val_str = rv.decode() if isinstance(rv, bytes) else rv
-                    try:
-                        data[field] = json.loads(val_str)
-                    except (json.JSONDecodeError, TypeError):
-                        data[field] = val_str
+                data = self._decode_fields(raw_data)
                 if self._matches(data, fact_filter):
                     results.append({"fact_id": fid, **data})
             return results
@@ -221,14 +232,7 @@ class RedisFactStore:
                 if not raw_data:
                     await self._client.srem(index_key, fid)  # type: ignore[misc]
                     continue
-                data: dict[str, Any] = {}
-                for rk, rv in raw_data.items():
-                    field = rk.decode() if isinstance(rk, bytes) else rk
-                    val_str = rv.decode() if isinstance(rv, bytes) else rv
-                    try:
-                        data[field] = json.loads(val_str)
-                    except (json.JSONDecodeError, TypeError):
-                        data[field] = val_str
+                data = self._decode_fields(raw_data)
                 if self._matches(data, fact_filter):
                     await self._client.delete(key)
                     await self._client.srem(index_key, fid)  # type: ignore[misc]

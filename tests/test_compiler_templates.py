@@ -872,8 +872,8 @@ class TestParseTemplateFileErrors:
 class TestParseTemplateFileEdgeCases:
     """Edge case tests for template file parsing."""
 
-    def test_template_with_extra_keys_ignored(self, compiler: Compiler, tmp_path: Path) -> None:
-        """Pydantic ignores extra keys by default."""
+    def test_template_with_extra_keys_rejected(self, compiler: Compiler, tmp_path: Path) -> None:
+        """Unknown keys are a validation error, not silently dropped."""
         yaml_file = tmp_path / "extra.yaml"
         yaml_file.write_text(
             "templates:\n"
@@ -883,8 +883,22 @@ class TestParseTemplateFileEdgeCases:
             "      - name: x\n"
             "        type: string\n"
         )
-        result = compiler.parse_template_file(yaml_file)
-        assert result[0].name == "t"
+        with pytest.raises(CompilationError, match="(?i)invalid template"):
+            compiler.parse_template_file(yaml_file)
+
+    def test_slot_with_extra_keys_rejected(self, compiler: Compiler, tmp_path: Path) -> None:
+        """A misspelled slot key (``requried``) is rejected, not ignored."""
+        yaml_file = tmp_path / "typo_slot.yaml"
+        yaml_file.write_text(
+            "templates:\n"
+            "  - name: t\n"
+            "    slots:\n"
+            "      - name: x\n"
+            "        type: string\n"
+            "        requried: true\n"
+        )
+        with pytest.raises(CompilationError, match="(?i)invalid template"):
+            compiler.parse_template_file(yaml_file)
 
     def test_slot_missing_type_raises(self, compiler: Compiler, tmp_path: Path) -> None:
         """SlotType is required; omitting it raises CompilationError."""

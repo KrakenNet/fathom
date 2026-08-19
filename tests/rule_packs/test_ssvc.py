@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from fathom.engine import Engine
+from fathom.errors import ValidationError
 from fathom.rule_packs.ssvc import SSVC_META
 
 REFERENCES_DIR = (
@@ -234,3 +235,36 @@ def test_meta_facts_present() -> None:
     assert meta["source_sha256"] == pinned_sha, (
         f"ssvc_meta.source_sha256 drift: got {meta['source_sha256']!r} pinned={pinned_sha!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Decision-point enumerations are enforced at the input boundary
+# ---------------------------------------------------------------------------
+
+
+DECISION_POINT_VALUES = {
+    "exploitation": ["none", "poc", "active"],
+    "utility": ["laborious", "efficient", "super_effective"],
+    "technical_impact": ["partial", "total"],
+    "public_safety_impact": ["minimal", "significant"],
+    "exposure": ["small", "controlled", "open"],
+    "automatable": ["yes", "no"],
+    "human_impact": ["low", "medium", "high", "very_high"],
+    "mission_wellbeing": ["low", "medium", "high"],
+}
+
+
+@pytest.mark.parametrize(("template", "allowed"), sorted(DECISION_POINT_VALUES.items()))
+def test_decision_point_allowed_values_registered(template: str, allowed: list[str]) -> None:
+    """Each decision point declares its enumeration (spelled ``allowed_values``)."""
+    engine = Engine.from_rules(PACK_DIR)
+    slot = engine.template_registry[template].slots[0]
+    assert slot.allowed_values == allowed
+
+
+@pytest.mark.parametrize("template", sorted(DECISION_POINT_VALUES))
+def test_off_enumeration_value_is_rejected(template: str) -> None:
+    """Raw upstream spellings must not be accepted as decision-point values."""
+    engine = Engine.from_rules(PACK_DIR)
+    with pytest.raises(ValidationError, match="not in allowed values"):
+        engine.assert_fact(template, {"value": "public poc"})

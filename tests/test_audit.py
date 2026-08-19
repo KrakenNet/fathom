@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from fathom.audit import AuditLog, AuditSink, FileSink, NullSink
 from fathom.engine import Engine
-from fathom.models import AuditRecord, EvaluationResult
+from fathom.models import AuditRecord, EvaluationResult, LogLevel
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -311,8 +311,27 @@ class TestAuditLogRecord:
         sink = ListSink()
         log = AuditLog(sink)
         facts = [{"agent": "a1", "action": "read"}]
-        log.record(_make_result(), session_id="s", input_facts=facts)
+        log.record(_make_result(), session_id="s", input_facts=facts, log_level=LogLevel.FULL)
         assert sink.records[0].input_facts == facts
+
+    def test_input_facts_dropped_below_full(self) -> None:
+        """`log: summary` is "decision + rule id" — it must not carry facts."""
+        sink = ListSink()
+        log = AuditLog(sink)
+        log.record(
+            _make_result(),
+            session_id="s",
+            input_facts=[{"agent": "a1"}],
+            log_level=LogLevel.SUMMARY,
+        )
+        assert sink.records[0].input_facts is None
+
+    def test_log_level_none_writes_nothing(self) -> None:
+        """`log: none` is "no audit entry" — the sink must not be touched."""
+        sink = ListSink()
+        log = AuditLog(sink)
+        log.record(_make_result(), session_id="s", log_level=LogLevel.NONE)
+        assert sink.records == []
 
     def test_input_facts_none_by_default(self) -> None:
         sink = ListSink()
@@ -590,3 +609,113 @@ class TestAuditAssertedFacts:
         assert preexisting_matches == [], (
             f"pre-existing fact leaked into diff: {preexisting_matches!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# then.log end-to-end (C15)
+# ---------------------------------------------------------------------------
+
+
+def _make_engine_with_log_level(tmp_path: Any, log_level: str) -> Engine:
+    """A one-rule pack whose single rule carries the given `then.log` value."""
+    (tmp_path / "templates.yaml").write_text(
+        "templates:\n  - name: agent\n    slots:\n      - name: id\n        type: symbol\n"
+    )
+    (tmp_path / "modules.yaml").write_text(
+        "modules:\n  - name: m\n    priority: 100\nfocus_order: [m]\n"
+    )
+    (tmp_path / "rules.yaml").write_text(
+        "ruleset: r\nmodule: m\nrules:\n"
+        "  - name: decide\n    when:\n      - template: agent\n"
+        '        conditions:\n          - slot: id\n            expression: "equals(alice)"\n'
+        f"    then:\n      action: deny\n      reason: blocked\n      log: {log_level}\n"
+    )
+    return Engine.from_rules(str(tmp_path))
+
+
+class TestThenLogLevel:
+    """`then.log` controls audit verbosity — it used to be compiled and ignored."""
+
+    def test_log_none_writes_no_audit_record(self, tmp_path: Any) -> None:
+        sink = ListSink()
+        e = _make_engine_with_log_level(tmp_path, "none")
+        e._audit_log = AuditLog(sink)
+        e.assert_fact("agent", {"id": "alice"})
+        assert e.evaluate().decision == "deny"
+        assert sink.records == []
+
+    def test_log_summary_writes_a_record_without_input_facts(self, tmp_path: Any) -> None:
+        sink = ListSink()
+        e = _make_engine_with_log_level(tmp_path, "summary")
+        e._audit_log = AuditLog(sink)
+        e.assert_fact("agent", {"id": "alice"})
+        e.evaluate()
+        assert len(sink.records) == 1
+        assert sink.records[0].input_facts is None
+
+    def test_log_full_records_the_input_facts(self, tmp_path: Any) -> None:
+        sink = ListSink()
+        e = _make_engine_with_log_level(tmp_path, "full")
+        e._audit_log = AuditLog(sink)
+        e.assert_fact("agent", {"id": "alice"})
+        e.evaluate()
+        assert len(sink.records) == 1
+        assert sink.records[0].input_facts == [{"template": "agent", "slots": {"id": "alice"}}]
+
+    def test_default_decision_still_writes_a_record(self, tmp_path: Any) -> None:
+        """No rule fired — there is no `then.log` to honour, so log at summary."""
+        sink = ListSink()
+        e = _make_engine_with_log_level(tmp_path, "none")
+        e._audit_log = AuditLog(sink)
+        e.evaluate()
+        assert len(sink.records) == 1
+        assert sink.records[0].decision == "deny"
+
+
+# ---------------------------------------------------------------------------
+# FileSink accepts non-evaluation event records
+# ---------------------------------------------------------------------------
+
+
+class TestFileSinkNonEvaluationRecords:
+    """Hot-reload events are plain mappings, not eval-shaped ``AuditRecord``s.
+
+    ``rest.py`` and ``grpc_server.py`` hand the configured sink a dict for
+    ``ruleset_reloaded`` / ``ruleset_reload_rejected``. FileSink used to call
+    ``record.model_dump_json()`` unconditionally, so every one of those events
+    was swallowed by the transports' error handler and never reached the log.
+    """
+
+    def test_mapping_record_is_written_as_one_json_line(self, tmp_path: Any) -> None:
+        path = tmp_path / "a.jsonl"
+        FileSink(path).write({"event_type": "ruleset_reload_rejected"})
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0]) == {"event_type": "ruleset_reload_rejected"}
+
+    def test_reload_event_fields_survive_the_round_trip(self, tmp_path: Any) -> None:
+        path = tmp_path / "a.jsonl"
+        event = {
+            "event_type": "ruleset_reloaded",
+            "ruleset_hash_before": "abc",
+            "ruleset_hash_after": "def",
+            "rule_count": 3,
+            "actor": "admin",
+        }
+        FileSink(path).write(event)
+        assert json.loads(path.read_text(encoding="utf-8").strip()) == event
+
+    def test_non_serialisable_value_does_not_raise(self, tmp_path: Any) -> None:
+        """``default=str`` keeps a stray Path from making a reload unwritable."""
+        path = tmp_path / "a.jsonl"
+        FileSink(path).write({"event_type": "ruleset_reloaded", "path": tmp_path})
+        assert json.loads(path.read_text(encoding="utf-8").strip())["path"] == str(tmp_path)
+
+    def test_audit_records_still_use_the_model_serialiser(self, tmp_path: Any) -> None:
+        """Widening the sink must not change how evaluation records serialise."""
+        path = tmp_path / "a.jsonl"
+        e = Engine(audit_sink=FileSink(path))
+        e.evaluate()
+        row = json.loads(path.read_text(encoding="utf-8").strip())
+        assert row["decision"] == "deny"
+        assert "timestamp" in row

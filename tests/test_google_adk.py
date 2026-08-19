@@ -41,7 +41,7 @@ def _make_engine(
         reason=reason,
         rule_trace=rule_trace or [],
     )
-    engine.evaluate.return_value = result
+    engine.evaluate_once.return_value = result
     return engine
 
 
@@ -60,6 +60,18 @@ def _make_tool(name: str = TOOL_NAME) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 # 1. _build_tool_request_facts
 # ---------------------------------------------------------------------------
+
+
+def _scoped_fact(engine: MagicMock) -> tuple[str, dict]:
+    """Return the single ``(template, slots)`` pair passed to ``evaluate_once``.
+
+    Adapters go through :meth:`Engine.evaluate_once` so the request's fact is
+    asserted, evaluated and withdrawn under one lock with refraction reset.
+    """
+    engine.evaluate_once.assert_called_once()
+    facts = engine.evaluate_once.call_args[0][0]
+    assert len(facts) == 1, facts
+    return facts[0]
 
 
 class TestBuildToolRequestFacts:
@@ -99,8 +111,7 @@ class TestEvaluateToolCall:
     def test_allow_does_not_raise(self) -> None:
         engine = _make_engine(decision="allow")
         _evaluate_tool_call(engine, AGENT_ID, TOOL_NAME, ARGS_DICT)
-        engine.assert_fact.assert_called_once()
-        engine.evaluate.assert_called_once()
+        engine.evaluate_once.assert_called_once()
 
     def test_deny_raises_policy_violation(self) -> None:
         engine = _make_engine(
@@ -160,8 +171,7 @@ class TestBeforeToolCallback:
         tool = _make_tool()
         result = callback(tool, ARGS_DICT, MagicMock())
         assert result is None
-        engine.assert_fact.assert_called_once()
-        engine.evaluate.assert_called_once()
+        engine.evaluate_once.assert_called_once()
 
     def test_deny_returns_error_dict(self) -> None:
         engine = _make_engine(decision="deny", reason="forbidden", rule_trace=["deny-rule"])
@@ -189,9 +199,9 @@ class TestBeforeToolCallback:
         callback = fathom_before_tool_callback(engine, AGENT_ID)
         tool = _make_tool("calculator")
         callback(tool, {"expr": "1+1"}, MagicMock())
-        call_args = engine.assert_fact.call_args
-        assert call_args[0][0] == "tool_request"
-        fact = call_args[0][1]
+        call_args = _scoped_fact(engine)
+        assert call_args[0] == "tool_request"
+        fact = call_args[1]
         assert fact["tool_name"] == "calculator"
         assert fact["agent_id"] == AGENT_ID
 
@@ -200,8 +210,8 @@ class TestBeforeToolCallback:
         callback = fathom_before_tool_callback(engine, AGENT_ID)
         tool = object()  # no .name attribute
         callback(tool, ARGS_DICT, MagicMock())
-        call_args = engine.assert_fact.call_args
-        fact = call_args[0][1]
+        call_args = _scoped_fact(engine)
+        fact = call_args[1]
         assert fact["tool_name"] == "unknown"
 
     def test_fact_dict_passed_to_engine(self) -> None:
@@ -209,9 +219,9 @@ class TestBeforeToolCallback:
         callback = fathom_before_tool_callback(engine, AGENT_ID)
         tool = _make_tool("web_search")
         callback(tool, {"query": "test"}, MagicMock())
-        call_args = engine.assert_fact.call_args
-        assert call_args[0][0] == "tool_request"
-        fact = call_args[0][1]
+        call_args = _scoped_fact(engine)
+        assert call_args[0] == "tool_request"
+        fact = call_args[1]
         assert fact["tool_name"] == "web_search"
         assert fact["agent_id"] == AGENT_ID
 

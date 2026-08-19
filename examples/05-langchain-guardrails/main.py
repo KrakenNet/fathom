@@ -3,7 +3,9 @@
 Wires Fathom into a LangChain agent as a callback handler so that every
 tool call is gated by deterministic rules.  The handler asserts a
 ``tool_request`` fact, evaluates the engine, and raises
-:class:`PolicyViolation` on ``deny`` or ``escalate``.
+:class:`PolicyViolation` for any decision other than ``allow`` — the
+adapters are allowlist-only, so ``deny``, ``escalate``, ``route``,
+``scope`` and an absent decision all block.
 
 This example does NOT call any LLM — it simulates the LangChain callback
 contract directly so it runs offline. The integration code path
@@ -83,9 +85,8 @@ def run_agent(agent_id: str, trust_tier: str, calls: list[tuple[str, Any]]) -> N
     for tool, args in calls:
         outcome = simulate_tool_call(handler, tool, args)
         print(f"  {tool:<18} args={args!s:<40} -> {outcome}")
-        # Each evaluate() leaves the tool_request fact in working memory;
-        # retract it so the next call starts clean.
-        engine.retract("tool_request")
+        # No retract needed: the adapter withdraws the tool_request fact it
+        # asserted, so working memory is unchanged after each call.
 
 
 def main() -> None:
@@ -106,9 +107,11 @@ def main() -> None:
     run_agent("agent-admin", "admin", common_calls)
 
     print("\nNotes:")
-    print("  - PolicyViolation is raised for both 'deny' and 'escalate'. The")
-    print("    agent runtime decides whether to fail the chain or hand off to")
-    print("    a human approval queue based on exc.decision.")
+    print("  - The guard is allowlist-only: PolicyViolation is raised for any")
+    print("    decision other than 'allow' (deny, escalate, route, scope and")
+    print("    an absent decision all block). The agent runtime decides whether")
+    print("    to fail the chain or hand off to a human approval queue based")
+    print("    on exc.decision.")
     print("  - All decisions also flow into the audit log when an AuditSink")
     print("    is configured on the Engine.")
 

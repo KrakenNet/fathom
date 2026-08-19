@@ -13,7 +13,7 @@ ruleset: ssvc-supplier-tree
 version: 1.0.0
 rules:
 - name: ssvc_supplier_01
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -37,7 +37,7 @@ rules:
     metadata:
       decision: defer
 - name: ssvc_supplier_02
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -61,7 +61,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_03
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -85,7 +85,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_04
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -109,7 +109,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_05
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -133,7 +133,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_06
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -157,7 +157,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_07
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -181,7 +181,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_08
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -205,7 +205,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_09
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -229,7 +229,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_10
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -253,7 +253,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_11
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -277,7 +277,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_12
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -301,7 +301,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_13
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -325,7 +325,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_14
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -349,7 +349,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_15
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -373,7 +373,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_16
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -397,7 +397,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_17
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -421,7 +421,7 @@ rules:
     metadata:
       decision: scheduled
 - name: ssvc_supplier_18
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -445,7 +445,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_19
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -469,7 +469,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_20
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -493,7 +493,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_21
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -517,7 +517,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_22
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -541,7 +541,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_23
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -565,7 +565,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_24
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -589,7 +589,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_25
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -613,7 +613,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_26
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -637,7 +637,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_27
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -661,7 +661,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_28
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -685,7 +685,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_29
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -709,7 +709,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_30
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -733,7 +733,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_31
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -757,7 +757,7 @@ rules:
     metadata:
       decision: out-of-cycle
 - name: ssvc_supplier_32
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -781,7 +781,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_33
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -805,7 +805,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_34
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -829,7 +829,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_35
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:
@@ -853,7 +853,7 @@ rules:
     metadata:
       decision: immediate
 - name: ssvc_supplier_36
-  salience: 10
+  salience: 300
   when:
   - template: exploitation
     conditions:

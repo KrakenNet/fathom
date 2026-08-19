@@ -1,0 +1,22 @@
+templates:
+  - name: tool_request
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+      - name: tool_name
+        type: symbol
+        required: true
+      - name: arguments
+        type: string
+        default: ""
+
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: trust_tier
+        type: symbol
+        allowed_values: [untrusted, basic, elevated, admin]
+        required: true

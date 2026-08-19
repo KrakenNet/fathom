@@ -71,8 +71,8 @@ class TestCompileConditionComparison:
     @pytest.mark.parametrize(
         "op,arg,expected",
         [
-            ("not_equals", "public", "(clearance ?s_clearance&:(neq ?s_clearance public))"),
-            ("not_equals", "secret", "(clearance ?s_clearance&:(neq ?s_clearance secret))"),
+            ("not_equals", "public", "(clearance ?s_0_clearance&:(neq ?s_0_clearance public))"),
+            ("not_equals", "secret", "(clearance ?s_0_clearance&:(neq ?s_0_clearance secret))"),
         ],
         ids=["neq-public", "neq-secret"],
     )
@@ -83,9 +83,9 @@ class TestCompileConditionComparison:
     @pytest.mark.parametrize(
         "op,arg,expected",
         [
-            ("greater_than", "5", "(level ?s_level&:(> ?s_level 5))"),
-            ("greater_than", "100", "(level ?s_level&:(> ?s_level 100))"),
-            ("greater_than", "0", "(level ?s_level&:(> ?s_level 0))"),
+            ("greater_than", "5", "(level ?s_0_level&:(> ?s_0_level 5))"),
+            ("greater_than", "100", "(level ?s_0_level&:(> ?s_0_level 100))"),
+            ("greater_than", "0", "(level ?s_0_level&:(> ?s_0_level 0))"),
         ],
         ids=["gt-5", "gt-100", "gt-0"],
     )
@@ -96,8 +96,8 @@ class TestCompileConditionComparison:
     @pytest.mark.parametrize(
         "op,arg,expected",
         [
-            ("less_than", "10", "(level ?s_level&:(< ?s_level 10))"),
-            ("less_than", "1", "(level ?s_level&:(< ?s_level 1))"),
+            ("less_than", "10", "(level ?s_0_level&:(< ?s_0_level 10))"),
+            ("less_than", "1", "(level ?s_0_level&:(< ?s_0_level 1))"),
         ],
         ids=["lt-10", "lt-1"],
     )
@@ -110,13 +110,13 @@ class TestCompileConditionComparison:
         [
             (
                 "[secret, top-secret]",
-                "(clearance ?s_clearance&:(or (eq ?s_clearance secret)"
-                " (eq ?s_clearance top-secret)))",
+                "(clearance ?s_0_clearance&:(or (eq ?s_0_clearance secret)"
+                " (eq ?s_0_clearance top-secret)))",
             ),
             (
                 "[a, b, c]",
-                "(clearance ?s_clearance&:(or (eq ?s_clearance a)"
-                " (eq ?s_clearance b) (eq ?s_clearance c)))",
+                "(clearance ?s_0_clearance&:(or (eq ?s_0_clearance a)"
+                " (eq ?s_0_clearance b) (eq ?s_0_clearance c)))",
             ),
         ],
         ids=["in-two", "in-three"],
@@ -128,8 +128,8 @@ class TestCompileConditionComparison:
     @pytest.mark.parametrize(
         "arg,expected",
         [
-            ("[public, internal]", "(clearance ?s_clearance&~public&~internal)"),
-            ("[a]", "(clearance ?s_clearance&~a)"),
+            ("[public, internal]", "(clearance ?s_0_clearance&~public&~internal)"),
+            ("[a]", "(clearance ?s_0_clearance&~a)"),
         ],
         ids=["not-in-two", "not-in-single"],
     )
@@ -139,11 +139,11 @@ class TestCompileConditionComparison:
 
     def test_contains(self, compiler: Compiler) -> None:
         result = compiler._compile_condition("name", "contains(admin)", {}, None)
-        assert result == "(name ?s_name&:(str-index admin ?s_name))"
+        assert result == '(name ?s_0_name&:(str-index "admin" ?s_0_name))'
 
     def test_contains_different_slot(self, compiler: Compiler) -> None:
         result = compiler._compile_condition("description", "contains(danger)", {}, None)
-        assert result == "(description ?s_description&:(str-index danger ?s_description))"
+        assert result == '(description ?s_0_description&:(str-index "danger" ?s_0_description))'
 
     @pytest.mark.parametrize(
         "pattern,expected_pattern",
@@ -155,7 +155,7 @@ class TestCompileConditionComparison:
     )
     def test_matches(self, compiler: Compiler, pattern: str, expected_pattern: str) -> None:
         result = compiler._compile_condition("name", f"matches({pattern})", {}, None)
-        assert f'(name ?s_name&:(fathom-matches ?s_name "{expected_pattern}"))' == result
+        assert f'(name ?s_0_name&:(fathom-matches ?s_0_name "{expected_pattern}"))' == result
 
     def test_matches_escapes_special_chars(self, compiler: Compiler) -> None:
         result = compiler._compile_condition("name", 'matches(test\\"quote)', {}, None)
@@ -209,12 +209,14 @@ class TestCompileConditionClassification:
         assert slot_binding == "(clearance ?agent-clearance)"
         assert test_ce == f"(test ({clips_fn} ?agent-clearance ?data-classification))"
 
-    def test_classification_without_alias_uses_v_prefix(self, compiler: Compiler) -> None:
+    def test_classification_without_alias_uses_pattern_index_prefix(
+        self, compiler: Compiler
+    ) -> None:
         result = compiler._compile_condition("clearance", "below(secret)", {}, None)
         assert isinstance(result, tuple)
         slot_binding, test_ce = result
-        assert slot_binding == "(clearance ?v-clearance)"
-        assert test_ce == "(test (below ?v-clearance secret))"
+        assert slot_binding == "(clearance ?p0-clearance)"
+        assert test_ce == "(test (below ?p0-clearance secret))"
 
 
 # ---------------------------------------------------------------------------
@@ -236,8 +238,8 @@ class TestCompileConditionTemporal:
         result = compiler._compile_condition("ts", "changed_within(60)", {}, None)
         assert isinstance(result, tuple)
         slot_binding, test_ce = result
-        assert slot_binding == "(ts ?v-ts)"
-        assert test_ce == "(test (fathom-changed-within ?v-ts 60))"
+        assert slot_binding == "(ts ?p0-ts)"
+        assert test_ce == "(test (fathom-changed-within ?p0-ts 60))"
 
     def test_count_exceeds(self, compiler: Compiler) -> None:
         result = compiler._compile_condition(
@@ -301,15 +303,15 @@ class TestCrossRefs:
 
     def test_not_equals_with_cross_ref(self, compiler: Compiler) -> None:
         result = compiler._compile_condition("status", "not_equals($other.status)", {}, None)
-        assert result == "(status ?s_status&:(neq ?s_status ?other-status))"
+        assert result == "(status ?s_0_status&:(neq ?s_0_status ?other-status))"
 
     def test_greater_than_with_cross_ref(self, compiler: Compiler) -> None:
         result = compiler._compile_condition("level", "greater_than($req.min_level)", {}, None)
-        assert result == "(level ?s_level&:(> ?s_level ?req-min_level))"
+        assert result == "(level ?s_0_level&:(> ?s_0_level ?req-min_level))"
 
     def test_less_than_with_cross_ref(self, compiler: Compiler) -> None:
         result = compiler._compile_condition("priority", "less_than($other.priority)", {}, None)
-        assert result == "(priority ?s_priority&:(< ?s_priority ?other-priority))"
+        assert result == "(priority ?s_0_priority&:(< ?s_0_priority ?other-priority))"
 
 
 # ---------------------------------------------------------------------------
@@ -792,7 +794,7 @@ class TestCompileBind:
         assert "(agent (level ?lvl&secret))" in result
 
     def test_bind_with_not_equals_expression(self, compiler: Compiler) -> None:
-        """AC-2.3: bind + not_equals emits `(slot ?var&?s_slot&:(neq ?s_slot literal))`."""
+        """AC-2.3: bind + not_equals emits `(slot ?var&?s_0_slot&:(neq ?s_0_slot literal))`."""
         rule = _make_rule(
             name="bind-neq",
             when=[
@@ -808,7 +810,7 @@ class TestCompileBind:
         result = compiler.compile_rule(rule, "MAIN")
         # Bind variable appears and is joined to the inequality constraint via `&`.
         assert "?lvl" in result
-        assert "(agent (level ?lvl&?s_level&:(neq ?s_level public)))" in result
+        assert "(agent (level ?lvl&?s_0_level&:(neq ?s_0_level public)))" in result
 
     def test_test_standalone_emits_only_test_ce(self, compiler: Compiler) -> None:
         """``test`` alone emits ``(test ...)`` without a slot pattern."""

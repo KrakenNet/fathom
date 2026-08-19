@@ -2,7 +2,7 @@
 
 Provides :class:`FathomCallbackHandler` which intercepts LangChain tool
 calls, evaluates them against loaded Fathom rules, and raises
-:class:`PolicyViolation` when a tool call is denied or escalated.
+:class:`PolicyViolation` unless the decision is ``allow``.
 
 Requires ``langchain-core >= 0.2``.  Install via::
 
@@ -30,17 +30,19 @@ if TYPE_CHECKING:
 
 
 class PolicyViolation(Exception):  # noqa: N818 — name per design spec
-    """Raised when Fathom denies or escalates a tool call.
+    """Raised when Fathom does not explicitly allow a tool call.
 
     Attributes:
-        decision: The evaluation decision (``"deny"`` or ``"escalate"``).
+        decision: The evaluation decision — any value other than ``"allow"``
+            (e.g. ``"deny"``, ``"escalate"``, ``"route"``, ``"scope"``), or
+            ``None`` when no rule fired and no default decision is configured.
         reason: Human-readable reason from the matching rule.
         rule_trace: Ordered list of rules that fired during evaluation.
     """
 
     def __init__(
         self,
-        decision: str,
+        decision: str | None,
         reason: str | None,
         rule_trace: list[str],
     ) -> None:
@@ -93,8 +95,8 @@ def _evaluate_tool_call(
     """Shared fact-mapping and evaluation logic for callback handlers.
 
     Uses :func:`_build_tool_request_facts` to construct the fact dict,
-    asserts it into the engine, runs evaluation, and raises
-    :class:`PolicyViolation` on ``deny`` or ``escalate``.
+    asserts it into the engine, runs evaluation, retracts the fact, and
+    raises :class:`PolicyViolation` unless the decision is ``allow``.
 
     Args:
         engine: Configured Fathom engine.
@@ -105,13 +107,22 @@ def _evaluate_tool_call(
     facts = _build_tool_request_facts(serialized, input_str, agent_id)
 
     # Assert tool_request fact into working memory
-    engine.assert_fact("tool_request", facts)
+    # Request-scoped: assert, run, retract — all under one engine lock, with
+    # CLIPS refraction reset afterwards.
+    #
+    # The hand-rolled assert/evaluate/retract this replaces had three holes.
+    # (1) Retraction alone does not clear refraction, so a rule that matched
+    # only long-lived facts (an `agent` fact, say) fired on call 1 and stayed
+    # refracted for calls 2..N — a deny rule silently stopped denying, which
+    # is a fail-open. (2) Taking the lock three separate times let a second
+    # thread retract the (de-duplicated) fact before the first thread
+    # evaluated, permitting hard-denied tools under concurrency. (3) The
+    # retract-by-value matched a caller-owned identical fact and deleted it.
+    # `evaluate_once` closes all three.
+    result = engine.evaluate_once([("tool_request", facts)])
 
-    # Evaluate rules
-    result = engine.evaluate()
-
-    # Raise on deny or escalate
-    if result.decision in ("deny", "escalate"):
+    # Fail closed: only an explicit allow permits the call
+    if result.decision != "allow":
         raise PolicyViolation(
             decision=result.decision,
             reason=result.reason,
@@ -123,8 +134,8 @@ class FathomCallbackHandler(BaseCallbackHandler):
     """Synchronous LangChain callback handler for Fathom policy enforcement.
 
     Intercepts ``on_tool_start`` events, asserts a ``tool_request`` fact
-    into the Fathom engine, evaluates rules, and raises
-    :class:`PolicyViolation` when the decision is ``deny`` or ``escalate``.
+    into the Fathom engine, evaluates rules, retracts the fact, and raises
+    :class:`PolicyViolation` unless the decision is ``allow``.
 
     Args:
         engine: A configured :class:`~fathom.engine.Engine` instance with
@@ -154,8 +165,7 @@ class FathomCallbackHandler(BaseCallbackHandler):
 
         Extracts the tool name from the serialized dict and the input
         arguments, asserts a ``tool_request`` fact, and runs evaluation.
-        Raises :class:`PolicyViolation` if the decision is ``deny`` or
-        ``escalate``.
+        Raises :class:`PolicyViolation` unless the decision is ``allow``.
 
         Args:
             serialized: Serialized tool metadata from LangChain.
@@ -241,23 +251,34 @@ def fathom_guard(
     Returns:
         A dictionary with ``"fathom_decision"`` (e.g. ``"allow"``,
         ``"deny"``, ``"escalate"``) and ``"fathom_reason"`` (human-readable
-        explanation or empty string).
+        explanation or empty string).  When evaluation yields no decision
+        the node fails closed and reports ``"deny"``.
     """
     tool_name = state.get("tool_name", "unknown")
     arguments = state.get("arguments", "")
 
-    engine.assert_fact(
-        "tool_request",
-        {
-            "tool_name": str(tool_name),
-            "arguments": str(arguments),
-            "agent_id": agent_id,
-        },
-    )
+    facts = {
+        "tool_name": str(tool_name),
+        "arguments": str(arguments),
+        "agent_id": agent_id,
+    }
 
-    result = engine.evaluate()
+    # Request-scoped: assert, run, retract — all under one engine lock, with
+    # CLIPS refraction reset afterwards.
+    #
+    # The hand-rolled assert/evaluate/retract this replaces had three holes.
+    # (1) Retraction alone does not clear refraction, so a rule that matched
+    # only long-lived facts (an `agent` fact, say) fired on call 1 and stayed
+    # refracted for calls 2..N — a deny rule silently stopped denying, which
+    # is a fail-open. (2) Taking the lock three separate times let a second
+    # thread retract the (de-duplicated) fact before the first thread
+    # evaluated, permitting hard-denied tools under concurrency. (3) The
+    # retract-by-value matched a caller-owned identical fact and deleted it.
+    # `evaluate_once` closes all three.
+    result = engine.evaluate_once([("tool_request", facts)])
 
     return {
-        "fathom_decision": result.decision or "allow",
+        # Fail closed: never manufacture a permit out of a missing decision
+        "fathom_decision": result.decision or "deny",
         "fathom_reason": result.reason or "",
     }

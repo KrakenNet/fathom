@@ -9,6 +9,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# CodeQL actions/missing-workflow-permissions: without an explicit block the
+# GITHUB_TOKEN inherits the repository default, which can be write-all. These
+# jobs only ever read the checkout.
+permissions:
+  contents: read
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -64,20 +70,36 @@ jobs:
       # test_ts_sdk_docs.py and test_postman.py actually run (issue #16). The
       # prometheus packages for test_rest_metrics.py come from the `metrics`
       # extra via `uv sync --all-extras` above. Windows/macOS matrix legs keep
-      # skipping these (apt/minisign are Linux-only); Linux is the lane that
-      # guarantees coverage.
+      # skipping these (the minisign/protoc archives are Linux-only); Linux is
+      # the lane that guarantees coverage.
+      # Installed from the upstream release archive rather than apt, the same
+      # way protoc and protoc-gen-doc are below. `apt-get update` refreshes
+      # every configured repository, so a single unhealthy runner mirror
+      # (azure.archive.ubuntu.com Ign'ing all four suites) fails the whole
+      # update and takes a required job down with it -- and no retry count
+      # helps, because the mirror stays unhealthy for the length of the run.
+      # A pinned tarball touches exactly one host and is content-verified.
       - name: Install minisign (test_release_sig.py)
         if: runner.os == 'Linux'
-        # Retry: an apt mirror/network blip must not fail a required job.
-        # `command -v` after the loop fails loud if all attempts truly failed
-        # (so the issue-#16 skip-guard still catches a genuinely-missing tool).
+        timeout-minutes: 3
         run: |
           set -euo pipefail
+          MINISIGN_VERSION=0.12
+          MINISIGN_SHA256=9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73
+          # Retry the download; a transient network blip must not fail a
+          # required job. The SHA256 check stays AFTER the retries, so a
+          # partial/failed download still fails loud (never installs unverified).
           for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y minisign && break || {
-              echo "apt attempt $i failed; retrying in $((i * 5))s"; sleep $((i * 5)); }
+            curl -fsSL -o /tmp/minisign.tar.gz \
+              "https://github.com/jedisct1/minisign/releases/download/${MINISIGN_VERSION}/minisign-${MINISIGN_VERSION}-linux.tar.gz" \
+              && break || { echo "download attempt $i failed; retrying in $((i * 5))s"; sleep $((i * 5)); }
           done
-          command -v minisign
+          echo "${MINISIGN_SHA256}  /tmp/minisign.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/minisign.tar.gz -C /tmp minisign-linux/x86_64/minisign
+          sudo install -m 0755 /tmp/minisign-linux/x86_64/minisign /usr/local/bin/minisign
+          # Fails loud if the archive layout ever changes, so the issue-#16
+          # skip-guard still catches a genuinely-missing tool.
+          minisign -v
 
       - name: Set up Go (test_go_sdk_docs.py)
         if: runner.os == 'Linux'

@@ -1,0 +1,39 @@
+templates:
+  - name: subject
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: clearance
+        type: symbol
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+        required: true
+      - name: compartments
+        type: string
+        default: ""
+
+  - name: resource
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: classification
+        type: symbol
+        allowed_values: [unclassified, cui, confidential, secret, top-secret]
+        required: true
+      - name: compartments
+        type: string
+        default: ""
+
+  - name: access_request
+    slots:
+      - name: subject_id
+        type: string
+        required: true
+      - name: object_id
+        type: string
+        required: true
+      - name: mode
+        type: symbol
+        allowed_values: [read, write]
+        required: true

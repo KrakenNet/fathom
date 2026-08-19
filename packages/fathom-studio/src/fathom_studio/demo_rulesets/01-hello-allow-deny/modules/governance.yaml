@@ -1,0 +1,6 @@
+modules:
+  - name: governance
+    description: "Basic allow/deny governance rules"
+
+focus_order:
+  - governance

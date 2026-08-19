@@ -1,6 +1,9 @@
 module: owasp
 ruleset: owasp-agentic
 version: "1.0"
+# Salience convention: decision selection is last-write-wins and CLIPS fires
+# the highest salience first, so the LOWEST-salience rule that fires decides.
+# Severity is monotone in reverse salience here: deny 50, escalate >= 80.
 rules:
   - name: detect-prompt-injection
     salience: 100
@@ -16,7 +19,7 @@ rules:
       attestation: true
 
   - name: deny-excessive-agency-exec
-    salience: 100
+    salience: 50
     when:
       - template: tool_call
         conditions:

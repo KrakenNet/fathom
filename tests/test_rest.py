@@ -6,10 +6,10 @@ import os
 import time
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from fathom.integrations.rest import SessionStore, app, session_store
+from fathom.integrations.sessions import SessionLimitError
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -422,7 +422,7 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine1, _ = session_store._sessions["sess-reuse"]
+        engine1 = session_store._sessions["sess-reuse"].engine
 
         client.post(
             "/v1/evaluate",
@@ -433,7 +433,7 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine2, _ = session_store._sessions["sess-reuse"]
+        engine2 = session_store._sessions["sess-reuse"].engine
         assert engine1 is engine2
 
     def test_facts_persist_across_requests(
@@ -500,8 +500,8 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine_a, _ = session_store._sessions["sess-A"]
-        engine_b, _ = session_store._sessions["sess-B"]
+        engine_a = session_store._sessions["sess-A"].engine
+        engine_b = session_store._sessions["sess-B"].engine
         assert engine_a is not engine_b
 
     def test_stateful_returns_200(self, client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -560,9 +560,8 @@ class TestSessionStore:
         store = SessionStore(max_sessions=2)
         store.get_or_create("s1", FIXTURES_DIR)
         store.get_or_create("s2", FIXTURES_DIR)
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(SessionLimitError):
             store.get_or_create("s3", FIXTURES_DIR)
-        assert exc_info.value.status_code == 503
 
     def test_max_sessions_after_expiry_allows_new(self) -> None:
         """After expired sessions are cleaned, new sessions can be created."""
@@ -584,10 +583,10 @@ class TestSessionStore:
     def test_get_or_create_updates_access_time(self) -> None:
         store = SessionStore(ttl_seconds=3600)
         store.get_or_create("s1", FIXTURES_DIR)
-        _, t1 = store._sessions["s1"]
+        t1 = store._sessions["s1"].last_access
         time.sleep(0.01)
         store.get_or_create("s1", FIXTURES_DIR)
-        _, t2 = store._sessions["s1"]
+        t2 = store._sessions["s1"].last_access
         assert t2 > t1
 
 
@@ -913,3 +912,90 @@ class TestRetractFactsEndpoint:
             json={"session_id": "x", "template": "agent"},
         )
         assert response.status_code == 401
+
+
+class TestEvaluateFactCeiling:
+    """The CLIPS join is quadratic in fact count, so the body-byte cap alone
+    does not bound the CPU one request can burn. ``EvaluateRequest.facts``
+    carries its own ``max_length`` ceiling.
+    """
+
+    CEILING = 500
+
+    @staticmethod
+    def _facts(n: int) -> list[dict[str, object]]:
+        return [
+            {"template": "agent", "data": {"id": f"a{i}", "clearance": "secret"}} for i in range(n)
+        ]
+
+    @staticmethod
+    def _joined_facts(n: int) -> list[dict[str, object]]:
+        """n facts that actually JOIN, i.e. that cost what the cap is for.
+
+        Single-template facts have no join partner and produce almost no
+        activations, so a ceiling test built from them passes no matter how
+        far the ceiling outruns the engine's activation budget. That is
+        exactly how a 1000-fact cap shipped against a budget that gave out
+        at ~632 mixed facts.
+        """
+        facts: list[dict[str, object]] = []
+        for i in range(n // 2):
+            facts.append({"template": "agent", "data": {"id": f"a{i}", "clearance": "secret"}})
+            facts.append(
+                {
+                    "template": "data_request",
+                    "data": {
+                        "agent_id": f"a{i}",
+                        "classification": "secret",
+                        "resource": f"r{i}",
+                    },
+                }
+            )
+        return facts
+
+    def test_at_the_ceiling_is_accepted(
+        self, client: TestClient, auth_headers: dict[str, str]
+    ) -> None:
+        response = client.post(
+            "/v1/evaluate",
+            json={"facts": self._facts(self.CEILING), "ruleset": ""},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+
+    def test_a_full_ceiling_of_joining_facts_still_returns_a_decision(
+        self, client: TestClient, auth_headers: dict[str, str]
+    ) -> None:
+        """The advertised cap must be servable, not just accepted by pydantic.
+
+        A cap the engine's activation budget cannot reach turns requests that
+        used to return a decision into 503s.
+        """
+        response = client.post(
+            "/v1/evaluate",
+            json={"facts": self._joined_facts(self.CEILING), "ruleset": ""},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["decision"] is not None
+
+    def test_over_the_ceiling_is_rejected(
+        self, client: TestClient, auth_headers: dict[str, str]
+    ) -> None:
+        response = client.post(
+            "/v1/evaluate",
+            json={"facts": self._facts(self.CEILING + 1), "ruleset": ""},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_rejection_uses_the_single_error_envelope(
+        self, client: TestClient, auth_headers: dict[str, str]
+    ) -> None:
+        response = client.post(
+            "/v1/evaluate",
+            json={"facts": self._facts(self.CEILING + 1), "ruleset": ""},
+            headers=auth_headers,
+        )
+        body = response.json()
+        assert set(body) == {"error", "detail", "field"}

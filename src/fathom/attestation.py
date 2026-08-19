@@ -55,11 +55,27 @@ class AttestationService:
         session_id: str,
         input_facts: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Sign an evaluation result and return a JWT token."""
+        """Sign an evaluation result and return a JWT token.
+
+        Args:
+            result: The evaluation result to attest.
+            session_id: Session the evaluation ran under.
+            input_facts: The caller-supplied facts the decision was
+                computed over. **Required** — the token's ``input_hash``
+                is what binds it to a specific fact set, so signing
+                without them would issue a token that attests nothing.
+                Pass ``[]`` for an evaluation over empty working memory.
+
+        Raises:
+            AttestationError: *input_facts* is ``None``.
+        """
+        if input_facts is None:
+            raise AttestationError(
+                "sign() requires input_facts: a token signed without them carries "
+                "the constant hash of the empty list and binds no inputs"
+            )
         # SHA-256 hash of input facts for integrity
-        input_hash = hashlib.sha256(
-            json.dumps(input_facts or [], sort_keys=True).encode()
-        ).hexdigest()
+        input_hash = hashlib.sha256(json.dumps(input_facts, sort_keys=True).encode()).hexdigest()
 
         payload = {
             "iss": "fathom",

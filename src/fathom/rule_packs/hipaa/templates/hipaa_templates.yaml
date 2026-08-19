@@ -13,6 +13,9 @@ templates:
       - name: justification
         type: string
         default: ""
+      - name: ts
+        type: float
+        required: true
 
   - name: data_transfer
     slots:

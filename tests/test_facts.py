@@ -1134,3 +1134,31 @@ def test_ttl_timestamps_cleared_on_reset() -> None:
     # TTL cleanup now must NOT retract the new fact (its timestamp is fresh).
     engine._fact_manager.cleanup_expired()
     assert engine.query("event") == [{"kind": "second"}]
+
+
+def test_fact_timestamps_pruned_on_retract(multi_template_engine) -> None:
+    """_fact_timestamps must not grow with every fact ever asserted."""
+    e = multi_template_engine
+    for i in range(200):
+        e.assert_fact("user", {"name": f"u{i}", "age": i})
+        e.retract("user", {"name": f"u{i}"})
+    assert e.count("user") == 0
+    assert e._fact_manager._fact_timestamps == {}
+
+
+def test_fact_timestamps_pruned_on_clear_facts(multi_template_engine) -> None:
+    e = multi_template_engine
+    for i in range(50):
+        e.assert_fact("user", {"name": f"u{i}", "age": i})
+    assert len(e._fact_manager._fact_timestamps) == 50
+    e.clear_facts()
+    assert e._fact_manager._fact_timestamps == {}
+
+
+def test_retract_keeps_timestamps_of_surviving_facts(multi_template_engine) -> None:
+    """Pruning is per-fact: untouched facts keep their TTL clock."""
+    e = multi_template_engine
+    e.assert_fact("user", {"name": "keep", "age": 1})
+    e.assert_fact("user", {"name": "drop", "age": 2})
+    e.retract("user", {"name": "drop"})
+    assert len(e._fact_manager._fact_timestamps) == 1

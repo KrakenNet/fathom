@@ -1,14 +1,20 @@
 """Studio panel + scenario-seed regression tests (FR-8, AC-7.2–7.4).
 
 Exercises the Studio over a :class:`~fastapi.testclient.TestClient` built from
-:func:`fathom.studio.app.create_app`. The REST app mounted at ``/api`` reads
+:func:`fathom_studio.app.create_app`. The REST app mounted at ``/api`` reads
 ``FATHOM_API_TOKEN`` (per-request, via :mod:`fathom.integrations.auth`) and
 ``FATHOM_RULESET_ROOT`` (per-request, in the evaluate path), so a
 ``monkeypatch.setenv`` before each request is sufficient — no module reload.
 
+The Studio's own panels are gated on the same ``FATHOM_API_TOKEN``
+(:mod:`fathom_studio.auth`), so the configured fixtures present it as a bearer
+header the way the SPA and ``curl`` do.
+
 Coverage:
 
-* all eight GET panels (``/`` plus the seven panel routes) return 200;
+* all seven panel routes plus the ungated SPA shell at ``/`` return 200;
+* every panel route 401s without the token, and the ``?token=`` grant on ``/``
+  hands a browser the cookie that unlocks them;
 * the ``fathom_sid`` session cookie is minted on the first request;
 * ``/packs`` lists the five real on-disk rule packs;
 * ``POST /eval`` (Playground) evaluates against the mounted REST app and
@@ -27,13 +33,15 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi.testclient import TestClient
 
-from fathom.studio.app import create_app
-from fathom.studio.panels import (
+from fathom_studio.app import create_app
+from fathom_studio.auth import TOKEN_COOKIE
+from fathom_studio.panels import (
     _SCRIPTED_CALLS,
     _list_rule_packs,
     _run_scripted_guardrail,
 )
-from fathom.studio.sessions import SESSION_COOKIE
+from fathom_studio.rulesets import packaged_root
+from fathom_studio.sessions import SESSION_COOKIE
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -41,8 +49,14 @@ if TYPE_CHECKING:
 #: Bearer token wired into the mounted REST app for the configured fixtures.
 _TOKEN = "demo-token"
 
-#: Ruleset root: the bundled ``examples/0N-*`` directories the seeds load.
-_RULESET_ROOT = "examples"
+#: Ruleset root: the ``0N-*`` directories the Studio ships as package data.
+#: Absolute, via :func:`packaged_root` -- a repo-relative ``"examples"`` only
+#: resolved when pytest happened to run from the repo root, so it broke the
+#: moment the suite was invoked from ``packages/fathom-studio/``.
+_RULESET_ROOT = str(packaged_root())
+
+#: Authorization header presenting the Studio token, as ``curl``/the SPA do.
+_AUTH = {"Authorization": f"Bearer {_TOKEN}"}
 
 #: The seven panel routes plus the overview — every GET panel must answer 200.
 _PANEL_ROUTES: tuple[str, ...] = (
@@ -71,16 +85,25 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """A Studio client with the REST app's token + ruleset root configured."""
     monkeypatch.setenv("FATHOM_API_TOKEN", _TOKEN)
     monkeypatch.setenv("FATHOM_RULESET_ROOT", _RULESET_ROOT)
+    with TestClient(create_app(), headers=_AUTH) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def anonymous_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """A Studio client that presents no token at all."""
+    monkeypatch.setenv("FATHOM_API_TOKEN", _TOKEN)
+    monkeypatch.setenv("FATHOM_RULESET_ROOT", _RULESET_ROOT)
     with TestClient(create_app()) as test_client:
         yield test_client
 
 
 @pytest.fixture
 def unconfigured_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """A Studio client with no REST token (graceful-degradation path)."""
+    """A Studio client for a server with no ``FATHOM_API_TOKEN`` configured."""
     monkeypatch.delenv("FATHOM_API_TOKEN", raising=False)
     monkeypatch.setenv("FATHOM_RULESET_ROOT", _RULESET_ROOT)
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), headers=_AUTH) as test_client:
         yield test_client
 
 
@@ -137,17 +160,17 @@ def test_scenario_seed_renders_deny_card(client: TestClient) -> None:
     assert "Error:" not in body
 
 
-def test_playground_without_token_shows_notice(unconfigured_client: TestClient) -> None:
-    """No ``FATHOM_API_TOKEN`` yields a config notice, not a fake decision."""
+def test_unconfigured_studio_refuses_every_panel(unconfigured_client: TestClient) -> None:
+    """With no ``FATHOM_API_TOKEN`` configured the Studio serves no panel at all."""
+    for route in _PANEL_ROUTES:
+        if route == "/":  # the SPA shell carries no engine data
+            continue
+        assert unconfigured_client.get(route).status_code == 401
     response = unconfigured_client.post(
         "/eval",
         data={"template": "agent", "data": "{}", "ruleset": "01-hello-allow-deny"},
     )
-    assert response.status_code == 200
-    body = response.text
-    assert "FATHOM_API_TOKEN is not configured" in body
-    assert "decision: allow" not in body
-    assert "decision: deny" not in body
+    assert response.status_code == 401
 
 
 def test_scripted_guardrail_three_allow_two_deny(client: TestClient) -> None:
@@ -162,3 +185,72 @@ def test_scripted_guardrail_three_allow_two_deny(client: TestClient) -> None:
     decisions = [event["decision"] for event in timeline]
     assert decisions.count("allow") == 3
     assert sum(1 for d in decisions if d != "allow") == 2
+
+
+# --------------------------------------------------------------------------
+# Token gate (studio-api-unauthenticated / wip-studio-api-unauthenticated-surface)
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("route", [r for r in _PANEL_ROUTES if r != "/"])
+def test_panel_requires_token(anonymous_client: TestClient, route: str) -> None:
+    """An anonymous caller gets 401 from every panel, not rule data."""
+    assert anonymous_client.get(route).status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("method", "route", "data"),
+    [
+        ("post", "/eval", {"template": "agent", "data": "{}", "ruleset": ""}),
+        ("post", "/scenarios/01-hello-allow-deny/seed", {}),
+        ("post", "/guardrail/run", {"mode": "scripted"}),
+        ("post", "/audit/token", {}),
+    ],
+)
+def test_state_changing_panel_requires_token(
+    anonymous_client: TestClient,
+    method: str,
+    route: str,
+    data: dict[str, str],
+) -> None:
+    """No anonymous caller can drive the engine or mint an attestation token."""
+    response = getattr(anonymous_client, method)(route, data=data)
+    assert response.status_code == 401
+
+
+def test_spa_shell_is_reachable_without_a_token(anonymous_client: TestClient) -> None:
+    """``/`` still serves the SPA shell — it carries no engine data."""
+    assert anonymous_client.get("/").status_code == 200
+    assert anonymous_client.get("/health").status_code == 200
+
+
+def test_token_query_param_grants_browser_cookie(anonymous_client: TestClient) -> None:
+    """``/?token=`` validates the token and hands the browser a session cookie."""
+    response = anonymous_client.get("/", params={"token": _TOKEN})
+    assert response.status_code == 200
+    granted = anonymous_client.cookies.get(TOKEN_COOKIE)
+    assert granted
+    # The cookie is an opaque session id, never the API token: the browser jar
+    # is storage the operator does not control, and the token also opens /v1.
+    assert granted != _TOKEN
+    assert _TOKEN not in granted
+    # The cookie now unlocks the panels for the plain HTML forms.
+    assert anonymous_client.get("/packs").status_code == 200
+
+
+def test_wrong_token_query_param_grants_nothing(anonymous_client: TestClient) -> None:
+    """A bogus ``?token=`` mints no cookie and unlocks nothing."""
+    anonymous_client.get("/", params={"token": "wrong-token"})
+    assert anonymous_client.cookies.get(TOKEN_COOKIE) is None
+    assert anonymous_client.get("/packs").status_code == 401
+
+
+def test_granted_cookie_is_not_a_usable_bearer_token(anonymous_client: TestClient) -> None:
+    """A stolen Studio cookie cannot be replayed as a bearer token on ``/v1``.
+
+    This is the point of minting a session id instead of echoing the API token:
+    the mounted REST app validates ``FATHOM_API_TOKEN``, which the cookie is not.
+    """
+    anonymous_client.get("/", params={"token": _TOKEN})
+    granted = anonymous_client.cookies.get(TOKEN_COOKIE)
+    assert granted
+    stolen = anonymous_client.get("/api/v1/rules", headers={"Authorization": f"Bearer {granted}"})
+    assert stolen.status_code == 401

@@ -39,6 +39,14 @@ _CLIPS_ALLOWED_MAP: dict[SlotType, str] = {
     SlotType.SYMBOL: "allowed-symbols",
 }
 
+# Operator arguments that are interpolated into the generated CLIPS without
+# quoting must be a single token, or an already-quoted string literal, so an
+# argument cannot terminate the enclosing constraint and inject conditional
+# elements. ``matches`` and ``contains`` escape and quote their argument and
+# are therefore exempt.
+_ARG_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:@/+?$-]+$")
+_QUOTED_ARG_RE = re.compile(r'^"(?:[^"\\]|\\.)*"$')
+
 
 class Compiler:
     """Compiles Fathom YAML definitions into CLIPS construct strings."""
@@ -133,12 +141,21 @@ class Compiler:
         lines.append(")")
         return "\n".join(lines)
 
-    def compile_rule(self, defn: RuleDefinition, module: str) -> str:
+    def compile_rule(
+        self,
+        defn: RuleDefinition,
+        module: str,
+        templates: dict[str, TemplateDefinition] | None = None,
+    ) -> str:
         """Generate a CLIPS defrule string from a RuleDefinition.
 
         Args:
             defn: The rule definition to compile.
             module: The CLIPS module name to scope this rule under.
+            templates: Optional registry of template definitions, keyed by
+                template name. When supplied, literal arguments are emitted
+                according to the declared slot type (e.g. ``equals`` on a
+                ``string`` slot emits a quoted CLIPS string).
 
         Returns:
             A CLIPS defrule string.
@@ -165,16 +182,27 @@ class Compiler:
         if defn.salience != 0:
             lines.append(f"    (declare (salience {defn.salience}))")
 
-        # Build alias map from fact patterns
+        # Build alias map from fact patterns. Two patterns sharing one alias
+        # used to overwrite silently, so `$a.slot` cross-references resolved
+        # against whichever pattern came last and the rule joined on a
+        # variable the author never intended.
         aliases: dict[str, str] = {}
         for pattern in defn.when:
-            if pattern.alias:
-                aliases[pattern.alias] = pattern.template
+            if not pattern.alias:
+                continue
+            if pattern.alias in aliases:
+                raise CompilationError(
+                    "[fathom.compiler] compile rule failed: "
+                    f"rule {defn.name!r} reuses alias {pattern.alias!r} on more than "
+                    "one fact pattern; each alias must name exactly one pattern",
+                    construct=f"rule:{defn.name}",
+                )
+            aliases[pattern.alias] = pattern.template
 
         # LHS: fact patterns and test CEs
         all_test_ces: list[str] = []
-        for pattern in defn.when:
-            lhs, test_ces = self._compile_fact_pattern(pattern, aliases)
+        for pattern_index, pattern in enumerate(defn.when):
+            lhs, test_ces = self._compile_fact_pattern(pattern, aliases, pattern_index, templates)
             lines.append(f"    {lhs}")
             all_test_ces.extend(test_ces)
 
@@ -196,14 +224,26 @@ class Compiler:
         self,
         pattern: FactPattern,
         aliases: dict[str, str],
+        pattern_index: int = 0,
+        templates: dict[str, TemplateDefinition] | None = None,
     ) -> tuple[str, list[str]]:
         """Compile a FactPattern into a CLIPS LHS pattern string.
+
+        ``pattern_index`` is the pattern's position in the rule's ``when``
+        list. It namespaces every constraint variable so two patterns that
+        constrain a same-named slot do not collide into an unintended CLIPS
+        join (see design §Constraint Variable Naming).
 
         Returns:
             A tuple of (pattern_string, list_of_test_CEs).  The test CEs
             are ``(test ...)`` strings that must appear after all pattern
             CEs on the rule LHS.
         """
+        slot_types: dict[str, SlotType] = {}
+        if templates is not None:
+            tmpl_def = templates.get(pattern.template)
+            if tmpl_def is not None:
+                slot_types = {slot.name: slot.type for slot in tmpl_def.slots}
         if not pattern.conditions:
             return f"({pattern.template})", []
 
@@ -215,7 +255,13 @@ class Compiler:
                 test_ces.append(f"(test {cond.test.strip()})")
                 continue
             result = self._compile_condition(
-                cond.slot, cond.expression, aliases, pattern.alias, cond.bind
+                cond.slot,
+                cond.expression,
+                aliases,
+                pattern.alias,
+                cond.bind,
+                pattern_index,
+                slot_types.get(cond.slot),
             )
             if isinstance(result, tuple):
                 slot_parts.append(result[0])
@@ -863,6 +909,13 @@ class Compiler:
                 detail="Expected format: operator(value)",
             )
         op = expr[:paren_idx].strip()
+        if not op:
+            raise CompilationError(
+                "[fathom.compiler] parse condition failed: "
+                f"missing operator name in expression {expr!r}. "
+                "Expected format: operator(value)",
+                detail="Expected format: operator(value)",
+            )
         arg = expr[paren_idx + 1 : -1].strip()
         return op, arg
 
@@ -936,6 +989,55 @@ class Compiler:
         "sequence_detected",
     }
 
+    # Minimum argument count for each temporal operator
+    _TEMPORAL_ARITY: dict[str, int] = {
+        "changed_within": 1,
+        "count_exceeds": 4,
+        "rate_exceeds": 5,
+        "last_n": 4,
+        "distinct_count": 4,
+        "sequence_detected": 2,
+    }
+
+    # Operators compiled directly into a slot constraint
+    _LITERAL_OPS: set[str] = {
+        "equals",
+        "not_equals",
+        "greater_than",
+        "less_than",
+        "in",
+        "not_in",
+        "contains",
+        "matches",
+    }
+
+    @classmethod
+    def _supported_operators(cls) -> list[str]:
+        """Every operator name ``_compile_condition`` accepts, sorted."""
+        return sorted(cls._LITERAL_OPS | set(cls._CLASSIFICATION_OPS) | cls._TEMPORAL_OPS)
+
+    @staticmethod
+    def _validate_operator_arg(arg: str, op: str) -> str:
+        """Reject an unquoted operator argument that could break out of CLIPS.
+
+        Args:
+            arg: The literal argument as written in the expression.
+            op: The operator name, for the error message.
+
+        Returns:
+            *arg* unchanged.
+
+        Raises:
+            CompilationError: If *arg* is neither a single CLIPS token nor an
+                already-quoted string literal.
+        """
+        if _QUOTED_ARG_RE.match(arg) or _ARG_TOKEN_RE.match(arg):
+            return arg
+        raise CompilationError(
+            f"[fathom.compiler] compile rule failed: invalid argument {arg!r} for operator {op!r}",
+            detail="Operator arguments must be a single token or a quoted string",
+        )
+
     @staticmethod
     def _inject_bind_into_pattern(slot: str, pattern: str, bind: str) -> str:
         """Inject a CLIPS bind variable into a compiled slot pattern.
@@ -958,6 +1060,8 @@ class Compiler:
         aliases: dict[str, str],
         pattern_alias: str | None = None,
         bind: str | None = None,
+        pattern_index: int = 0,
+        slot_type: SlotType | None = None,
     ) -> str | tuple[str, str]:
         """Compile a single condition expression into CLIPS pattern syntax.
 
@@ -976,6 +1080,10 @@ class Compiler:
                 used to generate variable names for classification ops.
             bind: Optional LHS bind variable (``?name``) to capture the
                 slot's value. See design §LHS Bind Emission.
+            pattern_index: Position of the enclosing fact pattern in the
+                rule's ``when`` list, used to namespace constraint variables.
+            slot_type: Declared type of *slot*, when the template registry
+                is known. Drives type-aware literal emission for ``equals``.
 
         Returns:
             A CLIPS slot constraint string, or a tuple of
@@ -992,7 +1100,9 @@ class Compiler:
         # inject ``{bind}&`` into the slot-pattern body so the bind variable
         # participates in the CLIPS pattern-binding chain.
         if bind is not None:
-            inner = self._compile_condition(slot, expr, aliases, pattern_alias)
+            inner = self._compile_condition(
+                slot, expr, aliases, pattern_alias, None, pattern_index, slot_type
+            )
             if isinstance(inner, tuple):
                 return self._inject_bind_into_pattern(slot, inner[0], bind), inner[1]
             return self._inject_bind_into_pattern(slot, inner, bind)
@@ -1004,25 +1114,26 @@ class Compiler:
         if op in self._CLASSIFICATION_OPS:
             clips_fn = self._CLASSIFICATION_OPS[op]
             # Build variable name for the slot value
-            alias_prefix = pattern_alias.lstrip("$") if pattern_alias else "v"
+            alias_prefix = pattern_alias.lstrip("$") if pattern_alias else f"p{pattern_index}"
             slot_var = f"?{alias_prefix}-{slot}"
             # Resolve the argument (cross-ref or literal)
             cross_ref = self._resolve_cross_refs(arg)
-            arg_var = cross_ref if cross_ref is not None else arg
+            arg_var = cross_ref if cross_ref is not None else self._validate_operator_arg(arg, op)
             slot_binding = f"({slot} {slot_var})"
             test_ce = f"(test ({clips_fn} {slot_var} {arg_var}))"
             return slot_binding, test_ce
 
         # Temporal operators: changed_within, count_exceeds, rate_exceeds
         if op in self._TEMPORAL_OPS:
-            return self._compile_temporal_condition(op, arg, slot, pattern_alias)
+            return self._compile_temporal_condition(op, arg, slot, pattern_alias, pattern_index)
 
         # Check for cross-fact variable reference ($alias.field)
         cross_ref = self._resolve_cross_refs(arg)
 
-        # Use slot-specific variable name to avoid CLIPS binding conflicts
-        # when multiple conditions in the same rule use constraint bindings.
-        slot_var = f"?s_{slot}"
+        # Namespace the constraint variable by pattern index and slot so two
+        # patterns constraining a same-named slot do not compile to a CLIPS
+        # join, and so peer conditions in one pattern do not conflict.
+        slot_var = f"?s_{pattern_index}_{slot}"
 
         if op == "equals":
             if cross_ref is not None:
@@ -1030,37 +1141,46 @@ class Compiler:
             # Empty arg means match empty string ""
             if not arg:
                 return f'({slot} "")'
+            # A string slot only accepts a quoted CLIPS literal; quote and
+            # escape the argument unless the author already quoted it.
+            if slot_type is SlotType.STRING and not _QUOTED_ARG_RE.match(arg):
+                return f'({slot} "{self._escape_clips_string(arg)}")'
             # Simple symbol literal: direct pattern match
-            return f"({slot} {arg})"
+            return f"({slot} {self._validate_operator_arg(arg, op)})"
         elif op == "not_equals":
             if cross_ref is not None:
                 return f"({slot} {slot_var}&:(neq {slot_var} {cross_ref}))"
+            arg = self._validate_operator_arg(arg, op)
             return f"({slot} {slot_var}&:(neq {slot_var} {arg}))"
         elif op == "greater_than":
             if cross_ref is not None:
                 return f"({slot} {slot_var}&:(> {slot_var} {cross_ref}))"
+            arg = self._validate_operator_arg(arg, op)
             return f"({slot} {slot_var}&:(> {slot_var} {arg}))"
         elif op == "less_than":
             if cross_ref is not None:
                 return f"({slot} {slot_var}&:(< {slot_var} {cross_ref}))"
+            arg = self._validate_operator_arg(arg, op)
             return f"({slot} {slot_var}&:(< {slot_var} {arg}))"
         elif op == "in":
-            items = self._parse_list_arg(arg)
+            items = [self._validate_operator_arg(i, op) for i in self._parse_list_arg(arg)]
             or_clauses = " ".join(f"(eq {slot_var} {item})" for item in items)
             return f"({slot} {slot_var}&:(or {or_clauses}))"
         elif op == "not_in":
-            items = self._parse_list_arg(arg)
+            items = [self._validate_operator_arg(i, op) for i in self._parse_list_arg(arg)]
             negations = "".join(f"&~{item}" for item in items)
             return f"({slot} {slot_var}{negations})"
         elif op == "contains":
-            return f"({slot} {slot_var}&:(str-index {arg} {slot_var}))"
+            escaped_arg = self._escape_clips_string(arg)
+            return f'({slot} {slot_var}&:(str-index "{escaped_arg}" {slot_var}))'
         elif op == "matches":
             escaped_arg = self._escape_clips_string(arg)
             return f'({slot} {slot_var}&:(fathom-matches {slot_var} "{escaped_arg}"))'
         else:
             raise CompilationError(
                 "[fathom.compiler] compile rule failed: "
-                f"unsupported condition operator {op!r} in expression: {expr}",
+                f"unsupported condition operator {op!r} in expression: {expr}. "
+                f"Supported operators: {', '.join(self._supported_operators())}",
                 detail=f"Expression: {expr}",
             )
 
@@ -1070,6 +1190,7 @@ class Compiler:
         arg: str,
         slot: str,
         pattern_alias: str | None,
+        pattern_index: int = 0,
     ) -> tuple[str, str]:
         """Compile a temporal operator into a slot binding + test CE.
 
@@ -1092,27 +1213,42 @@ class Compiler:
             arg: The comma-separated arguments string.
             slot: The slot name in the template.
             pattern_alias: The ``$alias`` of the enclosing fact pattern.
+            pattern_index: Position of the enclosing fact pattern in the
+                rule's ``when`` list, used to namespace the slot variable.
 
         Returns:
             A tuple of ``(slot_binding, test_CE)``.
+
+        Raises:
+            CompilationError: If the operator is given too few arguments, or
+                an unquoted argument is not a single CLIPS token.
         """
-        alias_prefix = pattern_alias.lstrip("$") if pattern_alias else "v"
+        alias_prefix = pattern_alias.lstrip("$") if pattern_alias else f"p{pattern_index}"
         slot_var = f"?{alias_prefix}-{slot}"
         slot_binding = f"({slot} {slot_var})"
 
+        # Parse comma-separated args and check arity before unpacking
+        args = [a.strip() for a in arg.split(",")]
+        required = Compiler._TEMPORAL_ARITY[op]
+        if len(args) < required:
+            raise CompilationError(
+                "[fathom.compiler] compile rule failed: "
+                f"temporal operator {op!r} requires at least {required} argument(s), "
+                f"got {len(args)}",
+                detail=f"Arguments: {arg}",
+            )
+
         if op == "changed_within":
             # changed_within(window) — single numeric arg
-            window = arg.strip()
+            window = Compiler._validate_operator_arg(args[0], op)
             test_ce = f"(test (fathom-changed-within {slot_var} {window}))"
             return slot_binding, test_ce
-
-        # Parse comma-separated args for count_exceeds / rate_exceeds
-        args = [a.strip() for a in arg.split(",")]
 
         if op == "count_exceeds":
             # count_exceeds(template, slot, value, threshold)
             # First 3 args are strings (quoted), last is numeric
             tmpl, slot_arg, value, threshold = args[0], args[1], args[2], args[3]
+            threshold = Compiler._validate_operator_arg(threshold, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_e = Compiler._escape_clips_string(value)
@@ -1132,6 +1268,8 @@ class Compiler:
                 args[4],
             )
             ts_slot = args[5] if len(args) > 5 else "ts"
+            threshold = Compiler._validate_operator_arg(threshold, op)
+            window = Compiler._validate_operator_arg(window, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_e = Compiler._escape_clips_string(value)
@@ -1146,6 +1284,7 @@ class Compiler:
             # last_n(template, slot, value, n)
             # First 3 args are strings (quoted), last is numeric
             tmpl, slot_arg, value, n = args[0], args[1], args[2], args[3]
+            n = Compiler._validate_operator_arg(n, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_e = Compiler._escape_clips_string(value)
@@ -1161,6 +1300,7 @@ class Compiler:
                 args[2],
                 args[3],
             )
+            threshold = Compiler._validate_operator_arg(threshold, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             group_e = Compiler._escape_clips_string(group_slot)
             count_e = Compiler._escape_clips_string(count_slot)
@@ -1172,6 +1312,7 @@ class Compiler:
         # sequence_detected(events_json, window_seconds)
         # First arg is a JSON string (quoted), second is numeric
         events_json, window_seconds = args[0], args[1]
+        window_seconds = Compiler._validate_operator_arg(window_seconds, op)
         events_e = Compiler._escape_clips_string(events_json)
         test_ce = f'(test (fathom-sequence-detected "{events_e}" {window_seconds}))'
         return slot_binding, test_ce

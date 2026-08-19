@@ -28,7 +28,22 @@ restart, via `POST /v1/rules/reload`. Each reload:
   (fail-closed, AC-5.5).
 - Emits a JWT-attested audit event (`ruleset_reloaded` on success,
   `ruleset_reload_rejected` on failure) carrying the
-  `hash_before`/`hash_after` pair.
+  `ruleset_hash_before`/`ruleset_hash_after` pair.
+
+## Warning: a reload discards all working memory
+
+The new ruleset is compiled into a **fresh** CLIPS environment, and that
+environment starts empty. Every fact in working memory at the moment of the
+swap is gone — session facts, fleet facts synced from the shared store, and any
+long-lived facts the caller asserted at startup. Fact TTL timestamps are
+cleared with them.
+
+A failed reload changes nothing: the old environment keeps serving, so working
+memory survives. Only a *successful* swap wipes it.
+
+Plan for this. Re-assert startup facts from a reload listener, re-run
+`FleetEngine.sync_fleet_facts` for fleet-scoped state, and expect session
+callers to re-seed anything they asserted before the reload.
 
 This how-to covers how to sign a ruleset, wire up the deployment
 config, use the dev escape during development, monitor the live
@@ -67,8 +82,8 @@ Response (200):
 
 ```json
 {
-  "hash_before":       "sha256:aaaa…",
-  "hash_after":        "sha256:bbbb…",
+  "ruleset_hash_before": "sha256:aaaa…",
+  "ruleset_hash_after":  "sha256:bbbb…",
   "attestation_token": "<JWT signed by AttestationService>"
 }
 ```
@@ -151,7 +166,7 @@ secrets (HSM, sealed secret, offline backup). The public half
 
 Sign the **raw YAML bytes** you intend to POST — not a hash, not a
 normalised form. The server re-hashes the payload bytes internally and
-uses them both for verification and for `hash_after`. Any pre-signing
+uses them both for verification and for `ruleset_hash_after`. Any pre-signing
 transformation (whitespace fix-ups, YAML re-emit) invalidates the
 signature.
 
@@ -257,7 +272,7 @@ with auth in your environment. Exit code `0` means the call succeeded
 and the ruleset hash was reported; non-zero means the server was
 unreachable, returned an HTTP error, or replied with non-JSON.
 
-The `ruleset_hash` you see here should match the `hash_after` value
+The `ruleset_hash` you see here should match the `ruleset_hash_after` value
 returned by the most recent `POST /v1/rules/reload`. If it does not,
 either a later reload happened between your calls, or the audit log
 and live state have diverged — investigate immediately.

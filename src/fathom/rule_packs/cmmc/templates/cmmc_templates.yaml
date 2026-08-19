@@ -19,3 +19,6 @@ templates:
       - name: marking
         type: symbol
         default: cui_basic
+      - name: ts
+        type: float
+        required: true

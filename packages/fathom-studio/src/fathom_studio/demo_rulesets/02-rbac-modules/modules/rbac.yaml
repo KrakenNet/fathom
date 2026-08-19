@@ -1,0 +1,11 @@
+modules:
+  - name: deny_checks
+    description: "Hard denies evaluated first — guests, confidential data, etc."
+  - name: role_permits
+    description: "Role-based grants evaluated after denies clear"
+
+# focus_order controls which module's agenda the engine drains first.
+# deny_checks runs first → if it fires a deny, role_permits never gets a chance.
+focus_order:
+  - deny_checks
+  - role_permits

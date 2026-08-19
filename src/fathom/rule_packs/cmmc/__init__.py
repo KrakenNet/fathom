@@ -24,6 +24,11 @@ from fathom.rule_packs._helpers import load_pack_yaml, validate_pack_structure
 
 PACK_DIR = Path(__file__).resolve().parent
 
+#: Packs that must be loaded before this one, by entry-point name.
+#: CMMC rules match the NIST templates ``data_transfer`` and
+#: ``audit_event`` and focus the ``nist`` module.
+PACK_DEPENDENCIES = ("nist-800-53",)
+
 
 def get_templates() -> list[dict[str, Any]]:
     """Load all template definitions from this pack."""

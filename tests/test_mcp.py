@@ -420,3 +420,24 @@ class TestMCPAuditParity:
         sdk_result = sdk_engine.evaluate()
 
         assert mcp_result["module_trace"] == sdk_result.module_trace
+
+
+class TestTransportRestriction:
+    """The tools are unauthenticated and share one Engine, so stdio only."""
+
+    @pytest.mark.parametrize("transport", ["sse", "streamable-http", "http"])
+    def test_network_transport_is_refused(self, transport: str) -> None:
+        server = FathomMCPServer()
+        with pytest.raises(ValueError, match="unsupported MCP transport"):
+            server.run(transport=transport)
+
+    def test_docstring_does_not_claim_isolation(self) -> None:
+        """The class documented isolation it never had; it must not again."""
+        doc = FathomMCPServer.__doc__ or ""
+        assert "per-connection Engine isolation" not in doc
+
+    def test_engine_is_shared_across_tool_calls(self) -> None:
+        """Documented behaviour: one Engine, not one per caller."""
+        server = FathomMCPServer(rules_path=FIXTURES_DIR)
+        server.assert_fact("agent", {"id": "a1", "clearance": "secret"})
+        assert len(server.query("agent")) == 1

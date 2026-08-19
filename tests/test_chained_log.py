@@ -106,12 +106,53 @@ class TestVerify:
         assert result.error is None
         assert result.anchor_ok is None
 
-    def test_empty_log_verifies(self, log_path: Path, service: AttestationService) -> None:
+    def test_empty_log_fails_verification(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        """A wiped log must not verify: every real log opens with a genesis record."""
         log_path.touch()
         result = verify_chain(log_path, service.public_key)
-        assert result.ok
+        assert not result.ok
         assert result.count == 0
         assert result.head_sha256 is None
+        assert result.error is not None
+        assert "genesis" in result.error
+
+    def test_missing_log_fails_verification(
+        self, tmp_path: Path, service: AttestationService
+    ) -> None:
+        """A path that never existed is not a valid chain either."""
+        result = verify_chain(tmp_path / "nope.jsonl", service.public_key)
+        assert not result.ok
+        assert result.count == 0
+
+    def test_wiped_log_fails_after_real_records(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        """Truncating a verified 3-record log to zero bytes flips ok to False."""
+        with ChainedAttestationLog(log_path, service) as log:
+            for i in range(3):
+                log.append({"decision": "allow", "n": i})
+        assert verify_chain(log_path, service.public_key).ok
+        log_path.write_bytes(b"")
+        assert not verify_chain(log_path, service.public_key).ok
+
+    def test_extra_top_level_field_on_tail_line_rejected(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        """Unsigned keys smuggled onto the tail line must fail the scan."""
+        with ChainedAttestationLog(log_path, service) as log:
+            for i in range(3):
+                log.append({"decision": "allow", "n": i})
+        lines = log_path.read_bytes().splitlines()
+        tampered = json.loads(lines[-1])
+        tampered["note"] = "APPROVED BY LEGAL"
+        lines[-1] = json.dumps(tampered, sort_keys=True, separators=(",", ":")).encode()
+        log_path.write_bytes(b"\n".join(lines) + b"\n")
+        result = verify_chain(log_path, service.public_key)
+        assert not result.ok
+        assert result.error is not None
+        assert result.error_line == len(lines)
 
     def test_verify_with_pem_path(
         self, log_path: Path, service: AttestationService, tmp_path: Path

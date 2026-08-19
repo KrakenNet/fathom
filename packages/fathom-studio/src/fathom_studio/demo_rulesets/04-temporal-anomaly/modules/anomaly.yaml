@@ -1,0 +1,6 @@
+modules:
+  - name: anomaly
+    description: "Temporal anomaly detection over working memory"
+
+focus_order:
+  - anomaly

@@ -80,13 +80,12 @@ Forgot to sign off? You don't need to rewrite history — when the `DCO` check f
 src/fathom/              Core library
 src/fathom/integrations/ FastAPI, gRPC, MCP, LangChain, CrewAI, etc.
 src/fathom/rule_packs/   OWASP, NIST 800-53, HIPAA, CMMC, SSVC compliance packs
-src/fathom/studio/       Policy Studio (FastAPI + HTMX UI)
 protos/                  gRPC protocol definitions (fathom.proto)
 scripts/                 Doc generators, schema/OpenAPI exporters, release tooling
 tests/                   pytest test suite (1695 tests)
 docs/                    MkDocs Material documentation
 examples/                Progressive example projects (01-05)
-packages/                Go, TypeScript SDKs, React editor
+packages/                fathom-studio (Policy Studio), Go and TypeScript SDKs, React editor
 ```
 
 ## Code Style

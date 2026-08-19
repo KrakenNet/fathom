@@ -51,10 +51,11 @@ problems (governance, routing, classification) are natural fits for forward
 chaining: you have a situation, you want to know what decision applies.
 The design note marks backward chaining as a v2 consideration.
 
-`Engine.__init__` accepts an `experimental_backward_chaining` flag, but it
-is **reserved for a future release and currently has no behavioural
-effect** — passing `True` does not enable backward chaining and only emits
-a `FutureWarning`.
+`Engine.__init__` used to accept an `experimental_backward_chaining` flag
+that had no behavioural effect. It was **removed in 1.0** rather than
+shipped as a permanent no-op that reads like a feature: passing it now
+raises `TypeError`. There is no replacement flag — backward chaining
+remains a v2 consideration.
 
 What to use instead: frame the question as forward chaining. Assert the
 facts that describe the situation, `evaluate()`, and read the decision.

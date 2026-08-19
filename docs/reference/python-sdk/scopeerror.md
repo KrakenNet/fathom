@@ -1,0 +1,3 @@
+# `fathom.ScopeError`
+
+::: fathom.ScopeError

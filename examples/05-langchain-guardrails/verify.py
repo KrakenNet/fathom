@@ -31,6 +31,8 @@ HERE = Path(__file__).parent
 #   "allow"    => no PolicyViolation raised
 #   "deny"     => PolicyViolation with decision == "deny"
 #   "escalate" => PolicyViolation with decision == "escalate"
+# The guard is allowlist-only, so every non-allow decision raises — that
+# includes "route", "scope" and an absent decision, not just the two below.
 EXPECTED: dict[tuple[str, str], str] = {
     # untrusted -> nothing allowed
     ("untrusted", "web_search"): "deny",
@@ -89,10 +91,9 @@ def main() -> int:
 
     for (tier, tool), expected in EXPECTED.items():
         engine, handler = make_handler(f"agent-{tier}", tier)
-        try:
-            actual = actual_decision(handler, tool)
-        finally:
-            engine.retract("tool_request")
+        # No retract needed: the adapter withdraws the tool_request fact it
+        # asserted, so working memory is unchanged after the call.
+        actual = actual_decision(handler, tool)
 
         status = "OK " if actual == expected else "FAIL"
         line = f"  [{status}] tier={tier:<10} tool={tool:<14} expected={expected:<8} got={actual}"

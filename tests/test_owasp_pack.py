@@ -193,12 +193,22 @@ class TestInsecureOutput:
 class TestRuleMetadata:
     """Verify salience and log-level metadata across all OWASP rules."""
 
-    def test_all_deny_rules_salience_gte_100(self, owasp_ruleset) -> None:
-        for rule in owasp_ruleset.rules:
-            if rule.then.action.value == "deny":
-                assert rule.salience >= 100, (
-                    f"Deny rule '{rule.name}' has salience {rule.salience} < 100"
-                )
+    def test_deny_salience_below_every_escalate(self, owasp_ruleset) -> None:
+        """Severity must be monotone in reverse salience (last write wins).
+
+        CLIPS fires the highest salience first and the evaluator keeps the
+        last decision written, so a deny only survives if it fires after
+        every escalate -- i.e. at a strictly lower salience.
+        """
+        deny_saliences = [r.salience for r in owasp_ruleset.rules if r.then.action.value == "deny"]
+        escalate_saliences = [
+            r.salience for r in owasp_ruleset.rules if r.then.action.value == "escalate"
+        ]
+        assert deny_saliences and escalate_saliences
+        assert max(deny_saliences) < min(escalate_saliences), (
+            f"deny saliences {deny_saliences} must all be below "
+            f"escalate saliences {escalate_saliences}"
+        )
 
     def test_all_deny_escalate_rules_use_log_full(self, owasp_ruleset) -> None:
         for rule in owasp_ruleset.rules:
@@ -217,4 +227,41 @@ class TestRuleMetadata:
 
     def test_excessive_agency_rule_salience(self, owasp_ruleset) -> None:
         rule = next(r for r in owasp_ruleset.rules if r.name == "deny-excessive-agency-exec")
-        assert rule.salience == 100
+        assert rule.salience == 50
+
+
+# =========================================================================
+# Salience ordering (LLM04 deny must outrank LLM06 escalate)
+# =========================================================================
+
+
+class TestSalienceOrdering:
+    """A deny must survive an escalate that fires in the same evaluation."""
+
+    def test_exec_deny_beats_email_escalate(self, owasp_engine: Engine) -> None:
+        """LLM04 exec deny must not be overwritten by the LLM06 email flag."""
+        owasp_engine.assert_fact(
+            "tool_call",
+            {"tool_name": "exec", "agent_id": "a1", "arguments": "rm -rf /"},
+        )
+        owasp_engine.assert_fact(
+            "agent_output",
+            {"content": "contact bob@example.com", "agent_id": "a1"},
+        )
+        result = owasp_engine.evaluate()
+        assert "owasp::deny-excessive-agency-exec" in result.rule_trace
+        assert "owasp::flag-insecure-output-email" in result.rule_trace
+        assert result.decision == "deny"
+        assert "LLM04" in (result.reason or "")
+
+    def test_exec_deny_beats_ssn_escalate(self, owasp_engine: Engine) -> None:
+        owasp_engine.assert_fact(
+            "tool_call",
+            {"tool_name": "shell", "agent_id": "a1", "arguments": "cat /etc/passwd"},
+        )
+        owasp_engine.assert_fact(
+            "agent_output",
+            {"content": "ssn 123-45-6789", "agent_id": "a1"},
+        )
+        result = owasp_engine.evaluate()
+        assert result.decision == "deny"

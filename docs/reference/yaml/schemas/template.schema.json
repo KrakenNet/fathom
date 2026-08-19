@@ -1,6 +1,7 @@
 {
   "$defs": {
     "SlotDefinition": {
+      "additionalProperties": false,
       "description": "Definition of a single slot within a template.",
       "properties": {
         "allowed_values": {
@@ -69,6 +70,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "YAML template definition compiled to a CLIPS deftemplate.",
   "properties": {
     "description": {

@@ -117,6 +117,53 @@ entry-point group in its own `pyproject.toml`:
 - `hipaa`
 - `cmmc`
 
+### Pack dependencies
+
+A pack module may declare `PACK_DEPENDENCIES`, a tuple of pack names to load
+first:
+
+```python
+# my_package/rules/__init__.py
+PACK_DEPENDENCIES = ("nist-800-53",)
+```
+
+`load_pack` resolves those before loading the pack itself. `cmmc` uses this:
+it builds on `nist-800-53`, so `engine.load_pack("cmmc")` loads both.
+
+### Loading the same pack twice is a no-op
+
+`load_pack` tracks which packs an `Engine` already holds and skips a repeat
+load rather than re-running the loaders (which CLIPS would reject with
+`[CSTRCPSR4] Cannot redefine deftemplate … while it is in use`). This is what
+makes shared dependencies safe: loading `nist-800-53` and then `cmmc` does
+not load NIST twice.
+
+The tracking is per-`Engine` and is **not** reset by
+`Engine.reload_rules()`. A reload discards the rule registry, so after one a
+previously-loaded pack's rules are gone — but `load_pack` still considers the
+pack loaded and returns without restoring them. If you hot-reload an engine
+that was built with `load_pack`, rebuild the engine instead of re-adding
+packs to it.
+
+### Packs that define the same template
+
+Two packs may not define the same template name with different definitions in
+one `Engine`. `load_pack` checks for this **before** loading anything and
+raises `CompilationError`:
+
+```
+Rule pack 'nist-800-53' redefines template 'data_transfer' already
+registered by rule pack 'hipaa'
+```
+
+The check runs first, so the second pack is not half-loaded: the engine is
+left exactly as it was. Identical definitions are allowed and simply reused.
+
+This affects real combinations today — `hipaa` and `nist-800-53`/`cmmc` both
+define `data_transfer`, `audit_event` and `access_request` with different
+slots, so they cannot share an `Engine`. Load them into separate `Engine`
+instances and evaluate against each.
+
 ### Error handling
 
 If you pass a name that isn't registered under `fathom.packs`,

@@ -35,10 +35,17 @@ opt-in — you construct the engine with a key.
 
 ## Why a decision engine keeps records
 
-Fathom is deterministic: given the same rule pack, the same working memory,
-and the same module focus stack, it produces the same decision. That's only
-useful if you can reconstruct what happened on a specific call weeks later
-— which facts were present, which rules fired, what the final decision was.
+Fathom is deterministic in a specific, limited sense: given the same rule
+pack, the same working memory **in the same order**, and the same module
+focus stack, it produces the same decision. Order matters because the winning
+decision is last-write-wins — two rules at equal salience are resolved by
+CLIPS activation order, which follows assertion order. The same fact *set*
+supplied in a different order can therefore produce a different decision;
+salience is how you make a rule's precedence explicit rather than incidental.
+
+That determinism is only useful if you can reconstruct what happened on a
+specific call weeks later — which facts were present, which rules fired,
+what the final decision was.
 
 Stateless policy engines can get away with "replay the request" — the input
 fully determines the output. Fathom can't, because [working memory persists
@@ -76,9 +83,11 @@ Field by field:
   can't back-date entries.
 - **`session_id`** — the engine's session identifier. Lets you stitch
   evaluations together when reconstructing what a single agent did.
-- **`input_facts`** — optional. The caller can pass a representation of the
-  facts asserted for this evaluation; Fathom does not snapshot working
-  memory into this field automatically.
+- **`input_facts`** — the working memory the decision was computed from,
+  snapshotted by the engine *before* inference so rule-asserted facts are
+  not folded in. Each entry is `{"template": <name>, "slots": {...}}`.
+  Populated only at `log: full`; `log: summary` omits it. A caller
+  constructing an `AuditRecord` by hand may still pass its own list.
 - **`modules_traversed`** / **`rules_fired`** — copied from
   `EvaluationResult.module_trace` and `rule_trace`. The modules active
   during inference and the fully-qualified `module::rule` names in fire
@@ -213,7 +222,10 @@ The payload is deliberately narrow:
     "iat":        int(time.time()),
     "decision":   result.decision,
     "rule_trace": result.rule_trace,
-    "input_hash": sha256(json.dumps(input_facts or [], sort_keys=True)).hexdigest(),
+    # input_facts is the pre-inference working-memory snapshot: a list of
+    # {"template": <name>, "slots": {...}} entries, in template-registry
+    # order and then working-memory order within each template.
+    "input_hash": sha256(json.dumps(input_facts, sort_keys=True)).hexdigest(),
     "session_id": session_id,
 }
 ```
@@ -263,7 +275,16 @@ What audit + attestation *do* protect against:
   after export can't re-sign it without the private key; `verify_token`
   fails.
 - **Input substitution.** The `input_hash` commits the token to a specific
-  set of facts. Swap the facts and the hash stops matching.
+  set of facts — template name and slot values both. Swap a fact, change a
+  slot, or move a fact to a different template, and the hash stops matching.
+
+  Two limits worth knowing. The snapshot is grouped by template (registry
+  order) and then by working-memory order within each template, so
+  reordering facts *of the same template* changes the hash, while
+  interleaving facts of *different* templates differently does not. And
+  since cross-template order can change the decision (last-write-wins,
+  above) while leaving the hash alone, `input_hash` is not by itself proof
+  that a given fact set could only have produced that decision.
 
 What they *don't* protect against:
 

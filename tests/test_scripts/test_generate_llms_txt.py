@@ -39,7 +39,11 @@ def test_generates_index_and_full(tmp_path: Path) -> None:
     idx = (docs / "llms.txt").read_text(encoding="utf-8")
     full = (docs / "llms-full.txt").read_text(encoding="utf-8")
     assert "# Fathom" in idx
-    assert "https://example.com/" in idx
+    # Exact line, not ``"https://example.com/" in idx``: a substring test
+    # against a URL is the shape CodeQL's incomplete-url-sanitization query
+    # flags, and it would also pass on a link to any host that merely embeds
+    # the site URL.
+    assert any(line == "- [Home](https://example.com/) — Welcome." for line in idx.splitlines())
     assert "Getting Started" in idx
     assert "Install and hello world." in idx
     assert "# Home" in full

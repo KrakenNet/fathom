@@ -21,25 +21,34 @@ Panels render real data where it is cheap to do so (the rule-pack list is
 the real on-disk directory; the Playground form evaluates against the
 mounted REST app when ``FATHOM_API_TOKEN`` is configured, otherwise it
 renders a configuration notice rather than fabricated output).
+
+Every panel route is gated on ``FATHOM_API_TOKEN`` via
+:func:`fathom_studio.auth.require_auth` — these routes load rulesets, drive the
+real engine and mint attestation tokens, so they must not be a weaker door than
+the REST app they sit beside. Browsers present the token as the ``fathom_token``
+cookie granted by ``GET /?token=<FATHOM_API_TOKEN>``.
 """
 
 from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
+from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-
 from fathom import Engine
 from fathom.integrations.langchain import FathomCallbackHandler, PolicyViolation
-from fathom.studio.scenarios import SCENARIOS, get_scenario
-from fathom.studio.scenarios import seed as seed_scenario
-from fathom.studio.sessions import get_sid, post_evaluate
+
+from fathom_studio.auth import require_auth
+from fathom_studio.rulesets import packaged_root
+from fathom_studio.scenarios import SCENARIOS, get_scenario
+from fathom_studio.scenarios import seed as seed_scenario
+from fathom_studio.sessions import get_sid, post_evaluate
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -47,15 +56,18 @@ if TYPE_CHECKING:
 #: Directory holding the Jinja2 panel templates (sibling of this module).
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
-#: Root of the built-in rule packs, listed by the ``/packs`` panel.
-_RULE_PACKS_DIR = Path(__file__).resolve().parents[1] / "rule_packs"
+#: Root of the built-in rule packs, listed by the ``/packs`` panel. Owned by
+#: ``fathom-rules``, so it is located through the installed ``fathom`` package
+#: rather than by walking up from this file.
+_RULE_PACKS_DIR = Path(str(resources.files("fathom"))) / "rule_packs"
 
 #: Subdirectories under ``rule_packs/`` that are not packs.
 _NON_PACK_DIRS = frozenset({"__pycache__"})
 
 #: Guardrails example whose ruleset drives the simulator (templates +
-#: modules + rules loaded by :func:`_guardrail_engine`).
-_GUARDRAIL_RULESET = Path(__file__).resolve().parents[3] / "examples" / "05-langchain-guardrails"
+#: modules + rules loaded by :func:`_guardrail_engine`). Shipped as package
+#: data so it resolves from an installed wheel, not only a source checkout.
+_GUARDRAIL_RULESET = packaged_root() / "05-langchain-guardrails"
 
 #: Canonical local LLM endpoint for the live toggle (Ollama-compatible).
 _DEFAULT_LLM_BASE_URL = "http://localhost:41001"
@@ -65,7 +77,7 @@ _DEFAULT_LLM_MODEL = "llama3"
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 #: Panel metadata used by the overview page and the shared nav bar.
 PANELS: tuple[tuple[str, str, str], ...] = (
