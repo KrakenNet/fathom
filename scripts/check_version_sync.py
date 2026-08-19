@@ -9,6 +9,10 @@ Sources, all of which release-please writes on a release:
   ``npm-publish.yml`` fires on the same ``v*.*.*`` tag. It sat at 0.1.0 across
   every release before that was wired up, so each tag would have republished
   the same version.
+- ``CHANGELOG.md`` — the newest version heading. release-please runs with
+  ``skip-changelog``, so nothing writes this file automatically and it had
+  stopped at 0.3.0 while 0.7.4 was on PyPI. Requiring a heading for the
+  version being released turns that silent gap into a red release PR.
 - ``README.md`` and ``docs/index.md`` — prose, but the first version number a
   reader sees on GitHub and on the docs site. Both carried 0.7.0 while 0.7.4
   was on PyPI. release-please rewrites them through the
@@ -51,6 +55,20 @@ def read_ts_sdk_version(root: Path) -> str | None:
     return version
 
 
+#: The newest release heading in CHANGELOG.md, e.g. ``## [0.8.0] - 2026-08-19``.
+CHANGELOG_HEADING = re.compile(r"^##\s*\[(?!Unreleased)([^\]]+)\]", re.M | re.I)
+
+
+def read_changelog_version(root: Path) -> str | None:
+    path = root / "CHANGELOG.md"
+    if not path.exists():
+        return None
+    match = CHANGELOG_HEADING.search(path.read_text(encoding="utf-8"))
+    if match is None:
+        raise SystemExit("no release heading found in CHANGELOG.md")
+    return match.group(1)
+
+
 #: The version line each prose file publishes. Group 1 is the version.
 PROSE_SOURCES: dict[str, re.Pattern[str]] = {
     "README.md": re.compile(r"^\*\*Current version:\*\*\s*(\S+)", re.M),
@@ -75,6 +93,7 @@ def main() -> int:
     others = {
         "src/fathom/__init__.py": read_init_version(root),
         "packages/fathom-ts/package.json": read_ts_sdk_version(root),
+        "CHANGELOG.md": read_changelog_version(root),
         **{name: read_prose_version(root, name) for name in PROSE_SOURCES},
     }
     skewed = {

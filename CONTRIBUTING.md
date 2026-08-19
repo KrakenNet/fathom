@@ -74,6 +74,28 @@ git commit -s -m "your message"
 
 Forgot to sign off? You don't need to rewrite history — when the `DCO` check fails it comments the exact one-line command to push a remediation commit; just run it and push. (`git rebase --signoff origin/main` also works.)
 
+## Releases
+
+Releases are cut by release-please: merging to `main` maintains a release PR
+that bumps the version everywhere it appears — `pyproject.toml`,
+`src/fathom/__init__.py`, `packages/fathom-ts/package.json`, and the version
+lines in `README.md` and `docs/index.md`.
+
+`CHANGELOG.md` is **not** automatic. `scripts/check_version_sync.py` (the
+`lint` job) fails when the version in `pyproject.toml` has no matching heading
+in `CHANGELOG.md`, so the release PR stays red until someone writes the entry:
+
+```markdown
+## [0.9.0] - 2026-09-01
+
+### Added
+- ...
+```
+
+Then regenerate the docs copy with `uv run python scripts/changelog_to_json.py`.
+The generated notes on the GitHub release carry the full commit list; the
+changelog entry is the curated summary of what it means for a user.
+
 ## Project Structure
 
 ```

@@ -5,7 +5,120 @@ All notable changes to `fathom-rules` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+Entries below are curated. Every release also has generated notes with the full
+commit list on its
+[GitHub release page](https://github.com/KrakenNet/fathom/releases); the tag/PyPI
+gaps between 0.3.1 and 0.5.0 are explained under
+[Release history notes](#release-history-notes).
+
+## [0.8.0] - 2026-08-19
+
+### Removed (breaking)
+- `fathom.studio` — the Policy Studio moved to its own `fathom-studio`
+  distribution. `import fathom.studio` and `python -m fathom.studio.app` now
+  fail; install `fathom-studio` and import `fathom_studio`.
+- `Engine.__init__(experimental_backward_chaining=...)` — a permanent no-op
+  that emitted a `FutureWarning` and read like a feature. Passing it now
+  raises `TypeError`. There is no replacement; backward chaining stays a v2
+  item.
+
+### Changed (breaking)
+- Agent adapters block every decision that is not `allow`. A ruleset that
+  relied on an unmatched tool call proceeding must add an explicit allow rule
+  or configure a default decision.
+- `AttestationService.sign(...)` raises `AttestationError` when `input_facts`
+  is `None`. Callers relying on the implicit empty-list default must pass the
+  facts the decision was computed over, or `[]`.
+- Ruleset validation is strict: unknown keys, duplicate rule names, duplicate
+  pattern aliases and malformed condition expressions no longer compile, and
+  rule-level `metadata:` moves under `then:`.
+- `POST /v1/reload` returns `ruleset failed to compile` or `unable to read
+  ruleset_path` instead of echoing the compiler diagnostic or the OS error in
+  `detail`. The diagnostic goes to the server log.
+
+### Fixed
+- Attestation tokens are bound to the facts they were computed over, and
+  `then.log` reaches the audit sink.
+- Transport requests are bounded, and REST and gRPC share one session store.
+- Rule-pack salience ordering is correct and pack loading reports what it
+  actually loaded.
+- Dependency advisories cleared across the Python lock and the Go module.
+
+## [0.7.4] - 2026-07-20
+
+### Changed
+- Documentation only: SSVC listed among the shipped rule packs, stale CLI
+  comments corrected, and the docs drift gate unstuck from a post-squash SHA.
+
+## [0.7.3] - 2026-06-24
+
+### Fixed
+- CI: foreign documentation generators fail loudly instead of silently
+  emitting nothing, `protoc-gen-go` is pinned, and the freshness gate ignores
+  mechanical dependency bumps.
+
+## [0.7.2] - 2026-06-24
+
+### Changed
+- Documentation only: Getting Started and CONTRIBUTING made accurate and
+  runnable, plus `last_verified` re-verification across several pages.
+
+## [0.7.1] - 2026-06-24
+
+### Fixed
+- Dependabot configuration: `cooldown.default-days` replaces the
+  `semver-*-days` keys, which are unsupported for non-semver ecosystems and
+  made the whole config invalid.
+
+## [0.7.0] - 2026-06-06
+
+### Added
+- Go SDK gRPC client wrapper that handles `SubscribeChanges` reloads.
+- Admin token and request-body cap for ruleset reload over REST and gRPC.
+- SSVC supplier, deployer and CISA decision trees, built from pinned
+  authoritative sources.
+- Policy Studio scaffold: panels, seed scenarios and guardrails.
+
+## [0.6.0] - 2026-06-05
+
+### Added
+- gRPC `SubscribeChanges` streams are cancelled on ruleset reload, so a client
+  never receives events from two different rulesets (ADR-0002, option a).
+
+### Changed
+- `experimental_backward_chaining` documented as a reserved no-op rather than
+  an in-progress feature.
+
+## [0.5.0] - 2026-06-05
+
+### Added
+- Hash-chained JWS attestation log and the `fathom verify-chain` command.
+
+### Changed
+- Re-released the 0.4.0 tree under a `v*.*.*` tag, the pattern
+  `pypi-publish.yml` matches. 0.4.0 itself never reached PyPI.
+
+## [0.4.0] - 2026-06-05
+
+Tagged `fathom-rules-v0.4.0` and never published to PyPI; its contents reached
+users as 0.5.0.
+
+### Added
+- `Engine.reload_rules()` atomic swap and the `Engine.ruleset_hash` property.
+- REST `GET /v1/status` and `POST /v1/rules/reload`; gRPC `Reload` RPC.
+- Ruleset signature verification, with the public key bootstrapped from the
+  environment.
+- `fathom status` and `fathom verify-artifact` commands, and
+  `AttestationService.sign_event` for arbitrary payloads.
+- SSVC rule pack — templates, rules and modules — with the CISA source
+  archived alongside it.
+- minisign release signing: `scripts/sign_release.sh`, the committed public
+  key, and a pure-Python verifier.
+- Go SDK gRPC stubs committed at `packages/fathom-go/proto/`.
+
+## [0.3.3] - 2026-05-14
+
+Tagged and released on GitHub; never published to PyPI.
 
 ### Added
 - gRPC `SubscribeChanges` RPC now emits real fact-change events. `Engine`
@@ -23,6 +136,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Pydantic validation with a clear error. Migration: delete the redundant
   `FunctionDefinition` entries — temporal operators continue to work in
   rule conditions without any function declaration.
+
+## [0.3.2] - 2026-04-27
+
+Published to PyPI from an untagged commit; there is no `v0.3.2` tag and no
+GitHub release.
+
+### Fixed
+- CI and documentation-generation fixes made between 0.3.1 and 0.3.3.
+
+## [0.3.1] - 2026-04-17
+
+### Added
+- PyPI publishing workflow.
+
+### Fixed
+- Pydantic import failures in the published wheel.
+
+### Changed
+- Supported Python baseline moved from 3.14 back to 3.13.
 
 ## [0.3.0] - 2026-04-14
 
@@ -53,3 +185,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AuditRecord.asserted_facts` is now populated with the list of user facts
   asserted during evaluation (template + slot values), in addition to the
   existing decision record.
+
+## Release history notes
+
+- **0.3.2** is on PyPI with no matching git tag; it was published from an
+  untagged commit.
+- **0.3.3** and **0.4.0** are tagged and have GitHub releases but never reached
+  PyPI. `pypi-publish.yml` fires on `v*.*.*`, and 0.4.0's tag is
+  `fathom-rules-v0.4.0`, which that pattern does not match; 0.3.3 predates the
+  workflow being wired up. Both trees shipped to PyPI as 0.5.0.
+- Release artifacts are minisign-signed from **0.5.0** onward. The five earlier
+  PyPI releases (0.1.0 through 0.3.2) are unsigned, and the GitHub releases for
+  0.3.0, 0.3.1, 0.3.3 and 0.4.0 carry no assets at all.

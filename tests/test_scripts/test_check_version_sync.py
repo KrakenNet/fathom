@@ -45,6 +45,7 @@ def _tree(
     ts: str | None = None,
     readme: str | None = None,
     index: str | None = None,
+    changelog: str | None = None,
 ) -> Path:
     (tmp_path / "pyproject.toml").write_text(
         f'[project]\nname = "x"\nversion = "{py}"\n', encoding="utf-8"
@@ -68,6 +69,11 @@ def _tree(
         docs.mkdir(parents=True, exist_ok=True)
         (docs / "index.md").write_text(
             f"# x\n\nCurrent release: `fathom-rules` {index} (requires Python 3.12+).\n",
+            encoding="utf-8",
+        )
+    if changelog is not None:
+        (tmp_path / "CHANGELOG.md").write_text(
+            f"# Changelog\n\n## [{changelog}] - 2026-01-01\n\n### Added\n- x\n",
             encoding="utf-8",
         )
     return tmp_path
@@ -131,3 +137,28 @@ def test_reworded_version_line_fails_loudly(tmp_path: Path) -> None:
     result = run_script(tree)
     assert result.returncode != 0
     assert "no version line matching" in result.stderr
+
+
+def test_fails_when_changelog_has_no_entry_for_the_release(tmp_path: Path) -> None:
+    """The release PR bumps pyproject; the entry has to be written by hand."""
+    result = run_script(_tree(tmp_path, "1.2.3", "1.2.3", changelog="1.2.2"))
+    assert result.returncode == 1
+    assert "CHANGELOG.md=1.2.2" in result.stderr
+
+
+def test_passes_when_changelog_documents_the_release(tmp_path: Path) -> None:
+    result = run_script(_tree(tmp_path, "1.2.3", "1.2.3", changelog="1.2.3"))
+    assert result.returncode == 0, result.stderr
+
+
+def test_unreleased_heading_is_not_the_newest_release(tmp_path: Path) -> None:
+    """An `## [Unreleased]` block must not satisfy the check for a shipped version."""
+    tree = _tree(tmp_path, "1.2.3", "1.2.3", changelog="1.2.3")
+    (tree / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n- x\n\n"
+        "## [1.2.2] - 2026-01-01\n\n### Added\n- y\n",
+        encoding="utf-8",
+    )
+    result = run_script(tree)
+    assert result.returncode == 1
+    assert "CHANGELOG.md=1.2.2" in result.stderr
