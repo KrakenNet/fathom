@@ -109,7 +109,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 **SDKs (in progress)**
 
 - `fathom-go` — REST + gRPC client (`packages/fathom-go/`)
-- `fathom-ts` — `@fathom-rules/sdk` v0.1.0 (`packages/fathom-ts/`); OpenAPI-generated client pending
+- `fathom-ts` — `@fathom-rules/sdk` (`packages/fathom-ts/`); hand-written client, 4 of 10 REST endpoints
 - `fathom-editor` — React visual rule editor (`packages/fathom-editor/`); stub
 
 ## Core Primitives
