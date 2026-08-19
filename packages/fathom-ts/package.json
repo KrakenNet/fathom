@@ -21,7 +21,7 @@
     "typedoc": "~0.28.19",
     "typedoc-plugin-markdown": "~4.12.0",
     "typescript": "^6.0.3",
-    "vitest": "^2.0.0"
+    "vitest": "^3.2.7"
   },
   "optionalDependencies": {
     "@rollup/rollup-win32-x64-msvc": "^4.61.1"
@@ -33,5 +33,14 @@
     "type": "git",
     "url": "git+https://github.com/KrakenNet/fathom.git",
     "directory": "packages/fathom-ts"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": ">=6.4.3 <7",
+      "postcss": ">=8.5.23",
+      "js-yaml": ">=4.3.1 <5",
+      "brace-expansion": ">=5.0.7",
+      "linkify-it": ">=5.0.2 <6"
+    }
   }
 }
