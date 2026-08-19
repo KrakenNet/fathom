@@ -8,7 +8,7 @@ sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
   - src/fathom/evaluator.py
-last_verified: 2026-06-05
+last_verified: 2026-08-19
 ---
 
 # Module
@@ -75,10 +75,16 @@ exclusively by the explicit `focus_order:` list at the top of the module
 YAML file (or by a later `Engine.set_focus(...)` call).
 
 At evaluation time, `_setup_focus_stack` in `src/fathom/evaluator.py`
-emits a single `(focus ...)` eval with the registered focus list
-reversed — so the first name in `focus_order` ends up on top of the
-CLIPS focus stack and runs first. `priority` is never consulted during
-this step.
+emits a single `(focus ...)` eval listing the modules in the order they
+appear in `focus_order` — `(focus A B C)` gives A the focus first and
+queues B and C behind it. `priority` is never consulted during this step.
+
+Every module in the list runs: CLIPS drains the first module's agenda,
+then moves to the next. A decision in an earlier module does **not**
+short-circuit the ones after it. Because the evaluator is
+last-write-wins, the module you list **last** is the one whose decision
+the caller sees — so a guardrail module belongs at the end of
+`focus_order`, not the start.
 
 What `priority` is actually used for today:
 
@@ -106,8 +112,9 @@ focus_order:
 ```
 
 Here `classification` runs first because it appears first in
-`focus_order`. The `priority: 100` on `access-control` is informational
-and does not reorder the stack.
+`focus_order`, and `access-control` runs after it — so `access-control`
+writes the final decision. The `priority: 100` is informational and does
+not reorder anything.
 
 ## The MAIN module
 

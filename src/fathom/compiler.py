@@ -537,18 +537,22 @@ class Compiler:
     def compile_focus_stack(self, focus_order: list[str]) -> str:
         """Generate a CLIPS focus command string from a focus order list.
 
-        CLIPS uses push semantics for ``(focus ...)``, so the YAML order
-        ``[A, B, C]`` must be reversed to ``(focus C B A)`` so that A ends
-        up on top of the stack and executes first.
+        ``(focus A B C)`` gives the focus to A first and queues B and C
+        behind it, so the YAML order maps straight through. This used to
+        emit the list reversed, on the belief that a later name ended up on
+        top of the stack; it does not, and the result was that
+        ``focus_order: [A, B]`` ran B first -- the exact opposite of what
+        this docstring and ``docs/reference/yaml/module.md`` both promised.
+        Because the last rule to fire writes the decision, that inversion
+        handed the final say to whichever module the author listed *first*.
 
         Args:
-            focus_order: Module names in desired execution order.
+            focus_order: Module names in execution order.
 
         Returns:
             A CLIPS ``(focus ...)`` command string.
         """
-        reversed_names = " ".join(reversed(focus_order))
-        return f"(focus {reversed_names})"
+        return f"(focus {' '.join(focus_order)})"
 
     def parse_template_file(self, path: Path) -> list[TemplateDefinition]:
         """Parse a YAML template file into TemplateDefinition objects.

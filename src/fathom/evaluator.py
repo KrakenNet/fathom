@@ -104,14 +104,19 @@ class Evaluator:
             )
 
     def _setup_focus_stack(self, env: clips.Environment) -> None:
-        """Push modules onto the CLIPS focus stack in reverse order.
+        """Give the modules the focus in the order the author wrote them.
 
-        focus_order=[A, B, C] → ``(focus C B A)`` so A gets focus first.
+        ``(focus A B C)`` focuses A first and queues B and C behind it, so
+        ``focus_order`` maps straight through. This used to emit the list
+        reversed on the belief that a later name ended up on top of the
+        stack; it does not, so ``focus_order: [A, B]`` ran B first -- the
+        opposite of what the key documents. Since the last rule to fire
+        writes the decision, the module listed *first* got the final say.
         """
         if not self._focus_order:
             return
-        reversed_modules = " ".join(reversed(self._focus_order))
-        env.eval(f"(focus {reversed_modules})")
+        modules = " ".join(self._focus_order)
+        env.eval(f"(focus {modules})")
 
     def _capture_trace(self, env: clips.Environment) -> tuple[list[str], list[str]]:
         """Capture rule trace and module trace from decision facts.

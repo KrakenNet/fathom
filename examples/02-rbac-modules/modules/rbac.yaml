@@ -1,11 +1,15 @@
 modules:
-  - name: deny_checks
-    description: "Hard denies evaluated first — guests, confidential data, etc."
   - name: role_permits
-    description: "Role-based grants evaluated after denies clear"
+    description: "Role-based grants, evaluated first"
+  - name: deny_checks
+    description: "Hard denies — guests, confidential data — evaluated last so they win"
 
-# focus_order controls which module's agenda the engine drains first.
-# deny_checks runs first → if it fires a deny, role_permits never gets a chance.
+# focus_order is execution order: the engine drains role_permits' agenda, then
+# deny_checks'. Both modules always run; CLIPS does not short-circuit.
+#
+# deny_checks is listed LAST on purpose. The evaluator is last-write-wins, so
+# the module that runs last is the module whose decision the caller sees --
+# which for a guardrail module is the only ordering that makes it a guardrail.
 focus_order:
-  - deny_checks
   - role_permits
+  - deny_checks
