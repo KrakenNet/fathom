@@ -4,9 +4,13 @@ name: main-health
 # main, so a red main can't sit unnoticed and silently poison every open PR
 # (it once stayed red for 6 days). Uses workflow_run so it fires after the
 # real CI workflows finish on a push to main.
+#
+# The publish workflows are watched for the same reason, on tags: npm-publish
+# had failed on all four of its runs (NPM_TOKEN never set, so the TS SDK was
+# never published) and nothing anywhere reported it.
 on:
   workflow_run:
-    workflows: [CI, docs, go-ci, ts-ci]
+    workflows: [CI, docs, go-ci, ts-ci, pypi-publish, npm-publish, docker-publish]
     types: [completed]
 
 permissions:
@@ -14,11 +18,14 @@ permissions:
 
 jobs:
   alert:
-    # Only main pushes, only failures.
+    # Only failures, only pushes -- to main, or to a release tag. A tag push
+    # reports the tag as head_branch, so restricting to 'main' alone would
+    # have kept every failed release silent.
     if: >
-      github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'failure'
+      github.event.workflow_run.conclusion == 'failure' &&
+      (github.event.workflow_run.head_branch == 'main' ||
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
     steps:
       - name: Open or update tracking issue
@@ -28,16 +35,22 @@ jobs:
           WF: ${{ github.event.workflow_run.name }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           SHA: ${{ github.event.workflow_run.head_sha }}
+          REF: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          title="main is red: ${WF} failed"
+          if [ "$REF" = "main" ]; then
+            title="main is red: ${WF} failed"
+            note="Workflow **${WF}** failed on \`main\` at ${SHA} — ${RUN_URL}"$'\n\n'"A red main blocks and poisons every open PR. Fix forward or revert."
+          else
+            title="release ${REF} failed: ${WF}"
+            note="Workflow **${WF}** failed for tag \`${REF}\` at ${SHA} — ${RUN_URL}"$'\n\n'"The release is incomplete: this artifact was not published. Fix and re-run the workflow for the tag."
+          fi
           # Idempotent label (create once, ignore if present).
           gh label create main-health --color b60205 \
             --description "main branch is failing CI" 2>/dev/null || true
           existing="$(gh issue list --state open --label main-health \
             --search "in:title ${WF} failed" --json number,title \
             --jq ".[] | select(.title == \"${title}\") | .number" | head -1)"
-          note="Workflow **${WF}** failed on \`main\` at ${SHA} — ${RUN_URL}"$'\n\n'"A red main blocks and poisons every open PR. Fix forward or revert."
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "Still failing: ${RUN_URL} (${SHA})"
           else

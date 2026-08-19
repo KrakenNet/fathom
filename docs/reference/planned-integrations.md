@@ -15,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-06-24
+last_verified: 2026-08-19
 ---
 
 # Planned Integrations
@@ -85,13 +85,15 @@ at [Go SDK](./go-sdk/fathom-go.md).
 **Status:** Partial.
 
 **Location:** `packages/fathom-ts/` — published identity
-`@fathom-rules/sdk` at `0.1.0` per `package.json`. Source lives in
+`@fathom-rules/sdk`, versioned in lockstep with the engine (release-please
+writes `package.json` from the same tag, and `scripts/check_version_sync.py`
+fails the build if the two drift). Source lives in
 `src/client.ts` (215 lines), `src/errors.ts` (77 lines), and
 `src/index.ts` (26 lines). Vitest suites in `test/client.test.ts` and
 `test/errors.test.ts`.
 
 **What works today:** A hand-written `FathomClient` plus a typed error
-hierarchy. The package ships at v0.1.0 with 34
+hierarchy. The package ships with 34
 vitest tests passing (15 in `test/client.test.ts`, 19 in
 `test/errors.test.ts`), and the typedoc reference is generated into
 `docs/reference/typescript-sdk/` by the `docs` npm script in

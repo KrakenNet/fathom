@@ -11,6 +11,11 @@
         {
           "type": "generic",
           "path": "src/fathom/__init__.py"
+        },
+        {
+          "type": "json",
+          "path": "packages/fathom-ts/package.json",
+          "jsonpath": "$.version"
         }
       ]
     }

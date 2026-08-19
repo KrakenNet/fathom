@@ -1,0 +1,86 @@
+name: release-gate
+
+# Shared precondition for every publishing workflow: the commit being released
+# must have finished its checks, and none of them may have failed.
+#
+# 0.7.4 shipped to PyPI while `docs` -- a required check -- was red on main,
+# because publishing keyed off the tag arriving and nothing else. Each publish
+# workflow calls this first, so that cannot happen on any registry.
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit to verify. Defaults to the calling workflow's SHA.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    # The branch-protection contexts list is deliberately NOT read here: that
+    # endpoint needs admin rights the GITHUB_TOKEN does not have. Instead
+    # EVERY check run on the commit must have finished and none may have
+    # failed -- a superset of the required list -- plus a floor assertion, so
+    # that a commit with no checks at all cannot read as success.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require green checks on the released commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ inputs.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          # tab-separated: status, conclusion, name
+          fetch() {
+            gh api --paginate "repos/${GH_REPO}/commits/${SHA}/check-runs" \
+              --jq '.check_runs[] | "\(.status)\t\(.conclusion // "-")\t\(.name)"'
+          }
+          count() { printf '%s\n' "$1" | awk "$2" | wc -l | tr -d ' '; }
+
+          for attempt in $(seq 1 55); do
+            runs="$(fetch)"
+            total="$(count "$runs" 'NF')"
+            pending="$(count "$runs" 'NF && $1 != "completed"')"
+            # A tag can arrive before the checks it will be judged on are even
+            # created, so zero runs counts as "not yet", not as "clean".
+            if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
+              break
+            fi
+            echo "attempt ${attempt}: ${pending} unfinished of ${total} check run(s)"
+            sleep 20
+          done
+
+          printf '%s\n' "$runs"
+
+          if [ "$total" -eq 0 ]; then
+            echo "::error::no check runs on ${SHA} — refusing to publish an unverified commit"
+            exit 1
+          fi
+          if [ "$pending" -ne 0 ]; then
+            echo "::error::${pending} check run(s) never finished on ${SHA}"
+            exit 1
+          fi
+
+          # `skipped` and `neutral` are legitimate: the path filters skip whole
+          # jobs on docs-only commits, and release tags land on merge commits
+          # where that happens.
+          bad="$(printf '%s\n' "$runs" | awk -F'\t' '$2 != "success" && $2 != "skipped" && $2 != "neutral"' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::check runs on ${SHA} did not pass:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+
+          # Floor: a commit that somehow ran only trivial checks is not a
+          # commit this pipeline has any evidence about.
+          for want in "lint" "docs"; do
+            printf '%s\n' "$runs" | cut -f3 | grep -qx "$want" || {
+              echo "::error::required check '${want}' never ran on ${SHA}"
+              exit 1
+            }
+          done

@@ -143,7 +143,7 @@ result = engine.evaluate()
 **As a REST sidecar**
 
 ```bash
-docker run -p 8080:8080 -v ./rules:/rules kraken/fathom:latest
+docker run -p 8080:8080 -v ./rules:/rules ghcr.io/krakennet/fathom:latest
 curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8080/v1/evaluate \
   -d '{"facts": [...], "ruleset": "access-control"}'
 ```

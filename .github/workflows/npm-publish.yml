@@ -1,35 +1,69 @@
 name: npm-publish
+
+# Tag pushes only. `workflow_dispatch: {}` used to sit here as well, which
+# meant any account with write access could publish from any ref -- the `npm`
+# environment carries no protection rules and no branch policy to stop it.
 on:
   push:
     tags:
       - "v*.*.*"
-  workflow_dispatch: {}
 
-# id-token: write is required for npm provenance (SLSA-style build
-# attestation), the same OIDC mechanism pypi-publish.yml uses for PyPI.
 permissions:
-  id-token: write
   contents: read
 
 jobs:
+  # Every publish workflow shares this precondition; see release-gate.yml.
+  gate:
+    uses: ./.github/workflows/release-gate.yml
+    permissions:
+      contents: read
+      checks: read
+
   publish:
+    needs: gate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: npm
+    permissions:
+      # OIDC for npm provenance (SLSA-style build attestation), the same
+      # mechanism pypi-publish.yml uses for PyPI.
+      id-token: write
+      contents: read
     defaults:
       run:
         working-directory: packages/fathom-ts
     steps:
-      - uses: actions/checkout@v7
+      # Actions are SHA-pinned: this job holds a publish credential and
+      # `id-token: write`, so a mutable tag upstream would be a path to both.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Every npm-publish run in this repo's history -- four of four -- has
+      # failed here with `npm error code ENEEDAUTH`, because the secret does
+      # not exist: the `npm` environment holds no secrets at all. The TS SDK
+      # has therefore never been published. Fail with that sentence rather
+      # than with a registry auth error 40 lines into the log.
+      - name: Check publish credential
+        working-directory: .
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NPM_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN is not set on the 'npm' environment, so this" \
+                 "release cannot be published. Add an npm granular access token" \
+                 "scoped to publish, or configure npm Trusted Publishing (OIDC)."
+            exit 1
+          fi
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 9
 
       # registry-url wires NODE_AUTH_TOKEN into ~/.npmrc so `npm publish`
       # authenticates against the public npm registry.
       - name: Install Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
@@ -40,9 +74,22 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # The published version is whatever `packages/fathom-ts/package.json`
+      # says at the tagged commit; check it matches the tag, so a forgotten
+      # bump republishes nothing rather than shipping a mislabelled SDK.
+      - name: Version matches the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "v${pkg}" != "${TAG}" ]; then
+            echo "::error::packages/fathom-ts/package.json is ${pkg} but the tag is ${TAG}"
+            exit 1
+          fi
+
       # npm publish (not pnpm publish) so --provenance attaches the GitHub
-      # Actions OIDC build attestation. The version published is whatever is
-      # in packages/fathom-ts/package.json at the tagged commit.
+      # Actions OIDC build attestation.
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:
