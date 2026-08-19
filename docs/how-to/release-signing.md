@@ -21,15 +21,13 @@ attached to its GitHub Release. This how-to shows you how to install minisign,
 verify a downloaded wheel or sdist, and understand the custody, rotation, and
 revocation policy for the signing key.
 
-!!! warning "Releases before 0.5.0 are unsigned"
-
-    Signing was introduced with the 0.4.0 tree, which reached PyPI as 0.5.0.
-    The five earlier PyPI releases — 0.1.0, 0.2.0, 0.3.0, 0.3.1 and 0.3.2 —
-    have no `.minisig`, and the GitHub releases for 0.3.0, 0.3.1, 0.3.3 and
-    0.4.0 carry no assets at all. There is nothing to verify for those
-    versions, and no signature will be published retroactively: back-signing
-    an old artifact today would assert a custody chain that did not exist when
-    it was built. Use 0.5.0 or later if you need a verifiable artifact.
+**Releases before 0.5.0 are unsigned.** Signing was introduced with the 0.4.0
+tree, which reached PyPI as 0.5.0. The five earlier PyPI releases — 0.1.0,
+0.2.0, 0.3.0, 0.3.1 and 0.3.2 — have no `.minisig`, and the GitHub releases for
+0.3.0, 0.3.1, 0.3.3 and 0.4.0 carry no assets at all. There is nothing to
+verify for those versions, and no signature will be published retroactively:
+back-signing an old artifact today would assert a custody chain that did not
+exist when it was built. Use 0.5.0 or later if you need a verifiable artifact.
 
 ## What is signed, and how
 
