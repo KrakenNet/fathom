@@ -1254,7 +1254,12 @@ keys:
   expected_decision: allow
 ```
 
-The command exits non-zero if any case fails.
+The command exits non-zero if any case fails. It also exits non-zero,
+rather than silently reporting success, when the suite could not be run at
+all: when the test path contains no test cases (an empty directory, or files
+that parse to nothing), and when a test file cannot be read or is not a list
+of test cases. A suite that quietly matches zero cases used to exit 0, which
+made a mis-typed path look like a passing run.
 
 ## bench
 
@@ -1555,6 +1560,53 @@ entry-point group in its own `pyproject.toml`:
 - `nist-800-53`
 - `hipaa`
 - `cmmc`
+
+### Pack dependencies
+
+A pack module may declare `PACK_DEPENDENCIES`, a tuple of pack names to load
+first:
+
+```python
+# my_package/rules/__init__.py
+PACK_DEPENDENCIES = ("nist-800-53",)
+```
+
+`load_pack` resolves those before loading the pack itself. `cmmc` uses this:
+it builds on `nist-800-53`, so `engine.load_pack("cmmc")` loads both.
+
+### Loading the same pack twice is a no-op
+
+`load_pack` tracks which packs an `Engine` already holds and skips a repeat
+load rather than re-running the loaders (which CLIPS would reject with
+`[CSTRCPSR4] Cannot redefine deftemplate … while it is in use`). This is what
+makes shared dependencies safe: loading `nist-800-53` and then `cmmc` does
+not load NIST twice.
+
+The tracking is per-`Engine` and is **not** reset by
+`Engine.reload_rules()`. A reload discards the rule registry, so after one a
+previously-loaded pack's rules are gone — but `load_pack` still considers the
+pack loaded and returns without restoring them. If you hot-reload an engine
+that was built with `load_pack`, rebuild the engine instead of re-adding
+packs to it.
+
+### Packs that define the same template
+
+Two packs may not define the same template name with different definitions in
+one `Engine`. `load_pack` checks for this **before** loading anything and
+raises `CompilationError`:
+
+```
+Rule pack 'nist-800-53' redefines template 'data_transfer' already
+registered by rule pack 'hipaa'
+```
+
+The check runs first, so the second pack is not half-loaded: the engine is
+left exactly as it was. Identical definitions are allowed and simply reused.
+
+This affects real combinations today — `hipaa` and `nist-800-53`/`cmmc` both
+define `data_transfer`, `audit_event` and `access_request` with different
+slots, so they cannot share an `Engine`. Load them into separate `Engine`
+instances and evaluate against each.
 
 ### Error handling
 
@@ -2683,10 +2735,17 @@ opt-in — you construct the engine with a key.
 
 ## Why a decision engine keeps records
 
-Fathom is deterministic: given the same rule pack, the same working memory,
-and the same module focus stack, it produces the same decision. That's only
-useful if you can reconstruct what happened on a specific call weeks later
-— which facts were present, which rules fired, what the final decision was.
+Fathom is deterministic in a specific, limited sense: given the same rule
+pack, the same working memory **in the same order**, and the same module
+focus stack, it produces the same decision. Order matters because the winning
+decision is last-write-wins — two rules at equal salience are resolved by
+CLIPS activation order, which follows assertion order. The same fact *set*
+supplied in a different order can therefore produce a different decision;
+salience is how you make a rule's precedence explicit rather than incidental.
+
+That determinism is only useful if you can reconstruct what happened on a
+specific call weeks later — which facts were present, which rules fired,
+what the final decision was.
 
 Stateless policy engines can get away with "replay the request" — the input
 fully determines the output. Fathom can't, because [working memory persists
@@ -2724,9 +2783,11 @@ Field by field:
   can't back-date entries.
 - **`session_id`** — the engine's session identifier. Lets you stitch
   evaluations together when reconstructing what a single agent did.
-- **`input_facts`** — optional. The caller can pass a representation of the
-  facts asserted for this evaluation; Fathom does not snapshot working
-  memory into this field automatically.
+- **`input_facts`** — the working memory the decision was computed from,
+  snapshotted by the engine *before* inference so rule-asserted facts are
+  not folded in. Each entry is `{"template": <name>, "slots": {...}}`.
+  Populated only at `log: full`; `log: summary` omits it. A caller
+  constructing an `AuditRecord` by hand may still pass its own list.
 - **`modules_traversed`** / **`rules_fired`** — copied from
   `EvaluationResult.module_trace` and `rule_trace`. The modules active
   during inference and the fully-qualified `module::rule` names in fire
@@ -2861,7 +2922,10 @@ The payload is deliberately narrow:
     "iat":        int(time.time()),
     "decision":   result.decision,
     "rule_trace": result.rule_trace,
-    "input_hash": sha256(json.dumps(input_facts or [], sort_keys=True)).hexdigest(),
+    # input_facts is the pre-inference working-memory snapshot: a list of
+    # {"template": <name>, "slots": {...}} entries, in template-registry
+    # order and then working-memory order within each template.
+    "input_hash": sha256(json.dumps(input_facts, sort_keys=True)).hexdigest(),
     "session_id": session_id,
 }
 ```
@@ -2911,7 +2975,16 @@ What audit + attestation *do* protect against:
   after export can't re-sign it without the private key; `verify_token`
   fails.
 - **Input substitution.** The `input_hash` commits the token to a specific
-  set of facts. Swap the facts and the hash stops matching.
+  set of facts — template name and slot values both. Swap a fact, change a
+  slot, or move a fact to a different template, and the hash stops matching.
+
+  Two limits worth knowing. The snapshot is grouped by template (registry
+  order) and then by working-memory order within each template, so
+  reordering facts *of the same template* changes the hash, while
+  interleaving facts of *different* templates differently does not. And
+  since cross-template order can change the decision (last-write-wins,
+  above) while leaving the hash alone, `input_hash` is not by itself proof
+  that a given fact set could only have produced that decision.
 
 What they *don't* protect against:
 
@@ -2999,10 +3072,11 @@ problems (governance, routing, classification) are natural fits for forward
 chaining: you have a situation, you want to know what decision applies.
 The design note marks backward chaining as a v2 consideration.
 
-`Engine.__init__` accepts an `experimental_backward_chaining` flag, but it
-is **reserved for a future release and currently has no behavioural
-effect** — passing `True` does not enable backward chaining and only emits
-a `FutureWarning`.
+`Engine.__init__` used to accept an `experimental_backward_chaining` flag
+that had no behavioural effect. It was **removed in 1.0** rather than
+shipped as a permanent no-op that reads like a feature: passing it now
+raises `TypeError`. There is no replacement flag — backward chaining
+remains a v2 consideration.
 
 What to use instead: frame the question as forward chaining. Assert the
 facts that describe the situation, `evaluate()`, and read the decision.
@@ -3210,6 +3284,8 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 - [`Engine`](engine.md)
 - [`CompilationError`](compilationerror.md)
 - [`EvaluationError`](evaluationerror.md)
+- [`EvaluationLimitError`](evaluationlimiterror.md)
+- [`ScopeError`](scopeerror.md)
 - [`ValidationError`](validationerror.md)
 - [`AssertSpec`](assertspec.md)
 - [`AssertedFact`](assertedfact.md)
@@ -3564,9 +3640,69 @@ the enclosing pattern.
 
 ## Supported operators in `expression`
 
-Syntax: `operator(arg)`. `arg` may be a literal or a cross-fact reference
-`$alias.field` (resolved via `_resolve_cross_refs` to `?alias-field`).
-Source: `_compile_condition` docstring in `src/fathom/compiler.py`.
+### Grammar
+
+An `expression` is exactly one operator application:
+
+```
+expression := operator "(" argument ")"
+operator   := [A-Za-z_][A-Za-z0-9_]*
+```
+
+**Lexing.** The operator is everything before the *first* `(`; the argument
+is everything between that `(` and the *final* `)` of the string. The
+expression must end with `)`.
+
+**Balance.** For every operator except `contains` and `matches`, the
+parentheses in the argument must balance and may close only on that final
+character. This is what stops an argument from closing the pattern early and
+smuggling extra conditional elements into the generated `defrule`
+(`equals(a1)) (admin (level 9)` is rejected). Text inside a double-quoted
+CLIPS string does not count toward the balance, and `\` escapes the next
+character.
+
+`contains` and `matches` are exempt: the compiler emits their argument as an
+escaped, quoted CLIPS string (`(str-index "…" ?v)` and
+`(fathom-matches ?v "…")`), so it cannot break out whatever it holds. Bare
+parentheses are therefore legal in those two — `matches([)])` and
+`contains(a :-) b)` are valid — which matters because `(` and `)` are
+literal inside a regex character class.
+
+**Argument forms.** An argument is one of:
+
+- a **cross-fact reference**, `$alias.field`, resolved to the CLIPS variable
+  `?alias-field`. The alias must be declared as `alias:` on another pattern
+  in the same rule (see **Aliases** below);
+- a **list**, `[a, b, c]`, for `in` and `not_in` only;
+- a **literal**, everything else.
+
+**How a literal is emitted** depends on the declared type of the slot it is
+compared against, which is why compiling a rule file in isolation can differ
+from compiling it as part of a ruleset:
+
+| Slot type | Emitted as | Example |
+|---|---|---|
+| `string` | quoted CLIPS string, escaped | `equals(a@b.com)` → `(id "a@b.com")` |
+| `symbol`, `integer`, `float`, `boolean` | bare CLIPS token | `equals(admin)` → `(role admin)` |
+
+An unquoted literal in a `string` slot is rejected by CLIPS at load time
+(`[CSTRNCHK1]`), so always compile against the templates — `fathom compile`
+on a ruleset directory, or on a rule file whose sibling `templates/`
+directory is present, does this for you.
+
+**Aliases.** `alias:` on a fact pattern names it for `$alias.field`
+references. An alias must start with `$` followed by a CLIPS identifier, may
+not be `$p<number>` (that namespace is generated for unaliased patterns),
+and may not be reused by two patterns in the same rule.
+
+**Stability.** The operator set and this grammar are covered by the 1.0
+compatibility promise. The generated CLIPS *variable names*
+(`?s_<index>_<slot>`, `?<alias>-<slot>`) are an implementation detail and
+may change in a minor release — do not depend on them from a `test:` CE;
+use `bind:` to name a variable you need.
+
+Source: `_compile_condition` in `src/fathom/compiler.py` and
+`_validate_expression` in `src/fathom/models.py`.
 
 | Group          | Operator                                                                                                    |
 |----------------|-------------------------------------------------------------------------------------------------------------|
@@ -3668,7 +3804,7 @@ asserts in declared order. Indentation is four spaces.
     notify: [compliance, ops]
     attestation: true
     assert:
-      - template: audit-log
+      - template: audit_log
         slots:
           subject: "?amt"
 ```
@@ -3678,7 +3814,7 @@ asserts in declared order. Indentation is four spaces.
 ```
 (defrule finance::deny_large_transfer
     (declare (salience -10))
-    (transfer (amount ?amt&?s_amount&:(> ?s_amount 100)) (currency ?ccy))
+    (transfer (amount ?amt&?s_0_amount&:(> ?s_0_amount 100)) (currency ?ccy))
     (test (blocked-country ?amt))
     =>
     (assert (__fathom_decision
@@ -3689,7 +3825,8 @@ asserts in declared order. Indentation is four spaces.
         (notify "compliance, ops")
         (attestation TRUE)
         (metadata "")))
-    (assert (audit-log (subject ?amt))))
+    (assert (audit_log (subject ?amt)))
+)
 ```
 
 Notes on the shape:
@@ -4409,7 +4546,7 @@ OWASP LLM Top 10 agentic safety rule pack.
 | Name | Salience | Action | Reason | Source |
 |---|---|---|---|---|
 | `detect-prompt-injection` | 100 | `escalate` | Possible prompt injection detected in agent input | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
-| `deny-excessive-agency-exec` | 100 | `deny` | Tool call is in the dangerous tools list (LLM04: Excessive Agency) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
+| `deny-excessive-agency-exec` | 50 | `deny` | Tool call is in the dangerous tools list (LLM04: Excessive Agency) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
 | `flag-insecure-output-ssn` | 90 | `escalate` | Agent output may contain SSN pattern (LLM06: Insecure Output) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
 | `flag-insecure-output-email` | 80 | `escalate` | Agent output may contain email address (LLM06: Insecure Output) | `src/fathom/rule_packs/owasp_agentic/rules/owasp_rules.yaml` |
 
@@ -4429,16 +4566,16 @@ NIST SP 800-53 security and privacy controls rule pack.
 
 | Name | Salience | Action | Reason | Source |
 |---|---|---|---|---|
-| `access-enforcement` | 100 | `deny` | Access denied: subject clearance insufficient for resource (AC-3) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
-| `info-flow-enforcement` | 100 | `deny` | Data transfer blocked: classified data cannot flow to external destination (AC-4) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
-| `least-privilege` | 100 | `deny` | Privileged action requires explicit context justification (AC-6) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `access-enforcement` | 50 | `deny` | Access denied: subject clearance insufficient for resource (AC-3) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `info-flow-enforcement` | 50 | `deny` | Data transfer blocked: classified data cannot flow to external destination (AC-4) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
+| `least-privilege` | 50 | `deny` | Privileged action requires explicit context justification (AC-6) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
 | `remote-access` | 100 | `escalate` | Remote privileged access requires additional authorization (AC-17) | `src/fathom/rule_packs/nist_800_53/rules/ac_rules.yaml` |
 | `audit-events` | 90 | `escalate` | Auditable event has unknown outcome — requires resolution (AU-2) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
-| `audit-content` | 90 | `deny` | Audit record missing required subject field (AU-3) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `audit-content` | 50 | `deny` | Audit record missing required subject field (AU-3) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
 | `audit-review-analysis` | 80 | `escalate` | Failed privileged action requires review and analysis (AU-6) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
-| `audit-generation` | 90 | `deny` | Audit generation requires resource identification for data events (AU-12) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
-| `boundary-protection` | 100 | `deny` | Data transfer to external boundary requires secure protocol (SC-7) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
-| `transmission-confidentiality` | 100 | `deny` | Classified data requires secure transmission protocol for attribute protection (SC-16) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
+| `audit-generation` | 50 | `deny` | Audit generation requires resource identification for data events (AU-12) | `src/fathom/rule_packs/nist_800_53/rules/au_rules.yaml` |
+| `boundary-protection` | 50 | `deny` | Data transfer to external boundary requires secure protocol (SC-7) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
+| `transmission-confidentiality` | 50 | `deny` | Classified data requires secure transmission protocol (SC-8) | `src/fathom/rule_packs/nist_800_53/rules/sc_rules.yaml` |
 
 
 ## reference/rule-packs/hipaa.md
@@ -4456,9 +4593,9 @@ HIPAA Privacy and Security Rule rule pack.
 
 | Name | Salience | Action | Reason | Source |
 |---|---|---|---|---|
-| `minimum-necessary` | 100 | `deny` | PHI access denied: minimum necessary justification required (164.502(b)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
-| `transmission-security` | 100 | `deny` | PHI transfer blocked: transmission must be encrypted (164.312(e)(1)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
-| `breach-trigger` | 200 | `escalate` | Bulk PHI access detected: breach notification evaluation required (164.402) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `minimum-necessary` | 50 | `deny` | PHI access denied: minimum necessary justification required (164.502(b)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `transmission-security` | 50 | `deny` | PHI transfer blocked: transmission must be encrypted (164.312(e)(1)) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
+| `breach-trigger` | 200 | `escalate` | Bulk PHI access detected: more than 10 reads in 300s, breach notification evaluation required (164.402) | `src/fathom/rule_packs/hipaa/rules/hipaa_rules.yaml` |
 
 
 ## reference/rule-packs/cmmc.md
@@ -4476,12 +4613,12 @@ CMMC Level 2 Cybersecurity Maturity Model Certification rule pack.
 
 | Name | Salience | Action | Reason | Source |
 |---|---|---|---|---|
-| `ac-l2-authorized-access` | 100 | `deny` | CUI access denied: authorized access justification required (AC.L2-3.1.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
-| `ac-l2-cui-flow` | 100 | `deny` | CUI transfer blocked: controlled information cannot flow to external destination (AC.L2-3.1.3) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
-| `ac-l2-least-privilege` | 100 | `deny` | Privileged CUI action requires explicit justification (AC.L2-3.1.5) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ac-l2-authorized-access` | 50 | `deny` | CUI access denied: authorized access justification required (AC.L2-3.1.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ac-l2-cui-flow` | 50 | `deny` | CUI transfer blocked: controlled information cannot flow to external destination (AC.L2-3.1.3) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ac-l2-least-privilege` | 50 | `deny` | Privileged CUI action requires explicit justification (AC.L2-3.1.5) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
 | `au-l2-audit-records` | 100 | `escalate` | Audit record incomplete: outcome must be recorded for CUI events (AU.L2-3.3.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
-| `au-l2-traceability` | 100 | `deny` | Audit traceability failed: subject identity required for all CUI actions (AU.L2-3.3.2) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
-| `ir-l2-incident-handling` | 200 | `escalate` | Bulk CUI access detected: incident handling evaluation required (IR.L2-3.6.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `au-l2-traceability` | 50 | `deny` | Audit traceability failed: subject identity required for all CUI actions (AU.L2-3.3.2) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+| `ir-l2-incident-handling` | 200 | `escalate` | Bulk CUI access detected: more than 20 reads in 600s, incident handling evaluation required (IR.L2-3.6.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
 
 
 ## reference/planned-integrations.md
@@ -4626,9 +4763,16 @@ The original v1 design listed four framework adapters. All four are now shipped.
 | OpenAI Agents SDK tool guardrail | **Shipped** | `src/fathom/integrations/openai_agents.py` |
 | Google ADK before-tool callback | **Shipped** | `src/fathom/integrations/google_adk.py` |
 
-Each adapter follows the same pattern: intercept tool calls, assert a
-`tool_request` fact into Fathom, evaluate policy rules, and raise
-`PolicyViolation` (or return an error dict for ADK) on deny/escalate.
+Each adapter follows the same pattern: intercept tool calls, then evaluate a
+`tool_request` fact against the policy through `Engine.evaluate_once`, which
+asserts the fact, runs, and withdraws it again so one call cannot be decided
+on the previous call's working memory.
+
+The guard is **allowlist-only**: it permits the call when — and only when —
+the decision is exactly `allow`. Every other outcome (`deny`, `escalate`,
+`route`, `scope`, a missing decision, or any value a future release adds)
+raises `PolicyViolation`, or returns an error dict for ADK. A denylist of
+known-bad decisions would fail open on anything it had not heard of.
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
 `fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
 
