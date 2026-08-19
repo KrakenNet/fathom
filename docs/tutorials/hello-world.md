@@ -40,12 +40,12 @@ templates:
 
 ## 3. Define a module
 
-
 Rules in Fathom must belong to a named module so that the engine knows how to prioritize them.
 `Compiler.compile_module` (in `src/fathom/compiler.py`) emits the CLIPS `defmodule` construct; modules are
 loaded into the engine with `Engine.load_modules`.
 
 Save as `modules.yaml`:
+
 ```yaml
 modules:
   - name: governance
