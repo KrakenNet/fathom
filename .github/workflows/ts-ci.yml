@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - "packages/fathom-ts/**"
+      - "packages/fathom-editor/**"
       - ".github/workflows/ts-ci.yml"
   workflow_dispatch: {}
 
@@ -82,3 +83,38 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  # packages/fathom-editor is in dependabot's auto-merge scope but had no job
+  # anywhere, so bumps to its vite/typescript/react tree landed on main
+  # without ever being installed or built. Not a required check: it has no
+  # tests, and this only asserts the tree still compiles.
+  editor:
+    name: editor-build
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/fathom-editor
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      # Like fathom-ts, the lockfile lives in the package rather than a
+      # workspace root.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `build` is `tsc && vite build`, so this typechecks as well as bundles.
+      - name: Build
+        run: pnpm run build
