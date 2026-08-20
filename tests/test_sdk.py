@@ -86,7 +86,12 @@ class TestPackageMeta:
             "AssertSpec",
             "AssertedFact",
         }
-        assert expected == set(fathom.__all__)
+        # Subset, not equality: the exact contents of __all__ are bound to
+        # VERSIONING.md by tests/test_public_surface.py, which is where a new
+        # export gets reviewed. What this test guards is narrower and worth
+        # keeping separate -- these particular names have callers, and none of
+        # them may quietly leave the surface.
+        assert expected <= set(fathom.__all__)
 
 
 # ---------------------------------------------------------------------------

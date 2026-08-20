@@ -579,7 +579,7 @@
               "response": [
                 {
                   "_postman_previewlanguage": "json",
-                  "body": "{\n  \"attestation_token\": \"string\",\n  \"decision\": \"string\",\n  \"duration_us\": 0,\n  \"module_trace\": [\n    \"string\",\n    \"string\"\n  ],\n  \"reason\": \"string\",\n  \"rule_trace\": [\n    \"string\",\n    \"string\"\n  ]\n}",
+                  "body": "{\n  \"attestation_token\": \"string\",\n  \"decision\": \"string\",\n  \"duration_us\": 0,\n  \"metadata\": {\n    \"<key>\": \"<value>\"\n  },\n  \"module_trace\": [\n    \"string\",\n    \"string\"\n  ],\n  \"reason\": \"string\",\n  \"rule_trace\": [\n    \"string\",\n    \"string\"\n  ]\n}",
                   "code": 200,
                   "cookie": [],
                   "header": [

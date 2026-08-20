@@ -75,6 +75,18 @@ _LINE_FIELDS = {"iat", "jws", "prev_sha256", "record", "seq", "v"}
 _META_RECORD_TYPES = {GENESIS_RECORD_TYPE, CHECKPOINT_RECORD_TYPE}
 
 
+__all__ = [
+    "AnchorEvent",
+    "ChainVerification",
+    "ChainedAttestationLog",
+    "ChainedRecord",
+    "key_fingerprint",
+    "load_or_create_key",
+    "verify_chain",
+    "write_private_key_atomic",
+]
+
+
 def _canonical(obj: Any) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
 
@@ -396,6 +408,20 @@ class ChainedAttestationLog:
         ):
             self.checkpoint()
         return chained
+
+    def write(self, record: Any) -> None:
+        """Append an audit record, satisfying :class:`fathom.audit.AuditSink`.
+
+        Lets the chained log stand in for ``FileSink`` wherever a sink is
+        taken -- ``Engine(audit_sink=ChainedAttestationLog(...))`` -- so
+        evaluation records land in a chain whose lines commit to their
+        predecessors, rather than in a flat file where a deletion leaves no
+        trace. Pydantic records are dumped in JSON mode so the line stays
+        canonicalisable; mappings (the transports' hot-reload events) pass
+        through as-is.
+        """
+        dump = getattr(record, "model_dump", None)
+        self.append(dump(mode="json") if dump is not None else dict(record))
 
     def checkpoint(self) -> ChainedRecord:
         """Append a signed checkpoint record pinning the current head.

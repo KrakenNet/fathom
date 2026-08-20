@@ -62,12 +62,13 @@ type EvaluateRequest struct {
 
 // EvaluateResponse is the response from POST /v1/evaluate.
 type EvaluateResponse struct {
-	Decision         string   `json:"decision"`
-	Reason           string   `json:"reason"`
-	RuleTrace        []string `json:"rule_trace"`
-	ModuleTrace      []string `json:"module_trace"`
-	DurationUS       int64    `json:"duration_us"`
-	AttestationToken string   `json:"attestation_token,omitempty"`
+	Decision         string            `json:"decision"`
+	Reason           string            `json:"reason"`
+	RuleTrace        []string          `json:"rule_trace"`
+	ModuleTrace      []string          `json:"module_trace"`
+	DurationUS       int64             `json:"duration_us"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+	AttestationToken string            `json:"attestation_token,omitempty"`
 }
 
 // Evaluate sends facts to the engine and returns the policy decision.

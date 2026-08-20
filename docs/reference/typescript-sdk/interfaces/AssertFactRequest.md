@@ -6,7 +6,7 @@
 
 # Interface: AssertFactRequest
 
-Defined in: [client.ts:42](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L42)
+Defined in: [client.ts:44](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L44)
 
 Payload for POST /v1/facts.
 
@@ -16,7 +16,7 @@ Payload for POST /v1/facts.
 
 > **data**: `Record`\<`string`, `unknown`\>
 
-Defined in: [client.ts:45](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L45)
+Defined in: [client.ts:47](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L47)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [client.ts:45](https://github.com/KrakenNet/fathom/blob/master/packa
 
 > **session\_id**: `string`
 
-Defined in: [client.ts:43](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L43)
+Defined in: [client.ts:45](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L45)
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [client.ts:43](https://github.com/KrakenNet/fathom/blob/master/packa
 
 > **template**: `string`
 
-Defined in: [client.ts:44](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L44)
+Defined in: [client.ts:46](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L46)

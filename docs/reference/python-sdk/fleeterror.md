@@ -1,0 +1,3 @@
+# `fathom.FleetError`
+
+::: fathom.FleetError

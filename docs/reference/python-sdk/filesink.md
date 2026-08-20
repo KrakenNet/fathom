@@ -1,0 +1,3 @@
+# `fathom.FileSink`
+
+::: fathom.FileSink

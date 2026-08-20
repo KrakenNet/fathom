@@ -6,7 +6,7 @@
 
 # Class: FathomClient
 
-Defined in: [client.ts:145](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L145)
+Defined in: [client.ts:147](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L147)
 
 Promise-based client for the Fathom policy engine.
 
@@ -30,7 +30,7 @@ console.log(result.decision); // "allow" | "deny" | "escalate" | null
 
 > **new FathomClient**(`options`): `FathomClient`
 
-Defined in: [client.ts:149](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L149)
+Defined in: [client.ts:151](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L151)
 
 #### Parameters
 
@@ -48,7 +48,7 @@ Defined in: [client.ts:149](https://github.com/KrakenNet/fathom/blob/master/pack
 
 > **assertFact**(`req`): `Promise`\<[`AssertFactResponse`](../interfaces/AssertFactResponse.md)\>
 
-Defined in: [client.ts:177](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L177)
+Defined in: [client.ts:179](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L179)
 
 Assert a single fact into the session's working memory.
 
@@ -68,7 +68,7 @@ Assert a single fact into the session's working memory.
 
 > **evaluate**(`req`): `Promise`\<[`EvaluateResponse`](../interfaces/EvaluateResponse.md)\>
 
-Defined in: [client.ts:172](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L172)
+Defined in: [client.ts:174](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L174)
 
 Send facts to the engine and return the policy decision.
 
@@ -88,7 +88,7 @@ Send facts to the engine and return the policy decision.
 
 > **query**(`req`): `Promise`\<[`QueryResponse`](../interfaces/QueryResponse.md)\>
 
-Defined in: [client.ts:182](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L182)
+Defined in: [client.ts:184](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L184)
 
 Retrieve facts from the session's working memory.
 
@@ -108,7 +108,7 @@ Retrieve facts from the session's working memory.
 
 > **retract**(`req`): `Promise`\<[`RetractResponse`](../interfaces/RetractResponse.md)\>
 
-Defined in: [client.ts:190](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L190)
+Defined in: [client.ts:192](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L192)
 
 Retract facts matching the request's template + optional filter from
 the session's working memory. Returns the number of facts removed.

@@ -8,6 +8,18 @@ from __future__ import annotations
 
 from typing import Any
 
+__all__ = [
+    "AttestationError",
+    "CompilationError",
+    "EvaluationError",
+    "EvaluationLimitError",
+    "FathomError",
+    "FleetConnectionError",
+    "FleetError",
+    "ScopeError",
+    "ValidationError",
+]
+
 
 class FathomError(Exception):
     """Base exception for all Fathom errors."""

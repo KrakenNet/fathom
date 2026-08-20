@@ -719,3 +719,74 @@ class TestFileSinkNonEvaluationRecords:
         row = json.loads(path.read_text(encoding="utf-8").strip())
         assert row["decision"] == "deny"
         assert "timestamp" in row
+
+
+class TestAuditRecordCarriesTheAttestation:
+    """An exported line is verifiable on its own, not only with the caller's copy.
+
+    ``AuditRecord`` used to omit the JWT the same evaluation produced, so a
+    line lifted out of the log proved nothing without the token the caller
+    happened to keep beside it.
+    """
+
+    def test_token_is_none_on_an_engine_that_does_not_sign(self, tmp_path: Path) -> None:
+        path = tmp_path / "a.jsonl"
+        Engine(audit_sink=FileSink(path)).evaluate()
+        assert json.loads(path.read_text(encoding="utf-8").strip())["attestation_token"] is None
+
+    def test_signed_engine_writes_a_verifiable_line(self, tmp_path: Path) -> None:
+        from fathom.attestation import AttestationService, verify_token
+
+        service = AttestationService.generate_keypair()
+        path = tmp_path / "a.jsonl"
+        engine = Engine(audit_sink=FileSink(path), attestation_service=service)
+        result = engine.evaluate()
+
+        row = json.loads(path.read_text(encoding="utf-8").strip())
+        assert row["attestation_token"] == result.attestation_token
+        claims = verify_token(row["attestation_token"], service.public_key)
+        assert claims["decision"] == row["decision"]
+        assert claims["rule_trace"] == row["rules_fired"]
+
+
+class TestChainedLogAsASink:
+    """``ChainedAttestationLog`` is usable wherever an ``AuditSink`` is taken."""
+
+    def test_engine_evaluations_land_in_a_verifiable_chain(self, tmp_path: Path) -> None:
+        from fathom.attestation import AttestationService
+        from fathom.chained_log import ChainedAttestationLog, verify_chain
+
+        service = AttestationService.generate_keypair()
+        path = tmp_path / "chain.jsonl"
+        log = ChainedAttestationLog(path, service)
+        assert isinstance(log, AuditSink)
+
+        engine = Engine(audit_sink=log)
+        engine.evaluate()
+        engine.evaluate()
+        log.close()
+
+        result = verify_chain(path, path.with_suffix(".jsonl.pub.pem"))
+        assert result.ok, result.error
+        # `count` is the highest seq; genesis is seq 0, so two evaluations
+        # leave the head at 2.
+        assert result.count == 2
+        assert len(path.read_text(encoding="utf-8").splitlines()) == 3
+
+    def test_a_deleted_line_breaks_the_chain(self, tmp_path: Path) -> None:
+        from fathom.attestation import AttestationService
+        from fathom.chained_log import ChainedAttestationLog, verify_chain
+
+        service = AttestationService.generate_keypair()
+        path = tmp_path / "chain.jsonl"
+        log = ChainedAttestationLog(path, service)
+        engine = Engine(audit_sink=log)
+        engine.evaluate()
+        engine.evaluate()
+        log.close()
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        path.write_text("\n".join(lines[:1] + lines[2:]) + "\n", encoding="utf-8")
+
+        result = verify_chain(path, path.with_suffix(".jsonl.pub.pem"))
+        assert not result.ok

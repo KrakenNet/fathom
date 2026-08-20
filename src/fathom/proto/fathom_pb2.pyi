@@ -34,18 +34,29 @@ class EvaluateRequest(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., ruleset: _Optional[str] = ..., facts: _Optional[_Iterable[_Union[FactInput, _Mapping]]] = ...) -> None: ...
 
 class EvaluateResponse(_message.Message):
-    __slots__ = ("decision", "reason", "rule_trace", "module_trace", "duration_us")
+    __slots__ = ("decision", "reason", "rule_trace", "module_trace", "duration_us", "metadata", "attestation_token")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     DECISION_FIELD_NUMBER: _ClassVar[int]
     REASON_FIELD_NUMBER: _ClassVar[int]
     RULE_TRACE_FIELD_NUMBER: _ClassVar[int]
     MODULE_TRACE_FIELD_NUMBER: _ClassVar[int]
     DURATION_US_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    ATTESTATION_TOKEN_FIELD_NUMBER: _ClassVar[int]
     decision: str
     reason: str
     rule_trace: _containers.RepeatedScalarFieldContainer[str]
     module_trace: _containers.RepeatedScalarFieldContainer[str]
     duration_us: int
-    def __init__(self, decision: _Optional[str] = ..., reason: _Optional[str] = ..., rule_trace: _Optional[_Iterable[str]] = ..., module_trace: _Optional[_Iterable[str]] = ..., duration_us: _Optional[int] = ...) -> None: ...
+    metadata: _containers.ScalarMap[str, str]
+    attestation_token: str
+    def __init__(self, decision: _Optional[str] = ..., reason: _Optional[str] = ..., rule_trace: _Optional[_Iterable[str]] = ..., module_trace: _Optional[_Iterable[str]] = ..., duration_us: _Optional[int] = ..., metadata: _Optional[_Mapping[str, str]] = ..., attestation_token: _Optional[str] = ...) -> None: ...
 
 class AssertFactRequest(_message.Message):
     __slots__ = ("session_id", "template", "data_json")

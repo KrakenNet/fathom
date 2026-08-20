@@ -4,7 +4,7 @@ summary: How to author a Fathom ruleset in YAML, covering patterns, conditions, 
 audience: [rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
@@ -34,7 +34,7 @@ rules:
       - template: agent
         conditions:
           - slot: clearance
-            expression: unclassified
+            expression: equals(unclassified)
     then:
       action: deny
       reason: "Clearance insufficient"
@@ -60,16 +60,16 @@ fact type in working memory.
 ```yaml
 when:
   - template: data-request       # name of the deftemplate to match
-    alias: req                   # optional — bind the whole fact to a CLIPS variable
+    alias: $req                  # optional — names this pattern for $req.slot references
     conditions:
       - slot: action
-        expression: read
+        expression: equals(read)
 ```
 
 | Field | Required | Notes |
 |-------|----------|-------|
 | `template` | yes | Must match a loaded `TemplateDefinition` name |
-| `alias` | no | When set, the compiler emits `?alias <- (template ...)` |
+| `alias` | no | `$`-prefixed name for this pattern, referenced from another pattern's expression as `$alias.slot`. Must not be `$p<number>`, and no two patterns in a rule may share one |
 | `conditions` | yes | List of `ConditionEntry` objects |
 
 A rule with two `when` entries fires only when **both** facts exist simultaneously in
@@ -77,26 +77,31 @@ working memory — CLIPS evaluates the conjunction.
 
 ## `ConditionEntry` fields
 
-`ConditionEntry` (`src/fathom/models.py`, lines 105–171) represents one slot constraint
+`ConditionEntry` (`src/fathom/models.py`, line 203) represents one slot constraint
 inside a `FactPattern`. At least one of `expression`, `bind`, or `test` must be present.
 
 ### `slot` + `expression`: value match
 
-Use `expression` to require an exact slot value (compiled to a CLIPS equality
-constraint).
+An `expression` is always one `operator(argument)` form — a bare value is
+rejected by the model, not silently treated as `equals`.
 
 ```yaml
 conditions:
   - slot: status
-    expression: active
+    expression: equals(active)
 ```
 
-`slot` is required when `expression` is set.
+`slot` is required when `expression` is set. For the full operator list, the
+argument forms (`$alias.slot` cross-references, `[a, b]` lists, literals), and
+how a literal is emitted for each slot type, see the
+[Rule reference](../reference/yaml/rule.md).
 
 ### `slot` + `bind`: capture a value
 
 Use `bind` to capture a slot value into a CLIPS variable for use in other conditions or
-the `then` block. The value **must start with `?`** — the validator rejects anything else.
+the `then` block. The value must be `?` followed by a CLIPS identifier
+(`^\?[A-Za-z_][A-Za-z0-9_\-]*$`) — the validator rejects anything else, because the
+name is interpolated straight into the generated `defrule`.
 
 ```yaml
 conditions:
@@ -131,13 +136,19 @@ conditions:
 
 **Validator rules enforced by `ConditionEntry`:**
 
-- `bind` must start with `?` — e.g. `?sid`, not `sid`.
+- `bind` must be `?` followed by a CLIPS identifier — e.g. `?sid`, not `sid` and
+  not `?a b`.
+- `expression` must be a single `operator(argument)` form — e.g. `equals(active)`,
+  not `active`.
 - `test` must be a parenthesized CLIPS expression — e.g. `(my-fn ?sid)`.
 - `slot` must be present when `expression` or `bind` is set.
 - Setting `slot` alongside `test` alone (no `expression` or `bind`) is **rejected** —
   the compiler has no slot position to emit; either add `expression`/`bind` or drop
   `slot`.
 - At least one of `expression`, `bind`, or `test` must be set.
+- Any key other than `slot`, `expression`, `bind`, and `test` is rejected. This
+  holds for every model on this page: a misspelled field is an error, never a
+  silently ignored line.
 
 ## `then` block: `ThenBlock`
 

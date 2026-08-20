@@ -4,9 +4,14 @@ import sys
 from pathlib import Path
 
 
-def _run(repo: Path) -> subprocess.CompletedProcess[str]:
+def _run(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(Path.cwd() / "scripts" / "check_doc_sources.py"), str(repo)],
+        [
+            sys.executable,
+            str(Path.cwd() / "scripts" / "check_doc_sources.py"),
+            str(repo),
+            *args,
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -152,3 +157,66 @@ def test_page_without_sources_is_skipped(tmp_path: Path) -> None:
     _commit(tmp_path, "docs")
     result = _run(tmp_path)
     assert result.returncode == 0
+
+
+# --- --changed-vs: the merge-gate scope --------------------------------------
+#
+# A source edit ages every page citing it, so the whole-repo sweep is the wrong
+# gate for a pull request: it fails whoever opens the next unrelated one.
+# `--changed-vs REF` narrows the check to the sources the branch itself touched.
+
+
+def _two_page_repo(root: Path) -> None:
+    """Two pages, two sources, both pages stale against their own source."""
+    _init_repo(root)
+    (root / "src").mkdir()
+    (root / "src" / "module.py").write_text("x = 1\n")
+    (root / "src" / "other.py").write_text("y = 1\n")
+    _commit(root, "src")
+    (root / "docs").mkdir()
+    (root / "docs" / "page.md").write_text(PAGE_TEMPLATE.format(verified="2000-01-01"))
+    (root / "docs" / "other.md").write_text(
+        PAGE_TEMPLATE.format(verified="2000-01-01").replace("src/module.py", "src/other.py")
+    )
+    _commit(root, "docs")
+    subprocess.run(["git", "branch", "base"], cwd=root, check=True)
+
+
+def test_changed_vs_reports_only_the_sources_the_branch_touched(tmp_path: Path) -> None:
+    _two_page_repo(tmp_path)
+    (tmp_path / "src" / "module.py").write_text("x = 2\n")
+    _commit(tmp_path, "touch module only")
+
+    scoped = _run(tmp_path, "--changed-vs", "base")
+    assert scoped.returncode == 1, scoped.stdout
+    assert "page.md" in scoped.stderr
+    # other.py is just as stale, but this branch did not touch it -- failing on
+    # it would punish this author for someone else's drift.
+    assert "other.md" not in scoped.stderr
+
+    sweep = _run(tmp_path)
+    assert sweep.returncode == 1
+    assert "other.md" in sweep.stderr
+
+
+def test_changed_vs_passes_when_the_page_is_reverified_in_the_same_branch(
+    tmp_path: Path,
+) -> None:
+    _two_page_repo(tmp_path)
+    (tmp_path / "src" / "module.py").write_text("x = 2\n")
+    (tmp_path / "docs" / "page.md").write_text(PAGE_TEMPLATE.format(verified="2099-01-01"))
+    _commit(tmp_path, "touch module, re-verify its page")
+
+    assert _run(tmp_path, "--changed-vs", "base").returncode == 0
+
+
+def test_changed_vs_unknown_ref_checks_everything(tmp_path: Path) -> None:
+    """A bad ref must not turn the gate into a no-op."""
+    _two_page_repo(tmp_path)
+    (tmp_path / "src" / "module.py").write_text("x = 2\n")
+    _commit(tmp_path, "touch module only")
+
+    result = _run(tmp_path, "--changed-vs", "no-such-ref")
+    assert result.returncode == 1
+    assert "cannot diff" in result.stderr
+    assert "other.md" in result.stderr

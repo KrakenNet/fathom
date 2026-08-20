@@ -93,11 +93,17 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - **FastAPI REST server** with bearer-token auth and rule-path jailing
 - **gRPC server** with bearer-token auth (see `protos/fathom.proto`)
 - **MCP tool server** (`FathomMCPServer`) for agent discovery
-- **LangChain adapter** callback handler
+- **Framework adapters** — LangChain callback handler, CrewAI before-tool-call
+  hook, OpenAI Agents SDK tool guardrail, Google ADK before-tool callback.
+  Each is allowlist-only: the call proceeds when the decision is exactly
+  `allow`, and every other outcome raises `PolicyViolation` (ADK returns an
+  error dict instead)
 - **CLI** — `fathom validate`, `fathom compile`, `fathom test`, `fathom bench`, `fathom info`, `fathom status`, `fathom verify-artifact`, `fathom verify-chain`, `fathom repl`
 - **Docker sidecar** (Debian slim + uv)
 - **Prometheus metrics** export (`/metrics` endpoint)
-- **Policy Studio** — FastAPI + HTMX UI that mounts the REST engine in-process under `/api` (`python -m fathom.studio.app`)
+- **Policy Studio** — browser UI over a real engine, shipped as its own
+  package (`packages/fathom-studio/`, run with `uv run fathom-studio`). See
+  [Running Policy Studio](docs/how-to/policy-studio.md)
 
 **Rule packs**
 
@@ -105,12 +111,19 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - `fathom-nist-800-53` — Access control, audit, information flow
 - `fathom-hipaa` — PHI handling, minimum necessary, breach triggers
 - `fathom-cmmc` — CMMC Level 2+ controls
+- `fathom-ssvc` — SSVC supplier, deployer, and CISA vulnerability-triage trees (144 rules)
 
 **SDKs (in progress)**
 
-- `fathom-go` — REST + gRPC client (`packages/fathom-go/`)
-- `fathom-ts` — `@fathom-rules/sdk` (`packages/fathom-ts/`); hand-written client, 4 of 10 REST endpoints
-- `fathom-editor` — React visual rule editor (`packages/fathom-editor/`); stub
+- `fathom-go` — REST + gRPC client (`packages/fathom-go/`); unit and
+  integration suites run in CI, not yet published to a Go proxy
+- `fathom-ts` — `@fathom-rules/sdk` (`packages/fathom-ts/`); hand-written
+  client covering 4 of the 10 REST endpoints, vitest suite required in CI,
+  not yet published to npm
+
+Scaffolds that are **not** usable yet — including the `fathom-editor` visual
+rule editor — are catalogued in
+[Planned Integrations](docs/reference/planned-integrations.md).
 
 ## Core Primitives
 
@@ -175,6 +188,7 @@ Entry points:
 - [How-to Guides](docs/how-to/index.md)
 - [Concepts](docs/concepts/index.md)
 - [Reference](docs/reference/index.md)
+- [Configuration](docs/reference/configuration.md) — every `FATHOM_*` variable and the gRPC TLS setup
 
 ## Performance Targets
 
@@ -189,8 +203,10 @@ Measured by `scripts/benchmark.py` and enforced on every pull request by CI's
 `bench` job, which fails the build if a median regresses past its target.
 Compilation is stated per rule because it scales with pack size: the packaged
 SSVC pack is 144 rules. The numbers above are what the benchmark reports on a
-developer machine; CI enforces them with a 1.5x allowance (`--slack 1.5`)
-because a shared runner is roughly that much slower.
+developer machine; CI enforces them with a 2x allowance (`--slack 2.0`)
+because GitHub's shared runners measured 1.2x to 1.9x slower than that machine
+across five consecutive runs of the same job. Run `python scripts/benchmark.py`
+with no slack to hold your own hardware to the published numbers directly.
 
 ## Related Projects
 
@@ -205,7 +221,7 @@ git clone https://github.com/KrakenNet/fathom.git
 cd fathom
 uv sync --all-extras            # --all-extras is required for the full test suite
 
-uv run pytest                   # 1695 tests
+uv run pytest                   # engine, integrations, and Studio suites
 uv run ruff check src/ tests/   # lint
 uv run mypy src/                # type check
 uv run pytest --cov=fathom      # coverage report
@@ -219,6 +235,14 @@ uv run uvicorn fathom.integrations.rest:app --reload
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines and [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Stability
+
+Fathom is pre-1.0. [VERSIONING.md](VERSIONING.md) names the surfaces that are
+covered — `fathom.__all__`, the YAML authoring keys, the REST/gRPC/MCP
+contracts, and the CLI — states what a `0.x` minor and patch bump each mean for
+them, and defines the deprecation period. The symbol list there is checked
+against the package on every test run.
 
 ## Star History
 

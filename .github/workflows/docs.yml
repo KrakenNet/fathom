@@ -4,11 +4,16 @@ name: docs
 #
 #   docs          REQUIRED (branch protection). Deterministic and fast:
 #                 version-sync + strict mkdocs build + docstring/SDK
-#                 coverage + tutorial snippets. It does NOT regenerate
-#                 artifacts, walk git history, or hit the network — all of
-#                 which are nondeterministic across the squash-merge
-#                 boundary or depend on an exact toolchain, and so must
-#                 never gate a merge.
+#                 coverage + tutorial snippets, plus source drift for the
+#                 sources THIS pull request touched. It does NOT regenerate
+#                 artifacts or hit the network — nondeterministic across the
+#                 squash-merge boundary or dependent on an exact toolchain,
+#                 and so must never gate a merge. The drift check is scoped
+#                 to the branch's own edits for the same reason: a source
+#                 edit ages every page citing it, and a whole-repo gate would
+#                 fail the next unrelated pull request instead of the one
+#                 that caused the drift. That whole-repo sweep is advisory,
+#                 in docs-quality.
 #
 #   docs-quality  ADVISORY (not a required check; every step is
 #                 continue-on-error). Regenerates artifacts and runs the
@@ -35,7 +40,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # full history: the scoped drift check diffs against the PR base and
+      # reads each cited source's last meaningful commit.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -43,7 +52,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python deps
-        run: uv sync --extra docs --extra server --extra mcp
+        run: uv sync --extra docs --extra server --extra mcp --extra attestation
 
       - name: Version sync
         run: uv run python scripts/check_version_sync.py
@@ -54,6 +63,15 @@ jobs:
       # what "the docs build" means.
       - name: Build (strict)
         run: uv run mkdocs build --strict
+
+      # Every page citing a source this branch edited must have been
+      # re-verified in this branch. Pages citing sources the branch did not
+      # touch are somebody else's drift and are left to the advisory sweep.
+      - name: Source drift (sources this branch touched)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: uv run python scripts/check_doc_sources.py --changed-vs "$BASE_SHA"
 
       - name: Docstring coverage
         run: uv run python scripts/check_docstrings.py
@@ -81,7 +99,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python deps
-        run: uv sync --extra docs --extra server --extra mcp
+        run: uv sync --extra docs --extra server --extra mcp --extra attestation
 
       # arduino/setup-protoc@v3 is unreliable (see ci.yml); install from the
       # upstream release archive. continue-on-error: a missing foreign
@@ -132,7 +150,10 @@ jobs:
             echo "::warning::Generated docs artifacts are stale. Run 'make docs-gen && make docs-gen-foreign' and commit."
           fi
 
-      - name: Source drift (advisory)
+      # Whole-repo sweep: what has gone stale anywhere, including pages no
+      # open branch is touching. The blocking, branch-scoped check is in the
+      # required `docs` job.
+      - name: Source drift sweep (advisory)
         continue-on-error: true
         run: uv run python scripts/check_doc_sources.py
 

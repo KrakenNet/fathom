@@ -34,6 +34,9 @@ quadrant that matches what you're doing.
 - [Registering a Python function](how-to/register-function.md)
 - [Loading a rule pack](how-to/load-rule-pack.md)
 - [Embedding via SDK](how-to/embed-sdk.md)
+- [Hot-reloading rulesets](how-to/hot-reload.md)
+- [Verifying a signed release](how-to/release-signing.md)
+- [Running Policy Studio](how-to/policy-studio.md)
 
 ### Understand — Concepts
 
@@ -45,6 +48,7 @@ quadrant that matches what you're doing.
 
 ### Look up — Reference
 
+- [Configuration](reference/configuration.md) — every `FATHOM_*` variable
 - YAML: [Template](reference/yaml/template.md) ·
   [Rule](reference/yaml/rule.md) ·
   [Module](reference/yaml/module.md) ·
@@ -59,6 +63,13 @@ quadrant that matches what you're doing.
   [TypeScript](reference/typescript-sdk/index.md)
 - [Rule Packs](reference/rule-packs/owasp-agentic.md)
 - [Planned Integrations](reference/planned-integrations.md)
+
+## Stability
+
+Fathom is pre-1.0. `fathom.__all__` is the covered public surface, and
+[VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md)
+states what a `0.x` minor and patch each mean for it, the YAML keys, the
+REST/gRPC/MCP contracts, and the CLI.
 
 ## What is not in v1
 
@@ -446,7 +457,10 @@ focus_order:
 The optional `focus_order` list tells the engine which modules to activate and
 in what order: the first name runs first. It maps straight onto the CLIPS
 `(focus ...)` command, which gives the focus to its first argument and queues
-the rest behind it.
+the rest behind it. Omit it and the engine focuses every declared module in
+declaration order, which keeps a pack working but leaves the order to depend
+on how the files happen to be written — write it out whenever the sequence
+carries meaning.
 
 Every listed module runs — an earlier one does not short-circuit the ones
 after it. Because decisions are last-write-wins, the module listed last is
@@ -801,6 +815,9 @@ constructs. `clear_facts()` and `reset()` only affect data, not compiled constru
 - [Registering a Python function](register-function.md)
 - [Loading a rule pack](load-rule-pack.md)
 - [Embedding via SDK](embed-sdk.md)
+- [Hot-reloading rulesets in a running server](hot-reload.md)
+- [Verifying a signed release](release-signing.md)
+- [Running Policy Studio](policy-studio.md)
 
 
 ## how-to/writing-rules.md
@@ -829,7 +846,7 @@ rules:
       - template: agent
         conditions:
           - slot: clearance
-            expression: unclassified
+            expression: equals(unclassified)
     then:
       action: deny
       reason: "Clearance insufficient"
@@ -855,16 +872,16 @@ fact type in working memory.
 ```yaml
 when:
   - template: data-request       # name of the deftemplate to match
-    alias: req                   # optional — bind the whole fact to a CLIPS variable
+    alias: $req                  # optional — names this pattern for $req.slot references
     conditions:
       - slot: action
-        expression: read
+        expression: equals(read)
 ```
 
 | Field | Required | Notes |
 |-------|----------|-------|
 | `template` | yes | Must match a loaded `TemplateDefinition` name |
-| `alias` | no | When set, the compiler emits `?alias <- (template ...)` |
+| `alias` | no | `$`-prefixed name for this pattern, referenced from another pattern's expression as `$alias.slot`. Must not be `$p<number>`, and no two patterns in a rule may share one |
 | `conditions` | yes | List of `ConditionEntry` objects |
 
 A rule with two `when` entries fires only when **both** facts exist simultaneously in
@@ -872,26 +889,31 @@ working memory — CLIPS evaluates the conjunction.
 
 ## `ConditionEntry` fields
 
-`ConditionEntry` (`src/fathom/models.py`, lines 105–171) represents one slot constraint
+`ConditionEntry` (`src/fathom/models.py`, line 203) represents one slot constraint
 inside a `FactPattern`. At least one of `expression`, `bind`, or `test` must be present.
 
 ### `slot` + `expression`: value match
 
-Use `expression` to require an exact slot value (compiled to a CLIPS equality
-constraint).
+An `expression` is always one `operator(argument)` form — a bare value is
+rejected by the model, not silently treated as `equals`.
 
 ```yaml
 conditions:
   - slot: status
-    expression: active
+    expression: equals(active)
 ```
 
-`slot` is required when `expression` is set.
+`slot` is required when `expression` is set. For the full operator list, the
+argument forms (`$alias.slot` cross-references, `[a, b]` lists, literals), and
+how a literal is emitted for each slot type, see the
+[Rule reference](../reference/yaml/rule.md).
 
 ### `slot` + `bind`: capture a value
 
 Use `bind` to capture a slot value into a CLIPS variable for use in other conditions or
-the `then` block. The value **must start with `?`** — the validator rejects anything else.
+the `then` block. The value must be `?` followed by a CLIPS identifier
+(`^\?[A-Za-z_][A-Za-z0-9_\-]*$`) — the validator rejects anything else, because the
+name is interpolated straight into the generated `defrule`.
 
 ```yaml
 conditions:
@@ -926,13 +948,19 @@ conditions:
 
 **Validator rules enforced by `ConditionEntry`:**
 
-- `bind` must start with `?` — e.g. `?sid`, not `sid`.
+- `bind` must be `?` followed by a CLIPS identifier — e.g. `?sid`, not `sid` and
+  not `?a b`.
+- `expression` must be a single `operator(argument)` form — e.g. `equals(active)`,
+  not `active`.
 - `test` must be a parenthesized CLIPS expression — e.g. `(my-fn ?sid)`.
 - `slot` must be present when `expression` or `bind` is set.
 - Setting `slot` alongside `test` alone (no `expression` or `bind`) is **rejected** —
   the compiler has no slot position to emit; either add `expression`/`bind` or drop
   `slot`.
 - At least one of `expression`, `bind`, or `test` must be set.
+- Any key other than `slot`, `expression`, `bind`, and `test` is rejected. This
+  holds for every model on this page: a misspelled field is an error, never a
+  silently ignored line.
 
 ## `then` block: `ThenBlock`
 
@@ -1213,6 +1241,13 @@ its own line.
 ```shell
 fathom compile examples/02-rbac-modules --format pretty
 ```
+
+Literals are emitted according to the declared slot type, so `compile` needs
+the templates in view: pointed at a directory it reads them from the pack, and
+pointed at a single file under `rules/` it picks up the sibling `templates/`
+directory. Without that context a `string` slot's literal is emitted bare —
+CLIPS rejects that form with `[CSTRNCHK1]`, so the printed constructs would be
+ones the engine never builds and that do not load.
 
 ## info
 
@@ -1952,6 +1987,619 @@ removes the server from the deployment diagram entirely.
   — typedoc-generated client, interface, and error reference.
 
 
+## how-to/hot-reload.md
+
+# Hot-reloading rulesets in a running server
+
+Fathom can swap a running server's ruleset atomically, without a
+restart, via `POST /v1/rules/reload`. Each reload:
+
+- Compiles the new YAML in a fresh CLIPS environment and only swaps it
+  in on success — a bad ruleset leaves the previous one serving
+  traffic (NFR-8).
+- Verifies an Ed25519 signature over the raw YAML bytes before
+  accepting the payload — unsigned rulesets are **rejected by default**
+  (fail-closed, AC-5.5).
+- Emits a JWT-attested audit event (`ruleset_reloaded` on success,
+  `ruleset_reload_rejected` on failure) carrying the
+  `ruleset_hash_before`/`ruleset_hash_after` pair.
+
+## Warning: a reload discards all working memory
+
+The new ruleset is compiled into a **fresh** CLIPS environment, and that
+environment starts empty. Every fact in working memory at the moment of the
+swap is gone — session facts, fleet facts synced from the shared store, and any
+long-lived facts the caller asserted at startup. Fact TTL timestamps are
+cleared with them.
+
+A failed reload changes nothing: the old environment keeps serving, so working
+memory survives. Only a *successful* swap wipes it.
+
+Plan for this. `Engine.subscribe_reload` is the seam: it registers a
+zero-argument callback fired after each successful swap, outside the reload
+lock, and returns an unsubscribe callable. A listener that raises is logged and
+swallowed, so a wedged subscriber cannot break the reload.
+
+```python
+def reseed() -> None:
+    engine.assert_fact("tenant", {"id": "acme", "tier": "gold"})
+
+unsubscribe = engine.subscribe_reload(reseed)
+```
+
+Re-run `FleetEngine.sync_fleet_facts` from the same callback for fleet-scoped
+state, and expect session callers to re-seed anything they asserted before the
+reload.
+
+This how-to covers how to sign a ruleset, wire up the deployment
+config, use the dev escape during development, monitor the live
+ruleset with `fathom status`, and rotate the runtime pubkey.
+
+## Endpoint shape
+
+```
+POST /v1/rules/reload
+Authorization: Bearer <operator-token>
+Content-Type: application/json
+```
+
+Request body — supply **exactly one** of `ruleset_path` or
+`ruleset_yaml`; `signature` is required in production (fail-closed
+default):
+
+```json
+{
+  "ruleset_path": "/etc/fathom/rulesets/prod-2026-04-22.yaml",
+  "signature":    "<base64 Ed25519 over the raw YAML bytes>"
+}
+```
+
+Inline form — useful when the operator lacks filesystem write access
+on the Fathom host:
+
+```json
+{
+  "ruleset_yaml": "rules:\n  - id: ...\n",
+  "signature":    "<base64 Ed25519 over the ruleset_yaml bytes>"
+}
+```
+
+Response (200):
+
+```json
+{
+  "ruleset_hash_before": "sha256:aaaa…",
+  "ruleset_hash_after":  "sha256:bbbb…",
+  "attestation_token": "<JWT signed by AttestationService>"
+}
+```
+
+Error codes:
+
+- `400 invalid_request` — both or neither of `ruleset_path` /
+  `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
+  not valid base64; ruleset failed to compile.
+- `400 unsigned_ruleset` — `require_signature=true` (the default) and
+  either `signature` is missing or Ed25519 verification failed. Also
+  emits `ruleset_reload_rejected` to the audit sink.
+- `413 payload_too_large` — the request body exceeds the reload size
+  cap (see below). Enforced before any YAML parsing.
+- `500 server_misconfigured` — `require_signature=true` but the
+  pubkey never loaded (should have failed at boot; treated as
+  defence-in-depth).
+- `503 not_ready` — engine or attestation service not yet configured
+  on `app.state`.
+
+## Admin token, body size cap, and rate limiting
+
+`POST /v1/rules/reload` (REST) and the gRPC `Reload` RPC are
+admin-scoped, defence-in-depth controls on top of signature
+verification:
+
+- **Scoped admin token.** Set `FATHOM_ADMIN_TOKEN` to require a
+  dedicated token for reload. When it is set, the reload surface
+  accepts **only** that token — the data-plane `FATHOM_API_TOKEN`
+  (used by `/v1/evaluate`, `/v1/facts`, …) no longer grants reload,
+  so a leaked data-plane token cannot replace the ruleset. When
+  `FATHOM_ADMIN_TOKEN` is **unset**, reload falls back to
+  `FATHOM_API_TOKEN` exactly as before (backward compatible). A
+  rejected token returns `401 unauthorized`.
+- **Body size cap.** Reload bodies are capped at 5 MB by default,
+  overridable via `FATHOM_MAX_RELOAD_BYTES`. The cap is enforced on
+  the **actual bytes received** (the body is streamed and aborted once
+  the running total exceeds the limit), not the `Content-Length`
+  header — a chunked request that under-reports its length is still
+  rejected with `413 payload_too_large` before the YAML parser sees
+  anything. The gRPC server inherits gRPC's default 4 MB
+  `max_receive_message_length`, which already bounds `Reload` payloads
+  below the REST cap.
+- **Rate limiting is host-level by design.** Fathom does not implement
+  per-client request throttling in-process. Run reload behind a
+  reverse proxy (nginx `limit_req`, Envoy, an API gateway, …) and rate
+  limit there. Keeping rate limiting at the host layer avoids
+  duplicating shared infrastructure inside the engine and keeps the
+  admin surface a thin, auditable control.
+
+## Signing a ruleset
+
+The runtime pubkey is a **separate concept** from the release-signing
+key documented in [release-signing.md](release-signing.md). Per design
+decision D2 you can either:
+
+- **Reuse the release-signing keypair.** Simpler key inventory;
+  operators who already run `scripts/sign_release.sh` can sign rulesets
+  with the same material. Trade-off: a compromise of the release key
+  also lets an attacker forge hot-reload payloads.
+- **Generate a separate runtime keypair.** Blast-radius reduction: a
+  compromised runtime key does not let the attacker forge release
+  artifacts, and vice-versa. Recommended for production deployments.
+
+### Generating a runtime keypair
+
+The server expects a **raw Ed25519 PEM public key**, not minisign's
+format. Generate with `openssl`:
+
+```shell
+openssl genpkey -algorithm ed25519 -out ruleset-signing.key
+openssl pkey   -in ruleset-signing.key -pubout -out ruleset-signing.pub
+```
+
+Keep `ruleset-signing.key` in the same custody regime as your other
+secrets (HSM, sealed secret, offline backup). The public half
+(`ruleset-signing.pub`) is what the Fathom server loads at boot.
+
+### Producing a detached signature
+
+Sign the **raw YAML bytes** you intend to POST — not a hash, not a
+normalised form. The server re-hashes the payload bytes internally and
+uses them both for verification and for `ruleset_hash_after`. Any pre-signing
+transformation (whitespace fix-ups, YAML re-emit) invalidates the
+signature.
+
+Python example using `cryptography`:
+
+```python
+from base64 import b64encode
+from pathlib import Path
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+yaml_bytes = Path("prod-2026-04-22.yaml").read_bytes()
+priv = load_pem_private_key(Path("ruleset-signing.key").read_bytes(), password=None)
+signature_b64 = b64encode(priv.sign(yaml_bytes)).decode("ascii")
+print(signature_b64)
+```
+
+The resulting base64 string goes into the `signature` field of the
+reload request. OpenSSL's `pkeyutl -sign` path works too, but keeping
+the YAML bytes byte-identical through the shell pipeline is error-
+prone; scripted signing is recommended.
+
+## Deployment configuration (fail-closed default)
+
+Two independent controls must both line up for a production deployment:
+
+1. **Config.** In `config.yaml` (or whichever layer feeds your server
+   factory):
+
+   ```yaml
+   rules:
+     hot_reload:
+       require_signature: true   # default
+   ```
+
+2. **Environment.** Point at the public key PEM file:
+
+   ```shell
+   export FATHOM_RULESET_PUBKEY_PATH=/etc/fathom/ruleset-signing.pub
+   ```
+
+The server loads the pubkey **at boot** and pins it onto
+`app.state.ruleset_pubkey`. If `require_signature=true` and the path
+is missing, unset, or unreadable, `build_app()` raises a
+`RuntimeError` with the message `ruleset pubkey unreadable or missing;
+set FATHOM_RULESET_PUBKEY_PATH or enable dev escape` and the server
+never starts. This is deliberate — failing at boot beats failing on
+first reload attempt.
+
+## Dev escape (development only)
+
+There is a single supported way to run the server with signature
+verification disabled, and it requires **both** of the following, by
+design (belt-and-suspenders — a single stray flag is not enough to
+lower the security floor):
+
+1. Config: `rules.hot_reload.require_signature: false`.
+2. Environment: `FATHOM_ALLOW_UNSIGNED_RULESETS=1`.
+
+Neither alone is sufficient; any other combination keeps the server
+fail-closed. When both are set, `build_app()` logs at WARN on startup:
+
+```
+ruleset signature verification disabled (require_signature=false +
+FATHOM_ALLOW_UNSIGNED_RULESETS=1); hot-reload will accept unsigned
+rulesets
+```
+
+The WARN line is emitted once per process; scrape for it in your log
+aggregator to detect dev escape accidentally turned on in prod. Every
+unsigned reload that succeeds under the dev escape still writes a
+`ruleset_reloaded` audit record, so there is no silent window.
+
+## Monitoring the live ruleset
+
+`GET /v1/status` (unauthenticated; liveness-shaped) returns:
+
+```json
+{
+  "ruleset_hash": "sha256:bbbb…",
+  "version":      "0.3.1",
+  "loaded_at":    "2026-04-22T22:15:07.482+00:00"
+}
+```
+
+`loaded_at` is the timestamp of the most recent reload, or the
+server's boot time if no reload has happened yet. The CLI wraps this
+endpoint:
+
+```shell
+fathom status --server https://fathom.prod.example.com
+```
+
+Output:
+
+```
+ruleset_hash: sha256:bbbb…
+version:      0.3.1
+loaded_at:    2026-04-22T22:15:07.482+00:00
+```
+
+Pass `--token` (or set `FATHOM_TOKEN`) if the server fronts `/v1/status`
+with auth in your environment. Exit code `0` means the call succeeded
+and the ruleset hash was reported; non-zero means the server was
+unreachable, returned an HTTP error, or replied with non-JSON.
+
+The `ruleset_hash` you see here should match the `ruleset_hash_after` value
+returned by the most recent `POST /v1/rules/reload`. If it does not,
+either a later reload happened between your calls, or the audit log
+and live state have diverged — investigate immediately.
+
+## Audit events
+
+Every reload — accepted or rejected — writes one record to the
+configured audit sink. Successful reloads emit:
+
+```json
+{
+  "event_type":         "ruleset_reloaded",
+  "ruleset_hash_before": "sha256:aaaa…",
+  "ruleset_hash_after":  "sha256:bbbb…",
+  "actor":              "bearer-token",
+  "timestamp":          "2026-04-22T22:15:07.482+00:00"
+}
+```
+
+Rejected reloads emit `event_type: ruleset_reload_rejected` with a
+`reason` field (`missing_signature`, `verification_failed`,
+`unknown_template`, …) and the *unchanged* `ruleset_hash_before`.
+
+The `attestation_token` returned from a successful reload is a JWT
+signed by the server's `AttestationService.sign_event()` (C6); you can
+verify it offline with the service's pubkey and replay it in your
+audit trail as a non-repudiation proof.
+
+## Rotating the runtime pubkey
+
+Rotate on a schedule (annual, matching the release-signing cadence)
+or immediately on suspected compromise:
+
+1. Generate a new Ed25519 keypair with `openssl` (see above); store
+   the private half in the same custody regime as the old one.
+2. Copy the new public key to a fresh path (e.g. `.pub.v2`) on each
+   Fathom host so you can roll back instantly if needed.
+3. Update the deployment's `FATHOM_RULESET_PUBKEY_PATH` to point at
+   the new `.pub.v2` file.
+4. Restart the server. `build_app()` reloads the pubkey at boot; there
+   is no hot path for pubkey rotation by design (the pubkey is the
+   trust anchor for reloads, so rotating it via a reload would be
+   circular).
+5. Confirm the new pubkey is live by POSTing a reload signed with the
+   new private key and watching `fathom status --server …` for a new
+   `ruleset_hash` and advanced `loaded_at`.
+6. Securely erase the previous private key once you have confirmed
+   the next scheduled ruleset push signs cleanly under the new key.
+
+The runtime pubkey and the release-signing pubkey rotate on
+independent schedules — if you reuse the same key for both (D2
+trade-off), plan one rotation event that covers both surfaces.
+
+## Migration from earlier Fathom builds
+
+This release is the **first** to ship `POST /v1/rules/reload`, so no
+operator has ever had a "signatures optional" hot-reload in
+production. However, operators who have been experimenting with
+pre-release dev builds that accepted unsigned rulesets need to know:
+
+- **The default is fail-closed.** After upgrading, a server started
+  without `FATHOM_RULESET_PUBKEY_PATH` will refuse to boot with
+  `ruleset pubkey unreadable or missing…`. This is intentional.
+- **Before restart, pick one of:**
+  1. **Production path (recommended).** Generate a runtime keypair
+     (or decide to reuse the release key), publish the pubkey file,
+     set `FATHOM_RULESET_PUBKEY_PATH` on every Fathom host, and keep
+     `rules.hot_reload.require_signature: true`.
+  2. **Dev/CI path.** Set **both** `rules.hot_reload.require_signature:
+     false` in config **and** `FATHOM_ALLOW_UNSIGNED_RULESETS=1` in
+     the environment. Either alone leaves fail-closed behaviour
+     active — deliberately, to stop a partial config from silently
+     downgrading security.
+- **Audit sink consumers.** Start recognising the two new
+  `event_type` values (`ruleset_reloaded`,
+  `ruleset_reload_rejected`) alongside the existing eval-shaped
+  records. They share the `actor` + `timestamp` envelope but carry
+  `ruleset_hash_before` / `ruleset_hash_after` instead of eval fields.
+
+
+## how-to/release-signing.md
+
+# Verifying release signatures
+
+Every Fathom release artifact from **0.5.0 onward** is signed with
+[minisign](https://jedisct1.github.io/minisign/) (detached Ed25519) and
+attached to its GitHub Release. This how-to shows you how to install minisign,
+verify a downloaded wheel or sdist, and understand the custody, rotation, and
+revocation policy for the signing key.
+
+**Releases before 0.5.0 are unsigned.** Signing was introduced with the 0.4.0
+tree, which reached PyPI as 0.5.0. The five earlier PyPI releases — 0.1.0,
+0.2.0, 0.3.0, 0.3.1 and 0.3.2 — have no `.minisig`, and the GitHub releases for
+0.3.0, 0.3.1, 0.3.3 and 0.4.0 carry no assets at all. There is nothing to
+verify for those versions, and no signature will be published retroactively:
+back-signing an old artifact today would assert a custody chain that did not
+exist when it was built. Use 0.5.0 or later if you need a verifiable artifact.
+
+## What is signed, and how
+
+- **Artifacts**: every `fathom_rules-*.whl` and `fathom_rules-*.tar.gz`
+  from 0.5.0 onward. `pypi-publish.yml` fails the release if any artifact
+  in `dist/` reaches the publish step without a sibling `.minisig`.
+- **Algorithm**: Ed25519 via minisign's standard `.minisig` format —
+  detached signature, one file per artifact, binary-safe.
+- **Where signatures appear**:
+  - Alongside each wheel / sdist as `<artifact>.minisig` on the GitHub
+    Release page.
+  - In the `dist/` directory produced by `scripts/sign_release.sh`
+    during the `pypi-publish` workflow.
+- **Pubkey**: published at
+  [`docs/reference/release-signing-pubkey.minisig`](../reference/release-signing-pubkey.minisig)
+  and embedded in the Fathom wheel at
+  `fathom/_data/release_pubkey.minisign` so that `fathom
+  verify-artifact` works offline.
+
+A `.minisig` file is a small text blob containing an Ed25519 signature
+plus a trusted comment. It is not a bundle — the artifact and its
+`.minisig` travel together but remain separate files.
+
+## Installing minisign
+
+Pick the instruction that matches your platform. All of them give you a
+`minisign` binary on your `PATH`.
+
+- **macOS** (Homebrew):
+
+  ```shell
+  brew install minisign
+  ```
+
+- **Linux** (Debian, Ubuntu):
+
+  ```shell
+  sudo apt install minisign
+  ```
+
+  On Fedora / RHEL: `sudo dnf install minisign`. On Arch: `sudo pacman
+  -S minisign`.
+
+- **Windows**: download a pre-built binary from the upstream release
+  page at
+  [`https://github.com/jedisct1/minisign/releases`](https://github.com/jedisct1/minisign/releases)
+  and place it somewhere on `PATH`. Alternatively, use WSL and follow
+  the Linux instructions above.
+
+Confirm the install:
+
+```shell
+minisign -v
+```
+
+## Verifying a downloaded artifact
+
+You have two equivalent paths. Use the first if you already have Fathom
+installed; use the second if you only have `minisign` and the public
+key file.
+
+### Option A — `fathom verify-artifact` (embedded pubkey)
+
+The CLI carries the release pubkey inside the wheel, so once you have
+any recent Fathom version installed you can verify later downloads
+offline:
+
+```shell
+fathom verify-artifact fathom_rules-1.2.0-py3-none-any.whl
+```
+
+If `<artifact>.minisig` lives next to the artifact, the CLI picks it up
+automatically. Override either side with `--sig <path>` or `--pubkey
+<path>` when auditing a specific file. Exit code `0` means the
+signature verified; non-zero means the verification failed or the
+inputs were malformed — re-download the artifact before trusting it.
+
+### Option B — raw `minisign`
+
+No Fathom install needed. Download the artifact, its `.minisig`, and
+the pubkey file from
+[`docs/reference/release-signing-pubkey.minisig`](../reference/release-signing-pubkey.minisig),
+then:
+
+```shell
+minisign -Vm fathom_rules-1.2.0-py3-none-any.whl \
+         -p release-signing-pubkey.minisig
+```
+
+`minisign` looks for `<artifact>.minisig` by default. Pass `-x <path>`
+to point at a signature that lives elsewhere. A `Signature and comment
+signature verified` line means the artifact is authentic.
+
+The pubkey's first line is also pasted into every GitHub Release body,
+so you can cross-check the key you fetched from the repository against
+the one on the release page.
+
+## M-of-N custody policy
+
+The release private key is never held in a single place. Two named
+custodians each hold one half of the operational state, and **both
+must agree out-of-band before a release tag is pushed**.
+
+- `MINISIGN_KEY_PRIMARY` — GitHub Actions secret, held by custodian A.
+  Loaded into `scripts/sign_release.sh` during the `pypi-publish`
+  workflow.
+- `MINISIGN_KEY_SECONDARY` — offline backup of the same keypair, held
+  by custodian B. Used only for rotation, recovery, and the custody
+  handshake described below.
+- Both custodians confirm the target tag, commit SHA, and intended
+  version via a signed email or Signal message before custodian A
+  authorises the tag push that triggers signing. No single custodian
+  can ship a release on their own, because the handshake is the
+  authorisation step — not merely a courtesy.
+
+The policy exists so that a compromise of a single machine, inbox, or
+GitHub token cannot produce a valid Fathom release.
+
+## Rotation cadence
+
+- **Scheduled**: rotate the keypair annually. Track the next rotation
+  date in the repository's release runbook.
+- **On compromise**: rotate immediately if either custodian suspects
+  their copy of the key has been exposed, if a custodian's workstation
+  is lost or stolen, or if `MINISIGN_KEY_PRIMARY` is ever printed to
+  logs.
+
+### Rotation procedure
+
+1. Both custodians meet out-of-band and generate a new keypair with
+   `minisign -G`.
+2. Update `docs/reference/release-signing-pubkey.minisig` **and**
+   `src/fathom/_data/release_pubkey.minisign` with the new public key,
+   in a single commit.
+3. Distribute the new private key: update the `MINISIGN_KEY_PRIMARY`
+   GitHub Actions secret; custodian B stores the new offline backup.
+4. Publish a dedicated release note flagging the rotation, including
+   the new key ID and the date from which signatures use it.
+5. Retire the previous private-key material (securely erase offline
+   copies, delete the old GitHub secret).
+
+## Revocation
+
+minisign has no CRL or OCSP equivalent — trust in a key is defined by
+the key file you hold. To revoke a compromised key:
+
+1. Follow the rotation procedure above, treating it as an emergency.
+2. Issue a release note that explicitly invalidates every artifact
+   signed by the previous key and lists which published versions are
+   affected.
+3. Recommend that users re-fetch and re-verify any still-in-use
+   artifacts against the new pubkey before continuing to rely on
+   them.
+
+Users who pin the pubkey (for example by vendoring
+`release-signing-pubkey.minisig`) should update their pinned copy from
+the new release. The embedded pubkey in `fathom/_data/` updates
+automatically once users install a release signed under the new key.
+
+
+## how-to/policy-studio.md
+
+# Running Policy Studio
+
+Policy Studio is a local browser UI over a real Fathom engine: load a ruleset,
+push facts at it, and read the decision, the rules that fired, and the audit
+line that came out. It is a **separate package** — `fathom-studio`, its own
+version line — because the engine wheel ships no UI code.
+
+## Install and run
+
+`fathom-studio` is not published to PyPI yet. Run it from a checkout, where
+it is a workspace member and `uv sync` already installs it:
+
+```bash
+git clone https://github.com/KrakenNet/fathom.git
+cd fathom
+uv sync
+
+export FATHOM_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+uv run fathom-studio
+```
+
+The process prints the URL to open and binds `127.0.0.1:8020`. `--host` and
+`--port` override the bind; `FATHOM_STUDIO_PORT` sets the port from the
+environment.
+
+Open it as `http://127.0.0.1:8020/?token=$FATHOM_API_TOKEN` **once**. The
+token is validated and stored in the `fathom_token` cookie, which the SPA's
+`fetch` calls and the plain HTML forms then carry for you.
+
+## The token gate
+
+The Studio mounts the production REST app in the same process, so it holds
+itself to the same door: every route that loads a ruleset, drives the engine,
+or mints an attestation token requires the same `FATHOM_API_TOKEN` the REST
+app requires. There is no second secret. Present it as either
+`Authorization: Bearer <token>` (for `curl` and tests) or the cookie above.
+
+Only three things are ungated, and none of them carry engine data: `/health`,
+the SPA shell at `/`, and its static assets under `/creem`. With
+`FATHOM_API_TOKEN` unset, every gated route answers 401 — an unconfigured
+Studio exposes nothing.
+
+## What the views do
+
+| View | What it drives |
+|---|---|
+| Reasoning Bench | Loads a bundled scenario, evaluates it, and shows decision, reason, and the firing rules |
+| Live Wire | A rolling decision stream and deny-rate strip. The traffic is synthetic — it samples the bundled scenarios — but every packet is a real evaluation |
+| Rules | The compiled rules of the selected ruleset, with their conditions |
+| Templates | The fact schemas the ruleset declares |
+| Audit | The signed, hash-linked record of what the Studio has evaluated so far |
+
+Nine demo scenarios ship with the package, covering five example rulesets:
+hello allow/deny, RBAC with modules, Bell-LaPadula classification, temporal
+anomaly detection, and LangChain guardrails. Each is a copy of the matching
+`examples/0N-*` directory, held byte-identical to it by a test. Point
+`FATHOM_RULESET_ROOT` at your own directory to drive the Studio with your
+rulesets instead.
+
+Decisions are never faked. `POST /studio/api/evaluate` builds a fresh
+`Engine` for the chosen ruleset, asserts the facts, evaluates, and renders
+what came back — the same stateless shape `/v1/evaluate` uses, so working
+memory never leaks from one bench run into the next.
+
+## What it is not
+
+- **Not a sandbox.** The REST app is *mounted*, not proxied: it runs in the
+  Studio's process, under `/api`, sharing that module's in-memory session
+  store. Anything driven through `/api` — including the server-rendered
+  panels, which call it with a per-browser `X-Session-Id` — lands in the same
+  working memory a REST client of that process sees.
+- **Not a stable API.** The `/studio/api/*` routes are unversioned and
+  excluded from [the compatibility policy](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md);
+  they change with the UI.
+- **Not your audit log.** The Audit view's chain lives in process memory,
+  holds the most recent 200 records, and is signed with a keypair generated
+  at startup — it dies with the process. For a durable, verifiable log, use
+  `ChainedAttestationLog` from the library
+  ([Audit & Attestation](../concepts/audit-attestation.md)).
+- **Not hardened for exposure.** It binds loopback by default. Keep it there.
+
+
 ## concepts/index.md
 
 # Concepts
@@ -1977,7 +2625,7 @@ shortest path to a working mental model of the engine.
 
 The rest of this page walks the five in the order the engine loads them
 (`templates → modules → functions → rules` — see
-`src/fathom/engine.py`, `Engine.from_rules`, lines 452–489) and closes with how
+`src/fathom/engine.py`, `Engine.from_rules`, lines 496–570) and closes with how
 they fit together at evaluate time.
 
 ## Templates
@@ -2325,6 +2973,14 @@ when no rules in it can fire, the next module in the list gets its turn.
 The first module in `focus_order` is the first to run, and
 `_setup_focus_stack()` emits the list unchanged to say so.
 
+`focus_order` comes from the `focus_order:` key in a module YAML file, or
+from `Engine.set_focus(...)`. If a pack declares modules and sets neither,
+`Engine.load_modules` focuses every declared module in declaration order —
+without that fallback the focus list is empty, no module's agenda is ever
+drained, and the caller gets the default decision back from a pack whose
+rules all matched. Declaration order is a floor, not a design: state
+`focus_order:` whenever the sequence matters.
+
 The practical upshot is that modules are a coarse-grained ordering tool.
 If `policy` comes before `logging` in the focus order, every
 activatable `policy` rule fires before any `logging` rule gets a chance,
@@ -2530,9 +3186,10 @@ allowed-value directives come from `_CLIPS_TYPE_MAP` and
 (defmodule governance (import MAIN ?ALL))
 ```
 
-Emitted by `compile_module`. `ModuleDefinition` carries a `priority`
-integer consumed by focus-stack ordering at load time, not serialized
-into the CLIPS source.
+Emitted by `compile_module`. `ModuleDefinition` also carries a `priority`
+integer, which is neither serialized into the CLIPS source nor read by the
+runtime: focus order comes from the `focus_order:` key, or from declaration
+order when that key is absent (see [Module](../reference/yaml/module.md)).
 
 `RuleDefinition` → a `defrule` qualified by its owning module:
 
@@ -2781,6 +3438,7 @@ class AuditRecord(BaseModel):
     duration_us: int
     metadata: dict[str, str] = Field(default_factory=dict)
     asserted_facts: list[AssertedFact] | None = None
+    attestation_token: str | None = None
 ```
 
 Field by field:
@@ -2806,6 +3464,10 @@ Field by field:
   decision's rule.
 - **`asserted_facts`** — populated only when at least one loaded rule
   declares an RHS `asserts` block (see below).
+- **`attestation_token`** — the JWT signed for this same evaluation, copied
+  onto the record so an exported line can be checked without the caller's
+  copy of the token. `None` on an engine constructed without an
+  `attestation_service`.
 
 Records are written one-per-line as JSON. JSON Lines is trivially grep-able,
 `jq`-able, and concatenatable; it's what most log aggregators expect.
@@ -2825,13 +3487,29 @@ class AuditSink(Protocol):
     def write(self, record: AuditRecord) -> None: ...
 ```
 
-Two implementations ship with Fathom:
+Three implementations ship with Fathom:
 
 - **`FileSink(path)`** — writes `record.model_dump_json() + "\n"` to the
   given file in append mode. The constructor creates parent directories and
   `touch`es the file, so pointing it at a fresh path Just Works.
 - **`NullSink`** — `write()` is a no-op. This is the default when you
   construct an `Engine` without passing `audit_sink`.
+- **`ChainedAttestationLog(path, service)`** (`fathom.chained_log`) — the
+  same JSON Lines shape, but each line is signed and commits to the hash of
+  the line before it, so deleting or reordering entries is detectable and
+  not just discouraged. It needs the `attestation` extra and a signing
+  service:
+
+  ```python
+  from fathom import Engine
+  from fathom.attestation import AttestationService
+  from fathom.chained_log import ChainedAttestationLog
+
+  log = ChainedAttestationLog("/var/log/fathom/audit.jsonl", AttestationService.generate_keypair())
+  engine = Engine(audit_sink=log)
+  ```
+
+  Verify it later with `fathom verify-chain <log> --pubkey <log>.pub.pem`.
 
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
@@ -2860,26 +3538,38 @@ real sink; everything else keeps working with zero ceremony.
 
 ## What gets recorded when
 
-The recording happens inside `Engine.evaluate()`. The sequence:
+The recording happens inside `Engine.evaluate()`, under the engine's
+re-entrant lock, so a concurrent caller cannot interleave its own facts into
+the snapshots below. The sequence:
 
 1. **Pre-snapshot user facts** — but only if `self._has_asserting_rules` is
    true. That flag is set at load time when any compiled rule declares a
    non-empty `asserts` block. If no loaded rule can assert new facts, the
    snapshot is skipped entirely — there's nothing to diff against.
-2. **Run inference** — `self._evaluator.evaluate()` returns an
+2. **Snapshot input facts** — `self._snapshot_input_facts()` captures the
+   caller-supplied working memory the decision is about to be computed over.
+   It is taken only when an `attestation_service` is configured or the audit
+   log is recording, because it costs a query per template and nothing else
+   consumes it. This snapshot is what `input_hash` binds (see
+   [Attestation as signed proof](#attestation-as-signed-proof)) and what
+   `log: full` records.
+3. **Run inference** — `self._evaluator.evaluate()` returns an
    `EvaluationResult` with `decision`, `reason`, `rule_trace`,
-   `module_trace`, and `duration_us`.
-3. **Sign, if configured** — if the engine was constructed with an
-   `attestation_service`, call `sign(result, self._session_id)` and store the
-   returned JWT on `result.attestation_token`.
-4. **Diff pre/post snapshots** — a second `_snapshot_user_facts()` call,
+   `module_trace`, and `duration_us`, plus the effective log level.
+4. **Sign, if configured** — if the engine was constructed with an
+   `attestation_service`, call
+   `sign(result, self._session_id, input_facts=...)` and store the returned
+   JWT on `result.attestation_token`. The input facts are not optional here:
+   `sign` refuses `None`, because a token signed without inputs binds
+   nothing.
+5. **Diff pre/post snapshots** — a second `_snapshot_user_facts()` call,
    differenced against the pre-snapshot, yields the facts the rules
    asserted during this evaluation. Order is preserved from the post
    snapshot; equality is keyed on `(template, sorted(slots.items()))`.
-5. **Record** — `self._audit_log.record(result, session_id,
-   asserted_facts=...)` constructs the `AuditRecord` and hands it to the
-   sink.
-6. **Metrics** — `self._metrics.record_evaluation(...)` runs in a `finally`
+6. **Record** — `self._audit_log.record(result, session_id,
+   input_facts=..., asserted_facts=..., log_level=...)` constructs the
+   `AuditRecord` and hands it to the sink.
+7. **Metrics** — `self._metrics.record_evaluation(...)` runs in a `finally`
    so metrics are updated even if recording raised.
 
 Two things worth flagging:
@@ -2888,10 +3578,11 @@ Two things worth flagging:
   and also when asserting rules exist but none fired. An empty list is
   collapsed to `None`, so the record distinguishes "didn't try to capture
   this" from "captured nothing."
-- Signing happens *before* the audit record is written. The JWT ends up
-  on the `EvaluationResult` the caller receives but is **not** one of the
-  `AuditRecord` fields — the log records the decision; the token is
-  returned to the caller to store or forward separately.
+- Signing happens *before* the audit record is written, which is what lets
+  the record carry the token: the JWT is set on the `EvaluationResult` in
+  step 4 and copied onto `AuditRecord.attestation_token` in step 6. The
+  caller gets the same token on the result to forward separately if it
+  wants to.
 
 ## Attestation as signed proof
 
@@ -2978,9 +3669,20 @@ What audit + attestation *do* protect against:
 
 - **Disputes about what was decided.** A signed `decision` and `rule_trace`
   pin down the answer and the rules that produced it.
-- **Tampering with exported logs.** An attacker who modifies an audit line
-  after export can't re-sign it without the private key; `verify_token`
-  fails.
+- **Tampering with the decision in an exported log.** Each line carries the
+  JWT signed for that evaluation, and the payload commits to `decision`,
+  `rule_trace`, `session_id`, `iat`, and `input_hash`. Change any of those
+  in the line and it no longer matches the claims `verify_token` returns;
+  re-signing needs the private key.
+
+  What this does **not** cover: `reason`, `metadata`, `duration_us`,
+  `input_facts`, and `asserted_facts` sit outside the signed payload, so a
+  line whose token verifies is not thereby proof that those fields are
+  untouched. Nor does a per-line signature detect a line being *deleted* —
+  for that you need order and continuity, which is what
+  `fathom.chained_log.ChainedAttestationLog` and `fathom verify-chain`
+  provide: each entry commits to the hash of the one before it, so a
+  removed or reordered entry breaks the chain.
 - **Input substitution.** The `input_hash` commits the token to a specific
   set of facts — template name and slot values both. Swap a fact, change a
   slot, or move a fact to a different template, and the hash stops matching.
@@ -3248,8 +3950,21 @@ scoping will work from.
 
 # Reference
 
-Every public surface of Fathom is documented here. All pages under this tab
-are generated from source — hand edits will be overwritten on next build.
+Every public surface of Fathom is documented here.
+
+Most pages under this tab are generated from source — the SDK, REST, gRPC, MCP,
+CLI, and rule-pack references are rewritten by `make docs-gen`, so hand edits to
+them are overwritten on the next build. The YAML pages and
+[Configuration](configuration.md) are hand-written and cite the files they
+describe in their frontmatter.
+
+Which of these surfaces the project promises to keep working is
+[VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md).
+
+## Deployment
+
+- [Configuration](configuration.md) — every `FATHOM_*` variable, gRPC TLS, and
+  the server token scopes
 
 ## SDKs
 
@@ -3280,6 +3995,98 @@ are generated from source — hand edits will be overwritten on next build.
 - [CMMC](rule-packs/cmmc.md)
 
 
+## reference/configuration.md
+
+# Configuration
+
+Fathom as a library takes its configuration through `Engine(...)` arguments and
+needs no environment. Everything below configures the **servers** — the REST
+app, the gRPC server, and the CLI's client commands.
+
+Each variable is read from the process environment. Where a variable is read
+per request rather than once at import, the table says so: those can be changed
+without a restart.
+
+## All variables
+
+| Variable | Read by | Default | Effect |
+|---|---|---|---|
+| `FATHOM_API_TOKEN` | REST, gRPC | *(none — required)* | The data-plane bearer token. Every `/v1/*` route and every RPC compares the presented `Authorization: Bearer …` against it with `hmac.compare_digest`. Unset means server mode refuses to authenticate anything. Read per verification. |
+| `FATHOM_ADMIN_TOKEN` | REST, gRPC | *(unset)* | Scopes the reload surface. When set, `POST /v1/rules/reload` and the `Reload` RPC accept **only** this token and the data-plane token stops working for them. When unset, reload falls back to `FATHOM_API_TOKEN`. |
+| `FATHOM_RULESET_ROOT` | REST | *(none — required)* | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400; an unset root is a 500, never an unjailed read. |
+| `FATHOM_RULESET_PUBKEY_PATH` | REST | *(none)* | PEM path of the public key that signed rulesets are verified against. Required at startup unless the dev escape below is engaged — a missing or unreadable key is a startup failure, not a warning. |
+| `FATHOM_ALLOW_UNSIGNED_RULESETS` | REST | `0` | Set to `1` **and** build the app with `require_signature=False` to accept unsigned reload payloads. Both are required; either alone keeps signature checking on. Logs a warning on every boot that uses it. |
+| `FATHOM_MAX_REQUEST_BYTES` | REST | `2097152` (2 MB) | Body cap on the data-plane routes, enforced on bytes actually received rather than `Content-Length`. `/v1/evaluate` runs a quadratic join over the facts it is given, so this bounds server CPU, not just memory. A non-numeric or non-positive value falls back to the default. Read per request. |
+| `FATHOM_MAX_RELOAD_BYTES` | REST, gRPC | `5242880` (5 MB) | Body cap on the reload route specifically, which the data-plane cap skips. gRPC's own receive limit is set below this. Same fallback behaviour. Read per request. |
+| `FATHOM_EXPOSE_DOCS` | REST | `0` | Set to `1` to serve `/docs`, `/redoc`, and `/openapi.json`. Off by default because they publish route and schema names to unauthenticated callers. Read once at import. |
+| `FATHOM_GRPC_TLS_CERT` | gRPC | *(none)* | PEM certificate path. Required with `FATHOM_GRPC_TLS_KEY` unless insecure mode is opted into. |
+| `FATHOM_GRPC_TLS_KEY` | gRPC | *(none)* | PEM private-key path, paired with the certificate above. |
+| `FATHOM_GRPC_ALLOW_INSECURE` | gRPC | `0` | Set to `1` to bind a plaintext port when no TLS pair is configured. See the warning below. |
+| `FATHOM_METRICS` | Engine | `0` | Set to `1` to enable Prometheus metrics collection without passing `enabled=True` to `MetricsCollector`. No-ops when `prometheus_client` is not installed, so setting it is safe on an install without the `metrics` extra. |
+| `FATHOM_TOKEN` | CLI | *(unset)* | Default bearer token for CLI commands that call a server. `--token` overrides it. |
+
+## gRPC TLS
+
+**The gRPC server refuses to start without TLS.** `serve()` binds a secure port
+only when both `FATHOM_GRPC_TLS_CERT` and `FATHOM_GRPC_TLS_KEY` name readable
+PEM files:
+
+```bash
+export FATHOM_GRPC_TLS_CERT=/etc/fathom/tls/server.crt
+export FATHOM_GRPC_TLS_KEY=/etc/fathom/tls/server.key
+export FATHOM_API_TOKEN="$(cat /run/secrets/fathom-api-token)"
+```
+
+```python
+from fathom.integrations.grpc_server import serve
+
+server = serve(port=50051)
+server.wait_for_termination()
+```
+
+With neither the pair nor an explicit opt-in, `serve()` raises `RuntimeError`
+naming the three variables. That is deliberate: the bearer token travels in an
+RPC metadata header, so an insecure port hands every token to any passive
+observer on the path.
+
+The opt-in exists for local development and for deployments that terminate TLS
+in a sidecar on the same host:
+
+```bash
+export FATHOM_GRPC_ALLOW_INSECURE=1   # plaintext port; token sent in the clear
+```
+
+Do not set it on a port reachable from another host. If a service mesh already
+terminates TLS, keep the plaintext listener bound to loopback.
+
+Client-certificate authentication (mTLS) is not wired up: the server passes a
+single key pair to `grpc.ssl_server_credentials` and does not request a client
+certificate. Callers are authenticated by bearer token only.
+
+## Server tokens
+
+Both server surfaces authenticate the same way — a bearer token compared in
+constant time — and both distinguish two scopes:
+
+- **Data plane** (`FATHOM_API_TOKEN`): evaluate, assert, query, retract.
+- **Admin** (`FATHOM_ADMIN_TOKEN`): ruleset reload.
+
+Setting only `FATHOM_API_TOKEN` means one token does both. Setting both means
+a leaked data-plane token cannot swap the policy the server enforces, which is
+the split worth having in production. See
+[Hot-reloading rulesets](../how-to/hot-reload.md) for the rest of the reload
+security model.
+
+## What is not configurable by environment
+
+- **Rule paths and engine options** — `Engine(...)` arguments: audit sink,
+  attestation service, session id, evaluation `run_limit`.
+- **Ports and worker counts** — `serve(port=…, max_workers=…)` for gRPC, and
+  the ASGI server's own flags for REST (`uvicorn --port`).
+- **Per-rule behaviour** — salience, module focus, and log level are properties
+  of the ruleset, not of the deployment.
+
+
 ## reference/python-sdk/index.md
 
 # Python SDK Reference
@@ -3288,15 +4095,31 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 
 ## Public symbols
 
-- [`Engine`](engine.md)
-- [`CompilationError`](compilationerror.md)
-- [`EvaluationError`](evaluationerror.md)
-- [`EvaluationLimitError`](evaluationlimiterror.md)
-- [`ScopeError`](scopeerror.md)
-- [`ValidationError`](validationerror.md)
 - [`AssertSpec`](assertspec.md)
 - [`AssertedFact`](assertedfact.md)
+- [`AttestationError`](attestationerror.md)
+- [`AttestationService`](attestationservice.md)
+- [`AuditLog`](auditlog.md)
+- [`AuditRecord`](auditrecord.md)
+- [`AuditSink`](auditsink.md)
+- [`ChainedAttestationLog`](chainedattestationlog.md)
+- [`CompilationError`](compilationerror.md)
+- [`Engine`](engine.md)
+- [`EvaluationError`](evaluationerror.md)
+- [`EvaluationLimitError`](evaluationlimiterror.md)
 - [`EvaluationResult`](evaluationresult.md)
+- [`FactStore`](factstore.md)
+- [`FathomError`](fathomerror.md)
+- [`FileSink`](filesink.md)
+- [`FleetConnectionError`](fleetconnectionerror.md)
+- [`FleetEngine`](fleetengine.md)
+- [`FleetError`](fleeterror.md)
+- [`InMemoryFactStore`](inmemoryfactstore.md)
+- [`NullSink`](nullsink.md)
+- [`ScopeError`](scopeerror.md)
+- [`ValidationError`](validationerror.md)
+- [`verify_chain`](verify_chain.md)
+- [`verify_token`](verify_token.md)
 
 
 ## reference/go-sdk/index.md
@@ -3505,8 +4328,25 @@ templates:
 Pydantic-level rejections (raised at `TemplateDefinition(...)` or during
 YAML load):
 
-- `name` that does not match `^[A-Za-z_][A-Za-z0-9_\-]*$` →
-  `ValueError` from `_name_must_be_clips_ident`.
+- Any key not listed in the tables above, on either model — both
+  `TemplateDefinition` and `SlotDefinition` are `extra="forbid"`, so a
+  misspelled field is an error rather than a silently dropped line.
+- `TemplateDefinition.name` that does not match
+  `^[A-Za-z_][A-Za-z0-9_\-]*$` → `ValueError` from
+  `_name_must_be_clips_ident`.
+- `SlotDefinition.name` that does not match the same pattern → `ValueError`
+  from `_validate_clips_ident`.
+- On a `symbol` slot, an `allowed_values` entry that is not a CLIPS
+  identifier → `ValueError`. Symbol allowed values are emitted **unquoted**,
+  so an unchecked entry closes the `deftemplate` and appends constructs of
+  its own.
+- On a `symbol` slot, a string `default` that is not a CLIPS identifier →
+  `ValueError`, for the same reason.
+- On an `integer` or `float` slot, a string `default` of any kind →
+  `ValueError`: the value is interpolated verbatim, so it has to be numeric.
+
+`string` slots are exempt from the last three: their values are escaped and
+quoted on the way out, so no content in them can escape the construct.
 
 Compile-time rejections (raised by `Compiler.compile_template`):
 
@@ -3516,10 +4356,6 @@ Compile-time rejections (raised by `Compiler.compile_template`):
   `construct="template:<name>"`. Note: the `slots` field has no Pydantic
   `min_length=1` constraint, so an empty list passes model validation
   and only fails at compile time.
-
-No validator is applied to `SlotDefinition.name`, `slot.allowed_values`,
-or `slot.default` — the compiler trusts these fields and emits them
-verbatim or via `_escape_clips_string`.
 
 ## What is not emitted
 
@@ -3939,9 +4775,12 @@ modules:
 ## Priority and the focus stack
 
 `ModuleDefinition.priority` is a stored integer (default `0`) that the
-runtime **does not read** when setting focus. Focus order is driven
-exclusively by the explicit `focus_order:` list at the top of the module
-YAML file (or by a later `Engine.set_focus(...)` call).
+runtime **does not read** when setting focus. Focus order is driven by
+the explicit `focus_order:` list at the top of the module YAML file (or
+by a later `Engine.set_focus(...)` call). When no `focus_order:` is
+given anywhere in the pack, `load_modules` falls back to the order the
+modules were declared in — see
+[When `focus_order` is omitted](#when-focus_order-is-omitted).
 
 At evaluation time, `_setup_focus_stack` in `src/fathom/evaluator.py`
 emits a single `(focus ...)` eval listing the modules in the order they
@@ -3964,6 +4803,27 @@ What `priority` is actually used for today:
 
 See [Runtime & Working Memory](../../concepts/runtime-and-working-memory.md)
 for the full focus-stack mechanics.
+
+### When `focus_order` is omitted
+
+A pack that declares modules and no `focus_order:` is focused on every
+declared module, in declaration order: files in load order, and within a
+file the order the `modules:` list is written. `Engine.load_modules`
+applies this once, after every module file is parsed, and only if
+nothing has set a focus order already — so a `focus_order:` in any file,
+or an earlier `Engine.set_focus(...)`, wins outright.
+
+The fallback exists because omitting `focus_order:` is not a request for
+a different order; it is the absence of a request. CLIPS drains only the
+agenda of the module that holds the focus, so with no focus set at all,
+rules scoped to a declared module never fire and the caller silently
+receives the default decision — a wrong answer rather than an error.
+
+Declaration order is not a substitute for stating the order you want.
+It is stable, but it moves when you add a module or rename a file, and
+because the evaluator is last-write-wins, the module that lands last
+writes the decision. Any pack whose modules must run in a particular
+sequence should say so with `focus_order:`.
 
 ### Declaring focus order
 
@@ -4020,8 +4880,8 @@ compiled CLIPS `defmodule`:
 
 - `ModuleDefinition.description` — metadata only.
 - `ModuleDefinition.priority` — metadata only; does not influence
-  focus-stack ordering in the current runtime. If you need
-  deterministic module ordering, set `focus_order:` explicitly.
+  focus-stack ordering in the current runtime. Ordering comes from
+  `focus_order:`, or from declaration order when that key is absent.
 
 ## See also
 
@@ -4232,6 +5092,9 @@ prevent collisions with the runtime's own bindings.
 | `type: raw` with `body is None`                      | `compile_function`             | `CompilationError` |
 | `type: classification` without `hierarchy_ref`       | `compile_function`             | `CompilationError` |
 | `type: classification` with unknown `hierarchy_ref`  | `compile_function`             | `CompilationError` |
+| Any key not defined on the model, on `FunctionDefinition` or `HierarchyDefinition` | Pydantic (`extra="forbid"`) | `ValidationError` |
+| `HierarchyDefinition.name` that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
+| A `levels` or `compartments` member that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 
 ## What is not emitted
 
@@ -4299,13 +5162,13 @@ the SDK.
 
 ### SDK — `Engine.assert_fact` / `Engine.assert_facts`
 
-Single (`src/fathom/engine.py` line 757):
+Single (`src/fathom/engine.py` line 1179):
 
 ```python
 engine.assert_fact("access-request", {"subject": "alice", "action": "read"})
 ```
 
-Atomic batch (`src/fathom/engine.py` line 775) — every fact is
+Atomic batch (`src/fathom/engine.py` line 1235) — every fact is
 validated first; if any fails, **none** are asserted:
 
 ```python
@@ -4658,7 +5521,7 @@ Each entry declares a **Status** of one of:
 **Status:** Partial.
 
 **Location:** `packages/fathom-go/` — a hand-written REST client plus
-generated gRPC bindings. Package contents: `client.go` (180 lines),
+generated gRPC bindings. Package contents: `client.go` (181 lines),
 `client_test.go` (818 lines), `grpc_test.go` (230 lines, build-tagged
 `integration`), `tools.go`, `go.mod`, `go.sum`, `Makefile`, and
 `proto/` with `fathom.pb.go` + `fathom_grpc.pb.go`. `go.mod` declares
@@ -4799,6 +5662,36 @@ known-bad decisions would fail open on anything it had not heard of.
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
 `fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
 
+## Policy Studio — `packages/fathom-studio/`
+
+**Status:** Partial.
+
+**Location:** `packages/fathom-studio/` — package identity `fathom-studio` at
+`0.1.0`, a uv workspace member of this repo. It depends on `fathom-rules`
+like any other consumer; the engine wheel ships no Studio code.
+
+**What works today:** A browser UI over a real engine — five views (Reasoning
+Bench, Live Wire, Rules, Templates, Audit) served as a zero-build React SPA,
+a JSON backend under `/studio/api`, server-rendered HTMX panels, and the
+production REST app mounted in the same process under `/api`. Nine demo
+scenarios ship as package data, held byte-identical to the repo's
+`examples/0N-*` directories by a test. Its pytest suite runs in CI: root
+`testpaths` includes `packages/fathom-studio/tests`, so the required `test`
+job covers it.
+
+**What is missing:**
+
+- **No published release.** `fathom-studio` is not on PyPI and no workflow
+  builds or publishes it; run it from a checkout with `uv run fathom-studio`.
+- **No stability promise.** The `/studio/api/*` routes are unversioned and
+  explicitly excluded from
+  [VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md).
+- **In-memory audit only.** The Audit view's chain is process-local, capped
+  at 200 records, and signed with a keypair minted at startup. The durable
+  equivalent is `fathom.chained_log.ChainedAttestationLog`.
+
+**How to use today:** [Running Policy Studio](../how-to/policy-studio.md).
+
 ## Known blockers
 
 - **Proto ↔ `go.mod` path alignment** — previously flagged as
@@ -4809,14 +5702,16 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
   `packages/fathom-go/go.mod:1`. Generated bindings now live in
   `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
-- **No CI for the TypeScript or editor packages.** The Python test suite
-  (1551 tests, `.github/workflows/ci.yml`) and the Go suite
-  (`.github/workflows/go-ci.yml`, unit + `-tags integration`) both run on
-  every pull request. The TypeScript vitest suite (tracked as issue
-  [#39](https://github.com/KrakenNet/fathom/issues/39)) and the editor
-  (issue [#43](https://github.com/KrakenNet/fathom/issues/43)) remain
-  uncovered, so every "works today" claim for those two packages reduces
-  to "works when run locally against a developer's machine."
+- **No CI for the editor package.** The Python suite
+  (`.github/workflows/ci.yml`, which also covers the Studio), the Go suite
+  (`.github/workflows/go-ci.yml`, unit + `-tags integration`) and the
+  TypeScript suite (`.github/workflows/ts-ci.yml`, the required `ts-test`
+  check, closing issue
+  [#39](https://github.com/KrakenNet/fathom/issues/39)) all run on every
+  pull request. The editor (issue
+  [#43](https://github.com/KrakenNet/fathom/issues/43)) remains uncovered —
+  it has no test script to run — so every "works today" claim for that
+  package reduces to "works when run locally against a developer's machine."
 
 ## See also
 
@@ -4824,9 +5719,9 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   shipped adapters (including LangChain) live here.
 - [REST API](./rest/index.md) — the wire protocol the Go and TypeScript
   SDKs target.
-- [gRPC API](./grpc/index.md) — the proto surface the Go SDK does **not**
-  yet implement.
-- [Go SDK](./go-sdk/fathom-go.md) — gomarkdoc output for the REST client
+- [gRPC API](./grpc/index.md) — the proto surface, which the Go SDK now
+  implements through the generated bindings in `packages/fathom-go/proto/`.
+- [Go SDK](./go-sdk/fathom-go.md) — gomarkdoc output for the clients
   described above.
 - [TypeScript SDK](./typescript-sdk/index.md) — typedoc output for
   `@fathom-rules/sdk`.

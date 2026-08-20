@@ -139,7 +139,7 @@
         "type": "object"
       },
       "EvaluateResponse": {
-        "description": "REST API response body from the evaluate endpoint.",
+        "description": "REST API response body from the evaluate endpoint.\n\nMirrors :class:`EvaluationResult` field for field, and the gRPC\n``EvaluateResponse`` message alongside it. A caller who moves between the\ntwo transports, or between the library and either of them, should not have\nto discover that one of them drops a field the others carry.",
         "properties": {
           "attestation_token": {
             "anyOf": [
@@ -166,6 +166,13 @@
           "duration_us": {
             "title": "Duration Us",
             "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Metadata",
+            "type": "object"
           },
           "module_trace": {
             "items": {

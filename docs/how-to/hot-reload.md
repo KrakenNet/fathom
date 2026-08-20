@@ -4,7 +4,7 @@ summary: Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed
 audience: [operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-06-06
+last_verified: 2026-08-20
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/integrations/grpc_server.py
@@ -41,9 +41,21 @@ cleared with them.
 A failed reload changes nothing: the old environment keeps serving, so working
 memory survives. Only a *successful* swap wipes it.
 
-Plan for this. Re-assert startup facts from a reload listener, re-run
-`FleetEngine.sync_fleet_facts` for fleet-scoped state, and expect session
-callers to re-seed anything they asserted before the reload.
+Plan for this. `Engine.subscribe_reload` is the seam: it registers a
+zero-argument callback fired after each successful swap, outside the reload
+lock, and returns an unsubscribe callable. A listener that raises is logged and
+swallowed, so a wedged subscriber cannot break the reload.
+
+```python
+def reseed() -> None:
+    engine.assert_fact("tenant", {"id": "acme", "tier": "gold"})
+
+unsubscribe = engine.subscribe_reload(reseed)
+```
+
+Re-run `FleetEngine.sync_fleet_facts` from the same callback for fleet-scoped
+state, and expect session callers to re-seed anything they asserted before the
+reload.
 
 This how-to covers how to sign a ruleset, wire up the deployment
 config, use the dev escape during development, monitor the live

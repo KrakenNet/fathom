@@ -293,12 +293,14 @@ jobs:
   # < 50ms") was already false for the SSVC pack this repo ships. The
   # benchmark now holds the numbers and this job enforces them.
   #
-  # Gating is on medians, and `--slack 1.5` multiplies every published target
-  # before comparing: this runner measured ~1.7x slower than a developer
-  # machine on the compilation case, so enforcing the published numbers here
-  # verbatim would fail on the hardware rather than on the code. A red bench is
-  # meant to mean "something got materially slower", never "the runner was
-  # busy".
+  # Gating is on medians, and `--slack 2.0` multiplies every published target
+  # before comparing: enforcing the published numbers on this hardware would
+  # fail on the runner rather than on the code. The factor is measured, not
+  # guessed. Five consecutive runs of this job put the single-rule median at
+  # 105, 118, 130, 166 and 166 microseconds against 89 on the developer
+  # machine the targets come from -- 1.2x to 1.9x. It was 1.5x here, which the
+  # two slowest of those runs walked straight through. A red bench is meant to
+  # mean "something got materially slower", never "the runner was busy".
   bench:
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
@@ -316,4 +318,4 @@ jobs:
         run: uv sync
 
       - name: Benchmark
-        run: uv run python scripts/benchmark.py --slack 1.5
+        run: uv run python scripts/benchmark.py --slack 2.0

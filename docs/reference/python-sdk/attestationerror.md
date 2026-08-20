@@ -1,0 +1,3 @@
+# `fathom.AttestationError`
+
+::: fathom.AttestationError

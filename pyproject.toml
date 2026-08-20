@@ -27,7 +27,11 @@ keywords = [
     "ai-safety",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    # Beta, not Production/Stable: the covered surface is declared and gated
+    # (VERSIONING.md, tests/test_public_surface.py) and the release path is
+    # signed and reproducible, but the 1.0 readiness audit has not been done.
+    # "5 - Production/Stable" is a claim about that audit, not about this work.
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
     "License :: OSI Approved :: MIT License",

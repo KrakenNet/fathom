@@ -4,9 +4,10 @@ summary: Why every Fathom evaluation is recorded, and how the optional Ed25519 J
 audience: [app-developers, rule-authors]
 diataxis: explanation
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 sources:
   - src/fathom/audit.py
+  - src/fathom/chained_log.py
   - src/fathom/attestation.py
   - src/fathom/engine.py
   - src/fathom/models.py
@@ -74,6 +75,7 @@ class AuditRecord(BaseModel):
     duration_us: int
     metadata: dict[str, str] = Field(default_factory=dict)
     asserted_facts: list[AssertedFact] | None = None
+    attestation_token: str | None = None
 ```
 
 Field by field:
@@ -99,6 +101,10 @@ Field by field:
   decision's rule.
 - **`asserted_facts`** — populated only when at least one loaded rule
   declares an RHS `asserts` block (see below).
+- **`attestation_token`** — the JWT signed for this same evaluation, copied
+  onto the record so an exported line can be checked without the caller's
+  copy of the token. `None` on an engine constructed without an
+  `attestation_service`.
 
 Records are written one-per-line as JSON. JSON Lines is trivially grep-able,
 `jq`-able, and concatenatable; it's what most log aggregators expect.
@@ -118,13 +124,29 @@ class AuditSink(Protocol):
     def write(self, record: AuditRecord) -> None: ...
 ```
 
-Two implementations ship with Fathom:
+Three implementations ship with Fathom:
 
 - **`FileSink(path)`** — writes `record.model_dump_json() + "\n"` to the
   given file in append mode. The constructor creates parent directories and
   `touch`es the file, so pointing it at a fresh path Just Works.
 - **`NullSink`** — `write()` is a no-op. This is the default when you
   construct an `Engine` without passing `audit_sink`.
+- **`ChainedAttestationLog(path, service)`** (`fathom.chained_log`) — the
+  same JSON Lines shape, but each line is signed and commits to the hash of
+  the line before it, so deleting or reordering entries is detectable and
+  not just discouraged. It needs the `attestation` extra and a signing
+  service:
+
+  ```python
+  from fathom import Engine
+  from fathom.attestation import AttestationService
+  from fathom.chained_log import ChainedAttestationLog
+
+  log = ChainedAttestationLog("/var/log/fathom/audit.jsonl", AttestationService.generate_keypair())
+  engine = Engine(audit_sink=log)
+  ```
+
+  Verify it later with `fathom verify-chain <log> --pubkey <log>.pub.pem`.
 
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
@@ -153,26 +175,38 @@ real sink; everything else keeps working with zero ceremony.
 
 ## What gets recorded when
 
-The recording happens inside `Engine.evaluate()`. The sequence:
+The recording happens inside `Engine.evaluate()`, under the engine's
+re-entrant lock, so a concurrent caller cannot interleave its own facts into
+the snapshots below. The sequence:
 
 1. **Pre-snapshot user facts** — but only if `self._has_asserting_rules` is
    true. That flag is set at load time when any compiled rule declares a
    non-empty `asserts` block. If no loaded rule can assert new facts, the
    snapshot is skipped entirely — there's nothing to diff against.
-2. **Run inference** — `self._evaluator.evaluate()` returns an
+2. **Snapshot input facts** — `self._snapshot_input_facts()` captures the
+   caller-supplied working memory the decision is about to be computed over.
+   It is taken only when an `attestation_service` is configured or the audit
+   log is recording, because it costs a query per template and nothing else
+   consumes it. This snapshot is what `input_hash` binds (see
+   [Attestation as signed proof](#attestation-as-signed-proof)) and what
+   `log: full` records.
+3. **Run inference** — `self._evaluator.evaluate()` returns an
    `EvaluationResult` with `decision`, `reason`, `rule_trace`,
-   `module_trace`, and `duration_us`.
-3. **Sign, if configured** — if the engine was constructed with an
-   `attestation_service`, call `sign(result, self._session_id)` and store the
-   returned JWT on `result.attestation_token`.
-4. **Diff pre/post snapshots** — a second `_snapshot_user_facts()` call,
+   `module_trace`, and `duration_us`, plus the effective log level.
+4. **Sign, if configured** — if the engine was constructed with an
+   `attestation_service`, call
+   `sign(result, self._session_id, input_facts=...)` and store the returned
+   JWT on `result.attestation_token`. The input facts are not optional here:
+   `sign` refuses `None`, because a token signed without inputs binds
+   nothing.
+5. **Diff pre/post snapshots** — a second `_snapshot_user_facts()` call,
    differenced against the pre-snapshot, yields the facts the rules
    asserted during this evaluation. Order is preserved from the post
    snapshot; equality is keyed on `(template, sorted(slots.items()))`.
-5. **Record** — `self._audit_log.record(result, session_id,
-   asserted_facts=...)` constructs the `AuditRecord` and hands it to the
-   sink.
-6. **Metrics** — `self._metrics.record_evaluation(...)` runs in a `finally`
+6. **Record** — `self._audit_log.record(result, session_id,
+   input_facts=..., asserted_facts=..., log_level=...)` constructs the
+   `AuditRecord` and hands it to the sink.
+7. **Metrics** — `self._metrics.record_evaluation(...)` runs in a `finally`
    so metrics are updated even if recording raised.
 
 Two things worth flagging:
@@ -181,10 +215,11 @@ Two things worth flagging:
   and also when asserting rules exist but none fired. An empty list is
   collapsed to `None`, so the record distinguishes "didn't try to capture
   this" from "captured nothing."
-- Signing happens *before* the audit record is written. The JWT ends up
-  on the `EvaluationResult` the caller receives but is **not** one of the
-  `AuditRecord` fields — the log records the decision; the token is
-  returned to the caller to store or forward separately.
+- Signing happens *before* the audit record is written, which is what lets
+  the record carry the token: the JWT is set on the `EvaluationResult` in
+  step 4 and copied onto `AuditRecord.attestation_token` in step 6. The
+  caller gets the same token on the result to forward separately if it
+  wants to.
 
 ## Attestation as signed proof
 
@@ -271,9 +306,20 @@ What audit + attestation *do* protect against:
 
 - **Disputes about what was decided.** A signed `decision` and `rule_trace`
   pin down the answer and the rules that produced it.
-- **Tampering with exported logs.** An attacker who modifies an audit line
-  after export can't re-sign it without the private key; `verify_token`
-  fails.
+- **Tampering with the decision in an exported log.** Each line carries the
+  JWT signed for that evaluation, and the payload commits to `decision`,
+  `rule_trace`, `session_id`, `iat`, and `input_hash`. Change any of those
+  in the line and it no longer matches the claims `verify_token` returns;
+  re-signing needs the private key.
+
+  What this does **not** cover: `reason`, `metadata`, `duration_us`,
+  `input_facts`, and `asserted_facts` sit outside the signed payload, so a
+  line whose token verifies is not thereby proof that those fields are
+  untouched. Nor does a per-line signature detect a line being *deleted* —
+  for that you need order and continuity, which is what
+  `fathom.chained_log.ChainedAttestationLog` and `fathom verify-chain`
+  provide: each entry commits to the hash of the one before it, so a
+  removed or reordered entry breaks the chain.
 - **Input substitution.** The `input_hash` commits the token to a specific
   set of facts — template name and slot values both. Swap a fact, change a
   slot, or move a fact to a different template, and the hash stops matching.

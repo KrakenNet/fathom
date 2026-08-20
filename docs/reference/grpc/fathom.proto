@@ -52,11 +52,21 @@ message EvaluateRequest {
 }
 
 message EvaluateResponse {
-  string decision = 1;
-  string reason = 2;
+  // Optional so that "no rule produced a decision" is distinguishable from
+  // a rule that decided the empty string. proto3 has no other way to say it:
+  // an unset non-optional string arrives as "" at every client.
+  optional string decision = 1;
+  optional string reason = 2;
   repeated string rule_trace = 3;
   repeated string module_trace = 4;
   int64 duration_us = 5;
+  // The `then.metadata` of the rule that wrote the decision. Carried here so
+  // a gRPC caller sees the same result shape a REST caller does; control ids
+  // and other rule-authored context live in it.
+  map<string, string> metadata = 6;
+  // Ed25519 JWT over this evaluation, present only when the server was built
+  // with an attestation service.
+  optional string attestation_token = 7;
 }
 
 // ---------------------------------------------------------------------------

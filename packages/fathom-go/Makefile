@@ -2,7 +2,10 @@
 #
 # Prerequisites:
 #   - openapi-generator-cli (https://openapi-generator.tech)
-#   - protoc + protoc-gen-go + protoc-gen-go-grpc (for gRPC stubs)
+#   - protoc + protoc-gen-go + protoc-gen-go-grpc (for gRPC stubs).
+#     Use the versions go-ci.yml pins, or `verify-grpc` fails on the version
+#     comment the generators write into each header: protoc 25.3,
+#     protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.1.
 #
 # Usage:
 #   make generate          — regenerate REST client from OpenAPI spec

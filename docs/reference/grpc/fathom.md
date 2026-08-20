@@ -8,6 +8,7 @@
     - [AssertFactResponse](#fathom-v1-AssertFactResponse)
     - [EvaluateRequest](#fathom-v1-EvaluateRequest)
     - [EvaluateResponse](#fathom-v1-EvaluateResponse)
+    - [EvaluateResponse.MetadataEntry](#fathom-v1-EvaluateResponse-MetadataEntry)
     - [FactChange](#fathom-v1-FactChange)
     - [FactInput](#fathom-v1-FactInput)
     - [QueryRequest](#fathom-v1-QueryRequest)
@@ -90,11 +91,29 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| decision | [string](#string) |  |  |
-| reason | [string](#string) |  |  |
+| decision | [string](#string) | optional | Optional so that &#34;no rule produced a decision&#34; is distinguishable from a rule that decided the empty string. proto3 has no other way to say it: an unset non-optional string arrives as &#34;&#34; at every client. |
+| reason | [string](#string) | optional |  |
 | rule_trace | [string](#string) | repeated |  |
 | module_trace | [string](#string) | repeated |  |
 | duration_us | [int64](#int64) |  |  |
+| metadata | [EvaluateResponse.MetadataEntry](#fathom-v1-EvaluateResponse-MetadataEntry) | repeated | The `then.metadata` of the rule that wrote the decision. Carried here so a gRPC caller sees the same result shape a REST caller does; control ids and other rule-authored context live in it. |
+| attestation_token | [string](#string) | optional | Ed25519 JWT over this evaluation, present only when the server was built with an attestation service. |
+
+
+
+
+
+
+<a name="fathom-v1-EvaluateResponse-MetadataEntry"></a>
+
+### EvaluateResponse.MetadataEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
 
 
 

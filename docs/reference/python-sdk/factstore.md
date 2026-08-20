@@ -1,0 +1,3 @@
+# `fathom.FactStore`
+
+::: fathom.FactStore

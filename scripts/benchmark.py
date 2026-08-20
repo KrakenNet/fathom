@@ -20,12 +20,14 @@ Two properties this deliberately has:
   mornings. The p95 is printed so a real regression stays visible in the log
   even while it is still under the bar.
 * **CI applies a slack factor.** The published targets describe a developer
-  machine, which is what a reader of README is holding. A GitHub runner
-  measured ~1.7x slower on the compilation case, so enforcing the published
-  numbers there verbatim would fail on the machine rather than on the code.
-  ``--slack`` multiplies every limit; CI passes 1.5 and prints it. A regression
-  large enough to matter clears that factor easily -- the last one found here
-  was 2x.
+  machine, which is what a reader of README is holding. A GitHub shared runner
+  measured 1.2x to 1.9x slower than that machine across five consecutive runs
+  of the same job, so enforcing the published numbers there verbatim would
+  fail on the hardware rather than on the code. ``--slack`` multiplies every
+  limit and is printed in the header; CI passes 2.0, which covers the
+  measured spread with a little room. A regression large enough to matter
+  clears that factor easily -- the last one found here was 2x on the
+  developer machine, which lands at 4x of the published target on a runner.
 """
 
 from __future__ import annotations
@@ -121,7 +123,12 @@ def _write_pack(root: Path, rule_count: int) -> Path:
     )
 
     (root / "modules" / "m.yaml").write_text(
-        yaml.safe_dump({"modules": [{"name": "bench", "description": "Benchmark rules"}]}),
+        yaml.safe_dump(
+            {
+                "modules": [{"name": "bench", "description": "Benchmark rules"}],
+                "focus_order": ["bench"],
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -192,6 +199,9 @@ def _cases(iterations: int, workdir: Path) -> list[Case]:
     one_rule = _write_pack(workdir / "one", 1)
     hundred_rules = _write_pack(workdir / "hundred", 100)
 
+    _assert_rules_fire(one_rule)
+    _assert_rules_fire(hundred_rules)
+
     single_engine = Engine.from_rules(str(one_rule))
     hundred_engine = Engine.from_rules(str(hundred_rules))
     assertion_engine = Engine.from_rules(str(one_rule))
@@ -244,6 +254,23 @@ def _cases(iterations: int, workdir: Path) -> list[Case]:
             divisor=SSVC_RULE_COUNT,
         ),
     ]
+
+
+def _assert_rules_fire(pack: Path) -> None:
+    """Refuse to report evaluation timings for a pack that fires nothing.
+
+    The first version of this script built a pack with a declared module and
+    no ``focus_order``, which at the time meant CLIPS never drained that
+    module's agenda: both evaluation cases timed an empty agenda and reported
+    healthy microseconds for doing nothing. A benchmark that cannot tell those
+    apart is worse than no benchmark.
+    """
+    result = Engine.from_rules(str(pack)).evaluate_once(FACTS)
+    if not result.rule_trace:
+        raise SystemExit(
+            f"benchmark pack at {pack} fired no rules; the evaluation timings "
+            "would measure an empty agenda"
+        )
 
 
 def run(iterations: int, warmup: int, workdir: Path, slack: float = 1.0) -> list[Result]:

@@ -25,6 +25,9 @@ if TYPE_CHECKING:
     from fathom.models import EvaluationResult
 
 
+__all__ = ["AttestationService", "verify_token"]
+
+
 class AttestationService:
     """Signs evaluation results using Ed25519 JWT tokens."""
 

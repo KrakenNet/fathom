@@ -6,7 +6,7 @@
 
 # Interface: QueryResponse
 
-Defined in: [client.ts:61](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L61)
+Defined in: [client.ts:63](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L63)
 
 Response from POST /v1/query.
 
@@ -16,4 +16,4 @@ Response from POST /v1/query.
 
 > **facts**: `Record`\<`string`, `unknown`\>[]
 
-Defined in: [client.ts:62](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L62)
+Defined in: [client.ts:64](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L64)

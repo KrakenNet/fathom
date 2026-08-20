@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from fathom.metrics import MetricsCollector
 
 if TYPE_CHECKING:
+    from fathom.attestation import AttestationService
     from fathom.engine import Engine
 
 # A session holds a compiled CLIPS environment (~1.7 MB of RSS each), so
@@ -111,8 +112,23 @@ class SessionStore:
         if expired:
             self._record_session_count()
 
-    def get_or_create(self, session_id: str, rules_path: str = "") -> Engine:
+    def get_or_create(
+        self,
+        session_id: str,
+        rules_path: str = "",
+        attestation_service: AttestationService | None = None,
+    ) -> Engine:
         """Return the Engine bound to *session_id*, creating it if needed.
+
+        Args:
+            session_id: Caller-supplied session identifier.
+            rules_path: Ruleset this session is bound to.
+            attestation_service: Signs the results of evaluations on this
+                session. Applied at creation only — a session that already
+                exists keeps the service it was built with, so injecting one
+                into a running server affects sessions opened after that
+                point rather than silently changing what earlier callers
+                have been receiving.
 
         Raises:
             SessionRulesetMismatchError: The session exists but was created for a
@@ -136,7 +152,11 @@ class SessionStore:
             if len(self._sessions) >= self._max_sessions:
                 raise SessionLimitError("Maximum session limit reached")
 
-            engine = Engine.from_rules(rules_path) if rules_path else Engine()
+            engine = (
+                Engine.from_rules(rules_path, attestation_service=attestation_service)
+                if rules_path
+                else Engine(attestation_service=attestation_service)
+            )
             self._sessions[session_id] = _Session(engine, rules_path, time.time())
             self._record_session_count()
             return engine

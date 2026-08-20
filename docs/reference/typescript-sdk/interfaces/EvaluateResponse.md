@@ -16,7 +16,7 @@ Response from POST /v1/evaluate.
 
 > `optional` **attestation\_token?**: `string` \| `null`
 
-Defined in: [client.ts:38](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L38)
+Defined in: [client.ts:40](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L40)
 
 ***
 
@@ -33,6 +33,16 @@ Defined in: [client.ts:33](https://github.com/KrakenNet/fathom/blob/master/packa
 > **duration\_us**: `number`
 
 Defined in: [client.ts:37](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L37)
+
+***
+
+### metadata
+
+> **metadata**: `Record`\<`string`, `string`\>
+
+Defined in: [client.ts:39](https://github.com/KrakenNet/fathom/blob/master/packages/fathom-ts/src/client.ts#L39)
+
+`then.metadata` of the rule that decided; `{}` when it wrote none.
 
 ***
 
