@@ -31,7 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover - import-time typing only
     from fathom.attestation import AttestationService, verify_token
     from fathom.chained_log import ChainedAttestationLog, verify_chain
 
-__version__ = "0.9.0"  # x-release-please-version
+__version__ = "0.10.0"  # x-release-please-version
 
 #: Names served on first access instead of at import. Both modules import
 #: ``jwt`` and ``cryptography``, which ship in the optional ``attestation``
