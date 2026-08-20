@@ -95,7 +95,9 @@ notice or a changelog entry:
 - Wall-clock timings, including the published performance targets. They are
   measurements of an implementation on one machine, not a contract.
 - Policy Studio (`packages/fathom-studio/`) and the visual editor
-  (`packages/fathom-editor/`), including the `/studio/api` routes.
+  (`packages/fathom-editor/`). The Studio ships as its own package on its own
+  version line, and its routes — including the REST app it mounts under `/api`
+  — are not covered here.
 - The Go and TypeScript SDKs, which are pre-release and version separately.
 - Test helpers, fixtures, and everything under `tests/` and `scripts/`.
 
