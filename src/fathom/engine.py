@@ -636,6 +636,16 @@ class Engine:
                     count += 1
                 if focus_order:
                     self.set_focus(focus_order)
+
+            # A pack that declares modules but no `focus_order` used to fire
+            # nothing at all. CLIPS only drains the agenda of the module that
+            # holds the focus, so every rule scoped to a declared module sat
+            # unfired and the caller silently got the default decision -- a
+            # wrong answer, not an error. The module reference described the
+            # omission as merely non-deterministic ordering, which is what it
+            # should be: focus the declared modules in declaration order.
+            if not self._focus_order and self._module_registry:
+                self.set_focus(list(self._module_registry))
         finally:
             self._lock.release()
             if count:

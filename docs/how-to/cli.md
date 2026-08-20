@@ -4,7 +4,7 @@ summary: One-line purpose + worked example for every fathom CLI command.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 sources:
   - src/fathom/cli.py
 ---
@@ -55,6 +55,13 @@ its own line.
 ```shell
 fathom compile examples/02-rbac-modules --format pretty
 ```
+
+Literals are emitted according to the declared slot type, so `compile` needs
+the templates in view: pointed at a directory it reads them from the pack, and
+pointed at a single file under `rules/` it picks up the sibling `templates/`
+directory. Without that context a `string` slot's literal is emitted bare —
+CLIPS rejects that form with `[CSTRNCHK1]`, so the printed constructs would be
+ones the engine never builds and that do not load.
 
 ## info
 

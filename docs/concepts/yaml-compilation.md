@@ -4,7 +4,7 @@ summary: How authored YAML becomes CLIPS source — parse, validate, compile —
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 sources:
   - src/fathom/compiler.py
   - src/fathom/models.py
@@ -102,9 +102,10 @@ allowed-value directives come from `_CLIPS_TYPE_MAP` and
 (defmodule governance (import MAIN ?ALL))
 ```
 
-Emitted by `compile_module`. `ModuleDefinition` carries a `priority`
-integer consumed by focus-stack ordering at load time, not serialized
-into the CLIPS source.
+Emitted by `compile_module`. `ModuleDefinition` also carries a `priority`
+integer, which is neither serialized into the CLIPS source nor read by the
+runtime: focus order comes from the `focus_order:` key, or from declaration
+order when that key is absent (see [Module](../reference/yaml/module.md)).
 
 `RuleDefinition` → a `defrule` qualified by its owning module:
 

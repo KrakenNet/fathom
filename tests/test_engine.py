@@ -144,3 +144,50 @@ def test_load_modules_focus_order_is_file_order_independent(tmp_path: Path) -> N
     engine = Engine()
     engine.load_modules(str(modules_dir))
     assert engine.focus_order == ["beta", "alpha"]
+
+
+def test_declared_modules_fire_without_an_explicit_focus_order(tmp_path: Path) -> None:
+    """A pack with modules and no `focus_order` used to fire nothing at all.
+
+    CLIPS drains only the focused module's agenda, so every rule scoped to a
+    declared module sat unfired and the caller got the default decision back
+    — a wrong answer that looked like a legitimate deny.
+    """
+    from fathom.engine import Engine
+
+    _write_pack(tmp_path, "modules:\n  - name: gov\n    priority: 100\n")
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "r.yaml").write_text(_rules_yaml("permit", "allow", "on the list"))
+
+    engine = Engine.from_rules(str(tmp_path))
+    assert engine.focus_order == ["gov"]
+
+    result = engine.evaluate_once([("agent", {"id": "alice"})])
+    assert result.decision == "allow"
+    assert result.rule_trace == ["gov::permit"]
+
+
+def test_implicit_focus_follows_declaration_order(tmp_path: Path) -> None:
+    """Declaration order, not sort order: the default has to be deterministic."""
+    from fathom.engine import Engine
+
+    _write_pack(
+        tmp_path,
+        "modules:\n  - name: zeta\n    priority: 100\n  - name: alpha\n    priority: 90\n",
+    )
+    engine = Engine.from_rules(str(tmp_path))
+    assert engine.focus_order == ["zeta", "alpha"]
+
+
+def test_explicit_focus_order_still_wins(tmp_path: Path) -> None:
+    """The implicit default must never override what the author wrote."""
+    from fathom.engine import Engine
+
+    _write_pack(
+        tmp_path,
+        "modules:\n  - name: gov\n    priority: 100\n  - name: sec\n    priority: 90\n"
+        "focus_order: [sec]\n",
+    )
+    engine = Engine.from_rules(str(tmp_path))
+    assert engine.focus_order == ["sec"]

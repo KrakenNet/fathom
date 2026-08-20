@@ -4,7 +4,7 @@ summary: Use modules and salience to build a fail-closed policy where deny alway
 audience: [app-developers, rule-authors]
 diataxis: tutorial
 status: stable
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
@@ -76,7 +76,10 @@ focus_order:
 The optional `focus_order` list tells the engine which modules to activate and
 in what order: the first name runs first. It maps straight onto the CLIPS
 `(focus ...)` command, which gives the focus to its first argument and queues
-the rest behind it.
+the rest behind it. Omit it and the engine focuses every declared module in
+declaration order, which keeps a pack working but leaves the order to depend
+on how the files happen to be written — write it out whenever the sequence
+carries meaning.
 
 Every listed module runs — an earlier one does not short-circuit the ones
 after it. Because decisions are last-write-wins, the module listed last is

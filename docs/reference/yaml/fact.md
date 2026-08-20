@@ -9,7 +9,7 @@ sources:
   - src/fathom/engine.py
   - src/fathom/facts.py
   - src/fathom/integrations/rest.py
-last_verified: 2026-06-06
+last_verified: 2026-08-20
 ---
 
 # Fact
@@ -56,13 +56,13 @@ the SDK.
 
 ### SDK — `Engine.assert_fact` / `Engine.assert_facts`
 
-Single (`src/fathom/engine.py` line 757):
+Single (`src/fathom/engine.py` line 1179):
 
 ```python
 engine.assert_fact("access-request", {"subject": "alice", "action": "read"})
 ```
 
-Atomic batch (`src/fathom/engine.py` line 775) — every fact is
+Atomic batch (`src/fathom/engine.py` line 1235) — every fact is
 validated first; if any fails, **none** are asserted:
 
 ```python

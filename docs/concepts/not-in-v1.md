@@ -4,7 +4,7 @@ summary: The CLIPS features Fathom deliberately omits from its authored surface 
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 sources:
   - src/fathom/compiler.py
   - src/fathom/models.py

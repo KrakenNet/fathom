@@ -8,7 +8,7 @@ sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
   - src/fathom/facts.py
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 ---
 
 # Template
@@ -109,8 +109,25 @@ templates:
 Pydantic-level rejections (raised at `TemplateDefinition(...)` or during
 YAML load):
 
-- `name` that does not match `^[A-Za-z_][A-Za-z0-9_\-]*$` →
-  `ValueError` from `_name_must_be_clips_ident`.
+- Any key not listed in the tables above, on either model — both
+  `TemplateDefinition` and `SlotDefinition` are `extra="forbid"`, so a
+  misspelled field is an error rather than a silently dropped line.
+- `TemplateDefinition.name` that does not match
+  `^[A-Za-z_][A-Za-z0-9_\-]*$` → `ValueError` from
+  `_name_must_be_clips_ident`.
+- `SlotDefinition.name` that does not match the same pattern → `ValueError`
+  from `_validate_clips_ident`.
+- On a `symbol` slot, an `allowed_values` entry that is not a CLIPS
+  identifier → `ValueError`. Symbol allowed values are emitted **unquoted**,
+  so an unchecked entry closes the `deftemplate` and appends constructs of
+  its own.
+- On a `symbol` slot, a string `default` that is not a CLIPS identifier →
+  `ValueError`, for the same reason.
+- On an `integer` or `float` slot, a string `default` of any kind →
+  `ValueError`: the value is interpolated verbatim, so it has to be numeric.
+
+`string` slots are exempt from the last three: their values are escaped and
+quoted on the way out, so no content in them can escape the construct.
 
 Compile-time rejections (raised by `Compiler.compile_template`):
 
@@ -120,10 +137,6 @@ Compile-time rejections (raised by `Compiler.compile_template`):
   `construct="template:<name>"`. Note: the `slots` field has no Pydantic
   `min_length=1` constraint, so an empty list passes model validation
   and only fails at compile time.
-
-No validator is applied to `SlotDefinition.name`, `slot.allowed_values`,
-or `slot.default` — the compiler trusts these fields and emits them
-verbatim or via `_escape_clips_string`.
 
 ## What is not emitted
 

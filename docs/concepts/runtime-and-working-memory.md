@@ -4,7 +4,7 @@ summary: How the Fathom engine runs — sessions, the evaluation loop, module fo
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 sources:
   - src/fathom/engine.py
   - src/fathom/evaluator.py
@@ -137,6 +137,14 @@ turn. CLIPS only considers activations from the module currently in focus;
 when no rules in it can fire, the next module in the list gets its turn.
 The first module in `focus_order` is the first to run, and
 `_setup_focus_stack()` emits the list unchanged to say so.
+
+`focus_order` comes from the `focus_order:` key in a module YAML file, or
+from `Engine.set_focus(...)`. If a pack declares modules and sets neither,
+`Engine.load_modules` focuses every declared module in declaration order —
+without that fallback the focus list is empty, no module's agenda is ever
+drained, and the caller gets the default decision back from a pack whose
+rules all matched. Declaration order is a floor, not a design: state
+`focus_order:` whenever the sequence matters.
 
 The practical upshot is that modules are a coarse-grained ordering tool.
 If `policy` comes before `logging` in the focus order, every

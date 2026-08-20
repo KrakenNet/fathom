@@ -4,7 +4,7 @@ summary: Templates, Facts, Rules, Modules, Functions — the author-level vocabu
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
@@ -23,7 +23,7 @@ shortest path to a working mental model of the engine.
 
 The rest of this page walks the five in the order the engine loads them
 (`templates → modules → functions → rules` — see
-`src/fathom/engine.py`, `Engine.from_rules`, lines 452–489) and closes with how
+`src/fathom/engine.py`, `Engine.from_rules`, lines 496–570) and closes with how
 they fit together at evaluate time.
 
 ## Templates

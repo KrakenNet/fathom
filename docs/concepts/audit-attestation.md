@@ -4,7 +4,7 @@ summary: Why every Fathom evaluation is recorded, and how the optional Ed25519 J
 audience: [app-developers, rule-authors]
 diataxis: explanation
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 sources:
   - src/fathom/audit.py
   - src/fathom/attestation.py
@@ -153,26 +153,38 @@ real sink; everything else keeps working with zero ceremony.
 
 ## What gets recorded when
 
-The recording happens inside `Engine.evaluate()`. The sequence:
+The recording happens inside `Engine.evaluate()`, under the engine's
+re-entrant lock, so a concurrent caller cannot interleave its own facts into
+the snapshots below. The sequence:
 
 1. **Pre-snapshot user facts** — but only if `self._has_asserting_rules` is
    true. That flag is set at load time when any compiled rule declares a
    non-empty `asserts` block. If no loaded rule can assert new facts, the
    snapshot is skipped entirely — there's nothing to diff against.
-2. **Run inference** — `self._evaluator.evaluate()` returns an
+2. **Snapshot input facts** — `self._snapshot_input_facts()` captures the
+   caller-supplied working memory the decision is about to be computed over.
+   It is taken only when an `attestation_service` is configured or the audit
+   log is recording, because it costs a query per template and nothing else
+   consumes it. This snapshot is what `input_hash` binds (see
+   [Attestation as signed proof](#attestation-as-signed-proof)) and what
+   `log: full` records.
+3. **Run inference** — `self._evaluator.evaluate()` returns an
    `EvaluationResult` with `decision`, `reason`, `rule_trace`,
-   `module_trace`, and `duration_us`.
-3. **Sign, if configured** — if the engine was constructed with an
-   `attestation_service`, call `sign(result, self._session_id)` and store the
-   returned JWT on `result.attestation_token`.
-4. **Diff pre/post snapshots** — a second `_snapshot_user_facts()` call,
+   `module_trace`, and `duration_us`, plus the effective log level.
+4. **Sign, if configured** — if the engine was constructed with an
+   `attestation_service`, call
+   `sign(result, self._session_id, input_facts=...)` and store the returned
+   JWT on `result.attestation_token`. The input facts are not optional here:
+   `sign` refuses `None`, because a token signed without inputs binds
+   nothing.
+5. **Diff pre/post snapshots** — a second `_snapshot_user_facts()` call,
    differenced against the pre-snapshot, yields the facts the rules
    asserted during this evaluation. Order is preserved from the post
    snapshot; equality is keyed on `(template, sorted(slots.items()))`.
-5. **Record** — `self._audit_log.record(result, session_id,
-   asserted_facts=...)` constructs the `AuditRecord` and hands it to the
-   sink.
-6. **Metrics** — `self._metrics.record_evaluation(...)` runs in a `finally`
+6. **Record** — `self._audit_log.record(result, session_id,
+   input_facts=..., asserted_facts=..., log_level=...)` constructs the
+   `AuditRecord` and hands it to the sink.
+7. **Metrics** — `self._metrics.record_evaluation(...)` runs in a `finally`
    so metrics are updated even if recording raised.
 
 Two things worth flagging:

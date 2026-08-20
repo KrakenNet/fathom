@@ -8,7 +8,8 @@ sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
   - src/fathom/evaluator.py
-last_verified: 2026-08-19
+  - src/fathom/engine.py
+last_verified: 2026-08-20
 ---
 
 # Module
@@ -70,9 +71,12 @@ modules:
 ## Priority and the focus stack
 
 `ModuleDefinition.priority` is a stored integer (default `0`) that the
-runtime **does not read** when setting focus. Focus order is driven
-exclusively by the explicit `focus_order:` list at the top of the module
-YAML file (or by a later `Engine.set_focus(...)` call).
+runtime **does not read** when setting focus. Focus order is driven by
+the explicit `focus_order:` list at the top of the module YAML file (or
+by a later `Engine.set_focus(...)` call). When no `focus_order:` is
+given anywhere in the pack, `load_modules` falls back to the order the
+modules were declared in — see
+[When `focus_order` is omitted](#when-focus_order-is-omitted).
 
 At evaluation time, `_setup_focus_stack` in `src/fathom/evaluator.py`
 emits a single `(focus ...)` eval listing the modules in the order they
@@ -95,6 +99,27 @@ What `priority` is actually used for today:
 
 See [Runtime & Working Memory](../../concepts/runtime-and-working-memory.md)
 for the full focus-stack mechanics.
+
+### When `focus_order` is omitted
+
+A pack that declares modules and no `focus_order:` is focused on every
+declared module, in declaration order: files in load order, and within a
+file the order the `modules:` list is written. `Engine.load_modules`
+applies this once, after every module file is parsed, and only if
+nothing has set a focus order already — so a `focus_order:` in any file,
+or an earlier `Engine.set_focus(...)`, wins outright.
+
+The fallback exists because omitting `focus_order:` is not a request for
+a different order; it is the absence of a request. CLIPS drains only the
+agenda of the module that holds the focus, so with no focus set at all,
+rules scoped to a declared module never fire and the caller silently
+receives the default decision — a wrong answer rather than an error.
+
+Declaration order is not a substitute for stating the order you want.
+It is stable, but it moves when you add a module or rename a file, and
+because the evaluator is last-write-wins, the module that lands last
+writes the decision. Any pack whose modules must run in a particular
+sequence should say so with `focus_order:`.
 
 ### Declaring focus order
 
@@ -151,8 +176,8 @@ compiled CLIPS `defmodule`:
 
 - `ModuleDefinition.description` — metadata only.
 - `ModuleDefinition.priority` — metadata only; does not influence
-  focus-stack ordering in the current runtime. If you need
-  deterministic module ordering, set `focus_order:` explicitly.
+  focus-stack ordering in the current runtime. Ordering comes from
+  `focus_order:`, or from declaration order when that key is absent.
 
 ## See also
 

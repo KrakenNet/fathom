@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-06-05
+last_verified: 2026-08-20
 ---
 
 # Function
@@ -206,6 +206,9 @@ prevent collisions with the runtime's own bindings.
 | `type: raw` with `body is None`                      | `compile_function`             | `CompilationError` |
 | `type: classification` without `hierarchy_ref`       | `compile_function`             | `CompilationError` |
 | `type: classification` with unknown `hierarchy_ref`  | `compile_function`             | `CompilationError` |
+| Any key not defined on the model, on `FunctionDefinition` or `HierarchyDefinition` | Pydantic (`extra="forbid"`) | `ValidationError` |
+| `HierarchyDefinition.name` that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
+| A `levels` or `compartments` member that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 
 ## What is not emitted
 
