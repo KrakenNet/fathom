@@ -6,6 +6,7 @@
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": false,
   "skip-changelog": true,
+  "signoff": "se-jo-ma <46336194+se-jo-ma@users.noreply.github.com>",
   "packages": {
     ".": {
       "package-name": "fathom-rules",
