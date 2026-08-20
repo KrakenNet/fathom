@@ -191,3 +191,96 @@ def test_explicit_focus_order_still_wins(tmp_path: Path) -> None:
     )
     engine = Engine.from_rules(str(tmp_path))
     assert engine.focus_order == ["sec"]
+
+
+# =========================================================================
+# Load-order mistakes, reported as load-order mistakes
+#
+# CLIPS reports the generated construct, not the mistake. A rule built
+# before its templates fails with "Check appropriate syntax for defrule",
+# and one built before its functions fails with EXPRNPSR3 naming a function
+# the author never wrote -- a classification function compiles to
+# `meets-or-exceeds`, which appears nowhere in the YAML. Both read as a
+# broken rule and send the reader to the wrong file. `load_rules` already
+# named this failure for modules; these are the other two.
+# =========================================================================
+
+
+def _write_function_pack(root: Path) -> None:
+    """templates/ + modules/ + functions/ + a rule that calls the function."""
+    _write_pack(root, "modules:\n  - name: gov\n    priority: 100\nfocus_order: [gov]\n")
+    (root / "templates" / "t.yaml").write_text(
+        "templates:\n  - name: agent\n    slots:\n"
+        "      - name: id\n        type: symbol\n"
+        "      - name: level\n        type: symbol\n"
+    )
+    (root / "functions").mkdir()
+    (root / "functions" / "f.yaml").write_text(
+        "functions:\n  - name: clearance\n    type: classification\n"
+        "    params: [a, b]\n    hierarchy_ref: clearance.yaml\n"
+    )
+    (root / "hierarchies").mkdir()
+    (root / "hierarchies" / "clearance.yaml").write_text(
+        "name: clearance\nlevels:\n  - public\n  - secret\n"
+    )
+    (root / "rules").mkdir()
+    (root / "rules" / "r.yaml").write_text(
+        "ruleset: gov\nmodule: gov\nrules:\n"
+        "  - name: allow-cleared\n    when:\n      - template: agent\n"
+        "        conditions:\n          - slot: level\n"
+        '            expression: "meets_or_exceeds(public)"\n'
+        "    then:\n      action: allow\n      reason: cleared\n"
+    )
+
+
+def test_rules_before_functions_names_the_missing_function(tmp_path: Path) -> None:
+    """EXPRNPSR3 becomes a sentence about load order, keeping the raw text."""
+    from fathom.engine import Engine
+    from fathom.errors import CompilationError
+
+    _write_function_pack(tmp_path)
+    engine = Engine()
+    engine.load_templates(str(tmp_path / "templates"))
+    engine.load_modules(str(tmp_path / "modules"))
+
+    with pytest.raises(CompilationError) as caught:
+        engine.load_rules(str(tmp_path / "rules"))
+
+    message = str(caught.value)
+    assert "meets-or-exceeds" in message
+    assert "load_functions()" in message
+    # The CLIPS diagnostic is kept, not replaced: it is still the evidence.
+    assert "EXPRNPSR3" in (caught.value.detail or "")
+
+
+def test_rules_before_templates_names_the_missing_templates(tmp_path: Path) -> None:
+    """A bare "Check appropriate syntax for defrule" names no template at all."""
+    from fathom.engine import Engine
+    from fathom.errors import CompilationError
+
+    _write_function_pack(tmp_path)
+    engine = Engine()
+    engine.load_modules(str(tmp_path / "modules"))
+    engine.load_functions(str(tmp_path / "functions"))
+
+    with pytest.raises(CompilationError, match="matches template 'agent'"):
+        engine.load_rules(str(tmp_path / "rules"))
+
+
+def test_an_unrelated_build_failure_keeps_the_clips_diagnostic(tmp_path: Path) -> None:
+    """Only load-order failures are re-described; everything else is untouched."""
+    from fathom.engine import Engine
+    from fathom.errors import CompilationError
+
+    _write_pack(tmp_path)
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "r.yaml").write_text(
+        "ruleset: gov\nmodule: gov\nrules:\n"
+        "  - name: bad-slot\n    when:\n      - template: agent\n"
+        "        conditions:\n          - slot: nonexistent\n"
+        '            expression: "equals(a1)"\n'
+        "    then:\n      action: allow\n      reason: ok\n"
+    )
+
+    with pytest.raises(CompilationError, match="Invalid slot 'nonexistent'"):
+        Engine.from_rules(str(tmp_path))

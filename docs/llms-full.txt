@@ -247,7 +247,7 @@ print(result.module_trace) # ["governance"]
 print(result.duration_us)  # ~90 (microseconds; varies by machine)
 ```
 
-`load_functions` must run before `load_rules`, because the rules reference the `below(...)` operator the classification function registers. The full project layout is:
+`load_functions` must run before `load_rules`, because the rules reference the `below(...)` operator the classification function registers. Getting that order wrong fails inside CLIPS, on the rule rather than on the order — `engine.load_pack_dir(".")` loads all four in the right sequence for you, and [Loading a rule pack](how-to/load-rule-pack.md) covers it. The full project layout is:
 
 ```
 templates/agent.yaml          agent + data_request schemas
@@ -1559,6 +1559,40 @@ splitting into subdirectories would be overkill, but it's strictly less
 expressive: it only scans the top level of `path` (no recursion) and each
 file must declare exactly one top-level key that the loader recognises.
 
+## Load a directory into an engine you already have
+
+`from_rules` is a constructor: it hands you a new `Engine`. When the engine
+already exists — a long-lived process, a pack uploaded at runtime, a second
+pack added to the first — use `Engine.load_pack_dir(path)`:
+
+```python
+from fathom.engine import Engine
+
+engine = Engine(audit_sink=my_sink)
+engine.load_pack_dir("/srv/packs/kssi/v1")
+engine.load_pack_dir("/srv/packs/tenant-overrides")
+```
+
+It accepts both layouts above, loads in the same fixed order, and is the same
+implementation `from_rules` and `load_pack` use — so there is one place that
+knows the order rather than one per caller.
+
+Three things it does that hand-rolling the four `load_*` calls does not:
+
+- **Loading the same directory twice is a no-op.** Identity is the resolved
+  path, so a relative and an absolute spelling are one pack, not two.
+- **A second pack may not redefine a template the first registered.** The
+  check runs before anything is built, so a rejected pack leaves the engine
+  untouched. This is the same check `load_pack` applies.
+- **A directory holding nothing it recognises is an error**, not an engine
+  with no rules in it. Pointing one level too high used to succeed silently.
+
+What it does *not* do is resolve `PACK_DEPENDENCIES`: a directory has no
+module to declare them on, so a pack that needs another one loaded first must
+have that one loaded by its caller. `from_rules` keeps its older, laxer
+behaviour on an empty directory — it returns an empty engine rather than
+raising, because `FleetEngine` builds session engines that way.
+
 ## Load a distributed pack via entry point
 
 Once a pack is packaged as a Python distribution, load it by name:
@@ -1620,12 +1654,14 @@ load rather than re-running the loaders (which CLIPS would reject with
 makes shared dependencies safe: loading `nist-800-53` and then `cmmc` does
 not load NIST twice.
 
-The tracking is per-`Engine` and is **not** reset by
-`Engine.reload_rules()`. A reload discards the rule registry, so after one a
-previously-loaded pack's rules are gone — but `load_pack` still considers the
-pack loaded and returns without restoring them. If you hot-reload an engine
-that was built with `load_pack`, rebuild the engine instead of re-adding
-packs to it.
+The tracking is per-`Engine`, and `Engine.reload_rules()` clears it
+(`engine.py` calls `packs.forget_packs`). A reload swaps in a fresh CLIPS
+environment and discards the rule registry, so a previously-loaded pack's
+rules are gone; keeping the record across that made the obvious repair — load
+the pack again — a silent no-op that returned successfully while the rules
+stayed absent. Clearing it means the retry is attempted, and fails loudly if
+it cannot succeed. The same applies to `load_pack_dir`, which shares the
+record.
 
 ### Packs that define the same template
 
