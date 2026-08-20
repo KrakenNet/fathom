@@ -22,6 +22,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read
 
   publish:
     needs: gate

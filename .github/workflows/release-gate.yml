@@ -16,6 +16,9 @@ on:
 
 permissions:
   contents: read
+  # actions: read -- listing the workflow runs this tag started, so their
+  # check runs can be excluded from the commit's evidence.
+  actions: read
 
 jobs:
   gate:
@@ -24,6 +27,16 @@ jobs:
     # EVERY check run on the commit must have finished and none may have
     # failed -- a superset of the required list -- plus a floor assertion, so
     # that a commit with no checks at all cannot read as success.
+    #
+    # "Every check run" excludes the ones the tag itself started. A release
+    # tag fans out to pypi-publish, npm-publish and docker-publish, each of
+    # which calls this gate and then queues its own build/sign/publish jobs.
+    # All of those are check runs on the same commit, and all are unfinished
+    # while the gate polls -- so counting them means every gate waits 20
+    # minutes for its siblings and its own job, then fails. v0.9.0 was tagged,
+    # released on GitHub, and never reached PyPI for exactly this reason. The
+    # commit's evidence is the branch's checks; the release runs are what the
+    # evidence is for.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -32,13 +45,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           SHA: ${{ inputs.sha || github.sha }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+
+          # Check suites belonging to workflow runs this tag started. Their
+          # check runs are the release itself and say nothing about the
+          # commit, so they are dropped before anything is counted.
+          own="$(gh api --paginate \
+            "repos/${GH_REPO}/actions/runs?head_sha=${SHA}&per_page=100" \
+            --jq '.workflow_runs[] | select(.head_branch == env.TAG) | .check_suite_id' \
+            | sort -u | paste -sd, -)"
+          echo "ignoring check suites started by ${TAG}: ${own:-none}"
 
           # tab-separated: status, conclusion, name
           fetch() {
             gh api --paginate "repos/${GH_REPO}/commits/${SHA}/check-runs" \
-              --jq '.check_runs[] | "\(.status)\t\(.conclusion // "-")\t\(.name)"'
+              --jq '.check_runs[] | "\(.check_suite.id)\t\(.status)\t\(.conclusion // "-")\t\(.name)"' \
+              | awk -F'\t' -v own="$own" '
+                  BEGIN { n = split(own, a, ","); for (i = 1; i <= n; i++) skip[a[i]] = 1 }
+                  !($1 in skip) { print $2 "\t" $3 "\t" $4 }'
           }
           count() { printf '%s\n' "$1" | awk "$2" | wc -l | tr -d ' '; }
 

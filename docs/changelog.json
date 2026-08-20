@@ -1,5 +1,36 @@
 [
   {
+    "version": "0.10.0",
+    "date": "2026-08-20",
+    "added": [
+      "A declared public surface. `VERSIONING.md` names what this project",
+      "`docs/reference/configuration.md`: all thirteen `FATHOM_*` variables with",
+      "A how-to for Policy Studio: how to run it from a checkout (it is not on",
+      "`metadata` on the evaluate response, everywhere. A firing rule's"
+    ],
+    "changed": [
+      "The audit record carries its own signature. `docs/concepts/audit-attestation.md`",
+      "The threat model now separates what the token covers (decision,",
+      "The PyPI classifier moves from Alpha to Beta. Not to Production/Stable:",
+      "The doc-source freshness gate blocks the branch that caused the drift.",
+      "The benchmark gate's slack factor is measured rather than guessed. Five",
+      "Release automation: pre-1.0 breaking changes take a minor bump rather than"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "A pack that declared modules but no `focus_order:` fired nothing at all.",
+      "`attestation_token` was structurally always null on `/v1/evaluate`. The",
+      "gRPC could not tell \"no rule decided\" from a decision of `\"\"`: proto3",
+      "Eight reference pages described validators, YAML forms, and a call",
+      "The release gate could not pass, on any release. It waited for every check",
+      "Merging pull requests back to back cancelled the test matrix on the commits"
+    ],
+    "security": [
+      "`SECURITY.md` has a policy instead of three lines. It named 0.7.x as the"
+    ]
+  },
+  {
     "version": "0.9.0",
     "date": "2026-08-20",
     "added": [],
