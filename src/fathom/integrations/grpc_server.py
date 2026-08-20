@@ -140,7 +140,10 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             )
             raise  # unreachable; abort raises
         try:
-            return self._session_store.get_or_create(session_id, ruleset)
+            # Same reason as REST: signing is a property of the Engine, so a
+            # servicer configured with an attestation service has to hand it
+            # to the sessions it creates or `attestation_token` never arrives.
+            return self._session_store.get_or_create(session_id, ruleset, self._attestation)
         except SessionRulesetMismatchError as exc:
             if context is None:
                 raise
@@ -223,13 +226,23 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             context.abort(grpc.StatusCode.INTERNAL, f"evaluation_error: {exc}")
             raise  # unreachable; abort raises
 
-        return fathom_pb2.EvaluateResponse(
-            decision=result.decision or "",
-            reason=result.reason or "",
+        # `decision` and `reason` are proto3 `optional`, so "no rule decided"
+        # is left unset rather than sent as "". Assigning None to a proto
+        # string field raises, so each is set only when the engine produced
+        # one -- that is what makes the distinction reach the client.
+        response = fathom_pb2.EvaluateResponse(
             rule_trace=list(result.rule_trace),
             module_trace=list(result.module_trace),
             duration_us=result.duration_us,
+            metadata=dict(result.metadata),
         )
+        if result.decision is not None:
+            response.decision = result.decision
+        if result.reason is not None:
+            response.reason = result.reason
+        if result.attestation_token is not None:
+            response.attestation_token = result.attestation_token
+        return response
 
     def AssertFact(  # noqa: N802 — gRPC convention
         self,

@@ -618,13 +618,23 @@ class EvaluateRequest(BaseModel):
 
 
 class EvaluateResponse(BaseModel):
-    """REST API response body from the evaluate endpoint."""
+    """REST API response body from the evaluate endpoint.
+
+    Mirrors :class:`EvaluationResult` field for field, and the gRPC
+    ``EvaluateResponse`` message alongside it. A caller who moves between the
+    two transports, or between the library and either of them, should not have
+    to discover that one of them drops a field the others carry.
+    """
 
     decision: str | None
     reason: str | None
     rule_trace: list[str]
     module_trace: list[str]
     duration_us: int
+    #: ``then.metadata`` of the rule that wrote the decision.
+    metadata: dict[str, str] = Field(default_factory=dict)
+    #: Ed25519 JWT over this evaluation. Non-null only when the server was
+    #: given an attestation service.
     attestation_token: str | None = None
 
 

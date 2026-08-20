@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import os
 import time
+from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
 
+from fathom.attestation import AttestationService, verify_token
 from fathom.integrations.rest import SessionStore, app, session_store
 from fathom.integrations.sessions import SessionLimitError
+
+if TYPE_CHECKING:  # pragma: no cover - annotation-only import
+    from pathlib import Path
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -618,6 +623,7 @@ class TestResponseSchema:
             "rule_trace",
             "module_trace",
             "duration_us",
+            "metadata",
             "attestation_token",
         }
         assert set(data.keys()) == expected_keys
@@ -637,6 +643,171 @@ class TestResponseSchema:
         data = response.json()
         assert "decision" in data
         assert "duration_us" in data
+
+
+# ---------------------------------------------------------------------------
+# 6b. Decision metadata and attestation on the evaluate response
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def metadata_ruleset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A one-rule ruleset whose ``then`` clause carries metadata.
+
+    The shared fixtures ruleset has no ``then.metadata``, so a rule that
+    writes some is built here rather than added to a ruleset every other
+    test asserts against.
+    """
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "templates" / "agent.yaml").write_text(
+        "templates:\n"
+        "  - name: agent\n"
+        "    slots:\n"
+        "      - name: id\n"
+        "        type: string\n"
+        "        required: true\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "modules").mkdir()
+    (tmp_path / "modules" / "modules.yaml").write_text(
+        "modules:\n  - name: governance\nfocus_order:\n  - governance\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "tagged.yaml").write_text(
+        "module: governance\n"
+        "rules:\n"
+        "  - name: tag-every-agent\n"
+        "    when:\n"
+        "      - template: agent\n"
+        "        conditions:\n"
+        "          - slot: id\n"
+        '            expression: "equals(a1)"\n'
+        "    then:\n"
+        "      action: allow\n"
+        '      reason: "agent present"\n'
+        "      metadata:\n"
+        "        policy: clearance-v1\n"
+        "        control: AC-3\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
+    return str(tmp_path)
+
+
+class TestEvaluateMetadata:
+    """``then.metadata`` of the firing rule reaches the HTTP response."""
+
+    def test_metadata_is_returned(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        metadata_ruleset: str,
+    ) -> None:
+        response = client.post(
+            "/v1/evaluate",
+            json={
+                "facts": [{"template": "agent", "data": {"id": "a1"}}],
+                "ruleset": "",
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["decision"] == "allow"
+        assert data["metadata"] == {"policy": "clearance-v1", "control": "AC-3"}
+
+    def test_metadata_is_empty_when_no_rule_writes_any(
+        self, client: TestClient, auth_headers: dict[str, str]
+    ) -> None:
+        response = client.post(
+            "/v1/evaluate",
+            json={
+                "facts": [{"template": "agent", "data": {"id": "a1", "clearance": "secret"}}],
+                "ruleset": "",
+            },
+            headers=auth_headers,
+        )
+        assert response.json()["metadata"] == {}
+
+
+class TestEvaluateAttestation:
+    """A configured attestation service signs what ``/v1/evaluate`` returns."""
+
+    @pytest.fixture
+    def attestation(self, monkeypatch: pytest.MonkeyPatch) -> AttestationService:
+        """Put a real signing service on ``app.state`` for one test."""
+        service = AttestationService.generate_keypair()
+        monkeypatch.setattr(app.state, "attestation", service, raising=False)
+        return service
+
+    def test_token_is_null_without_a_service(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # `app` is module-level and other suites leave a service on its
+        # state, so the no-service path has to be asked for explicitly.
+        monkeypatch.setattr(app.state, "attestation", None, raising=False)
+        response = client.post(
+            "/v1/evaluate",
+            json={"facts": [], "ruleset": ""},
+            headers=auth_headers,
+        )
+        assert response.json()["attestation_token"] is None
+
+    def test_stateless_evaluate_is_signed(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        attestation: AttestationService,
+    ) -> None:
+        response = client.post(
+            "/v1/evaluate",
+            json={
+                "facts": [
+                    {"template": "agent", "data": {"id": "a1", "clearance": "secret"}},
+                    {
+                        "template": "data_request",
+                        "data": {
+                            "agent_id": "a1",
+                            "classification": "top-secret",
+                            "resource": "doc-1",
+                        },
+                    },
+                ],
+                "ruleset": "",
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["attestation_token"] is not None
+        claims = verify_token(data["attestation_token"], attestation.public_key)
+        assert claims["decision"] == data["decision"] == "deny"
+        assert claims["rule_trace"] == data["rule_trace"]
+
+    def test_session_evaluate_is_signed(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        attestation: AttestationService,
+    ) -> None:
+        """The service reaches session engines too, which build their own."""
+        response = client.post(
+            "/v1/evaluate",
+            json={
+                "facts": [{"template": "agent", "data": {"id": "a1", "clearance": "secret"}}],
+                "ruleset": "",
+                "session_id": "signed-session",
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["attestation_token"] is not None
+        claims = verify_token(data["attestation_token"], attestation.public_key)
+        # The claim carries the engine's own session id, not the REST one.
+        assert claims["decision"] == data["decision"]
 
 
 # ---------------------------------------------------------------------------

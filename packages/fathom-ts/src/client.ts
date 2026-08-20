@@ -35,6 +35,8 @@ export interface EvaluateResponse {
   rule_trace: string[];
   module_trace: string[];
   duration_us: number;
+  /** `then.metadata` of the rule that decided; `{}` when it wrote none. */
+  metadata: Record<string, string>;
   attestation_token?: string | null;
 }
 

@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+    from fathom.attestation import AttestationService
+
 try:
     import prometheus_client
     from prometheus_fastapi_instrumentator import Instrumentator
@@ -138,7 +140,11 @@ def _resolve_user_ruleset(user_path: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _session_engine(session_id: str, rules_path: str) -> Engine:
+def _session_engine(
+    session_id: str,
+    rules_path: str,
+    attestation_service: AttestationService | None = None,
+) -> Engine:
     """Return the session Engine, mapping store rejections onto HTTP status.
 
     A session is bound to the ruleset it was created with; addressing it
@@ -146,7 +152,7 @@ def _session_engine(session_id: str, rules_path: str) -> Engine:
     wrong policy.
     """
     try:
-        return session_store.get_or_create(session_id, rules_path)
+        return session_store.get_or_create(session_id, rules_path, attestation_service)
     except SessionRulesetMismatchError as exc:
         raise HTTPException(
             status_code=409,
@@ -379,10 +385,15 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     connection.
     """
     resolved = _resolve_user_ruleset(request.ruleset)
+    # Signing is per-engine, so the service has to be handed to the engine at
+    # construction. Without this the response's `attestation_token` was a
+    # field that could never be non-null: declared in the schema, published in
+    # the OpenAPI document, and unreachable.
+    attestation = getattr(app.state, "attestation", None)
     if request.session_id:
-        engine = _session_engine(request.session_id, resolved)
+        engine = _session_engine(request.session_id, resolved, attestation)
     else:
-        engine = Engine.from_rules(resolved)
+        engine = Engine.from_rules(resolved, attestation_service=attestation)
 
     try:
         result = engine.evaluate_once(
@@ -411,6 +422,8 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
         rule_trace=result.rule_trace,
         module_trace=result.module_trace,
         duration_us=result.duration_us,
+        metadata=result.metadata,
+        attestation_token=result.attestation_token,
     )
 
 

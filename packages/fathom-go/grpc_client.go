@@ -152,11 +152,13 @@ func (c *GRPCClient) Evaluate(ctx context.Context, req *EvaluateRequest) (*Evalu
 		return nil, fmt.Errorf("fathom: evaluate: %w", err)
 	}
 	return &EvaluateResponse{
-		Decision:    resp.GetDecision(),
-		Reason:      resp.GetReason(),
-		RuleTrace:   resp.GetRuleTrace(),
-		ModuleTrace: resp.GetModuleTrace(),
-		DurationUS:  resp.GetDurationUs(),
+		Decision:         resp.GetDecision(),
+		Reason:           resp.GetReason(),
+		RuleTrace:        resp.GetRuleTrace(),
+		ModuleTrace:      resp.GetModuleTrace(),
+		DurationUS:       resp.GetDurationUs(),
+		Metadata:         resp.GetMetadata(),
+		AttestationToken: resp.GetAttestationToken(),
 	}, nil
 }
 

@@ -70,6 +70,7 @@ describe("FathomClient.evaluate", () => {
         rule_trace: ["r1"],
         module_trace: ["MAIN"],
         duration_us: 42,
+        metadata: { control: "AC-3" },
         attestation_token: null,
       },
       calls,
@@ -92,6 +93,7 @@ describe("FathomClient.evaluate", () => {
     });
     expect(result.decision).toBe("allow");
     expect(result.module_trace).toEqual(["MAIN"]);
+    expect(result.metadata).toEqual({ control: "AC-3" });
   });
 
   it("injects Authorization header when bearerToken is set", async () => {

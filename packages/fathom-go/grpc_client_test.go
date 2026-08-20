@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 // ---------- Mock server ----------
@@ -209,11 +210,13 @@ func TestGRPC_Evaluate_HappyPath(t *testing.T) {
 				t.Errorf("ruleset: got %q, want authz", req.GetRuleset())
 			}
 			return &pb.EvaluateResponse{
-				Decision:    "allow",
-				Reason:      "ok",
-				RuleTrace:   []string{"r1"},
-				ModuleTrace: []string{"m1"},
-				DurationUs:  42,
+				Decision:         proto.String("allow"),
+				Reason:           proto.String("ok"),
+				RuleTrace:        []string{"r1"},
+				ModuleTrace:      []string{"m1"},
+				DurationUs:       42,
+				Metadata:         map[string]string{"control": "AC-3"},
+				AttestationToken: proto.String("jwt.token.here"),
 			}, nil
 		},
 	}
@@ -231,6 +234,12 @@ func TestGRPC_Evaluate_HappyPath(t *testing.T) {
 	}
 	if len(got.RuleTrace) != 1 || len(got.ModuleTrace) != 1 || got.DurationUS != 42 {
 		t.Errorf("traces/duration mismatch: %+v", got)
+	}
+	if got.Metadata["control"] != "AC-3" {
+		t.Errorf("metadata: got %v, want control=AC-3", got.Metadata)
+	}
+	if got.AttestationToken != "jwt.token.here" {
+		t.Errorf("attestation_token: got %q", got.AttestationToken)
 	}
 }
 
