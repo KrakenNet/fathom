@@ -4,13 +4,26 @@ summary: Generated reference for every Fathom SDK, API, and tooling surface.
 audience: [app-developers, rule-authors, contributors]
 diataxis: reference
 status: stable
-last_verified: 2026-04-15
+last_verified: 2026-08-20
 ---
 
 # Reference
 
-Every public surface of Fathom is documented here. All pages under this tab
-are generated from source — hand edits will be overwritten on next build.
+Every public surface of Fathom is documented here.
+
+Most pages under this tab are generated from source — the SDK, REST, gRPC, MCP,
+CLI, and rule-pack references are rewritten by `make docs-gen`, so hand edits to
+them are overwritten on the next build. The YAML pages and
+[Configuration](configuration.md) are hand-written and cite the files they
+describe in their frontmatter.
+
+Which of these surfaces the project promises to keep working is
+[VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md).
+
+## Deployment
+
+- [Configuration](configuration.md) — every `FATHOM_*` variable, gRPC TLS, and
+  the server token scopes
 
 ## SDKs
 

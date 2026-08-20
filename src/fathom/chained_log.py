@@ -75,6 +75,18 @@ _LINE_FIELDS = {"iat", "jws", "prev_sha256", "record", "seq", "v"}
 _META_RECORD_TYPES = {GENESIS_RECORD_TYPE, CHECKPOINT_RECORD_TYPE}
 
 
+__all__ = [
+    "AnchorEvent",
+    "ChainVerification",
+    "ChainedAttestationLog",
+    "ChainedRecord",
+    "key_fingerprint",
+    "load_or_create_key",
+    "verify_chain",
+    "write_private_key_atomic",
+]
+
+
 def _canonical(obj: Any) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
 

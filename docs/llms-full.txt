@@ -804,6 +804,8 @@ constructs. `clear_facts()` and `reset()` only affect data, not compiled constru
 - [Registering a Python function](register-function.md)
 - [Loading a rule pack](load-rule-pack.md)
 - [Embedding via SDK](embed-sdk.md)
+- [Hot-reloading rulesets in a running server](hot-reload.md)
+- [Verifying a signed release](release-signing.md)
 
 
 ## how-to/writing-rules.md
@@ -1971,6 +1973,535 @@ removes the server from the deployment diagram entirely.
   reference for every exported type and method.
 - [TypeScript SDK reference](../reference/typescript-sdk/index.md)
   — typedoc-generated client, interface, and error reference.
+
+
+## how-to/hot-reload.md
+
+# Hot-reloading rulesets in a running server
+
+Fathom can swap a running server's ruleset atomically, without a
+restart, via `POST /v1/rules/reload`. Each reload:
+
+- Compiles the new YAML in a fresh CLIPS environment and only swaps it
+  in on success — a bad ruleset leaves the previous one serving
+  traffic (NFR-8).
+- Verifies an Ed25519 signature over the raw YAML bytes before
+  accepting the payload — unsigned rulesets are **rejected by default**
+  (fail-closed, AC-5.5).
+- Emits a JWT-attested audit event (`ruleset_reloaded` on success,
+  `ruleset_reload_rejected` on failure) carrying the
+  `ruleset_hash_before`/`ruleset_hash_after` pair.
+
+## Warning: a reload discards all working memory
+
+The new ruleset is compiled into a **fresh** CLIPS environment, and that
+environment starts empty. Every fact in working memory at the moment of the
+swap is gone — session facts, fleet facts synced from the shared store, and any
+long-lived facts the caller asserted at startup. Fact TTL timestamps are
+cleared with them.
+
+A failed reload changes nothing: the old environment keeps serving, so working
+memory survives. Only a *successful* swap wipes it.
+
+Plan for this. `Engine.subscribe_reload` is the seam: it registers a
+zero-argument callback fired after each successful swap, outside the reload
+lock, and returns an unsubscribe callable. A listener that raises is logged and
+swallowed, so a wedged subscriber cannot break the reload.
+
+```python
+def reseed() -> None:
+    engine.assert_fact("tenant", {"id": "acme", "tier": "gold"})
+
+unsubscribe = engine.subscribe_reload(reseed)
+```
+
+Re-run `FleetEngine.sync_fleet_facts` from the same callback for fleet-scoped
+state, and expect session callers to re-seed anything they asserted before the
+reload.
+
+This how-to covers how to sign a ruleset, wire up the deployment
+config, use the dev escape during development, monitor the live
+ruleset with `fathom status`, and rotate the runtime pubkey.
+
+## Endpoint shape
+
+```
+POST /v1/rules/reload
+Authorization: Bearer <operator-token>
+Content-Type: application/json
+```
+
+Request body — supply **exactly one** of `ruleset_path` or
+`ruleset_yaml`; `signature` is required in production (fail-closed
+default):
+
+```json
+{
+  "ruleset_path": "/etc/fathom/rulesets/prod-2026-04-22.yaml",
+  "signature":    "<base64 Ed25519 over the raw YAML bytes>"
+}
+```
+
+Inline form — useful when the operator lacks filesystem write access
+on the Fathom host:
+
+```json
+{
+  "ruleset_yaml": "rules:\n  - id: ...\n",
+  "signature":    "<base64 Ed25519 over the ruleset_yaml bytes>"
+}
+```
+
+Response (200):
+
+```json
+{
+  "ruleset_hash_before": "sha256:aaaa…",
+  "ruleset_hash_after":  "sha256:bbbb…",
+  "attestation_token": "<JWT signed by AttestationService>"
+}
+```
+
+Error codes:
+
+- `400 invalid_request` — both or neither of `ruleset_path` /
+  `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
+  not valid base64; ruleset failed to compile.
+- `400 unsigned_ruleset` — `require_signature=true` (the default) and
+  either `signature` is missing or Ed25519 verification failed. Also
+  emits `ruleset_reload_rejected` to the audit sink.
+- `413 payload_too_large` — the request body exceeds the reload size
+  cap (see below). Enforced before any YAML parsing.
+- `500 server_misconfigured` — `require_signature=true` but the
+  pubkey never loaded (should have failed at boot; treated as
+  defence-in-depth).
+- `503 not_ready` — engine or attestation service not yet configured
+  on `app.state`.
+
+## Admin token, body size cap, and rate limiting
+
+`POST /v1/rules/reload` (REST) and the gRPC `Reload` RPC are
+admin-scoped, defence-in-depth controls on top of signature
+verification:
+
+- **Scoped admin token.** Set `FATHOM_ADMIN_TOKEN` to require a
+  dedicated token for reload. When it is set, the reload surface
+  accepts **only** that token — the data-plane `FATHOM_API_TOKEN`
+  (used by `/v1/evaluate`, `/v1/facts`, …) no longer grants reload,
+  so a leaked data-plane token cannot replace the ruleset. When
+  `FATHOM_ADMIN_TOKEN` is **unset**, reload falls back to
+  `FATHOM_API_TOKEN` exactly as before (backward compatible). A
+  rejected token returns `401 unauthorized`.
+- **Body size cap.** Reload bodies are capped at 5 MB by default,
+  overridable via `FATHOM_MAX_RELOAD_BYTES`. The cap is enforced on
+  the **actual bytes received** (the body is streamed and aborted once
+  the running total exceeds the limit), not the `Content-Length`
+  header — a chunked request that under-reports its length is still
+  rejected with `413 payload_too_large` before the YAML parser sees
+  anything. The gRPC server inherits gRPC's default 4 MB
+  `max_receive_message_length`, which already bounds `Reload` payloads
+  below the REST cap.
+- **Rate limiting is host-level by design.** Fathom does not implement
+  per-client request throttling in-process. Run reload behind a
+  reverse proxy (nginx `limit_req`, Envoy, an API gateway, …) and rate
+  limit there. Keeping rate limiting at the host layer avoids
+  duplicating shared infrastructure inside the engine and keeps the
+  admin surface a thin, auditable control.
+
+## Signing a ruleset
+
+The runtime pubkey is a **separate concept** from the release-signing
+key documented in [release-signing.md](release-signing.md). Per design
+decision D2 you can either:
+
+- **Reuse the release-signing keypair.** Simpler key inventory;
+  operators who already run `scripts/sign_release.sh` can sign rulesets
+  with the same material. Trade-off: a compromise of the release key
+  also lets an attacker forge hot-reload payloads.
+- **Generate a separate runtime keypair.** Blast-radius reduction: a
+  compromised runtime key does not let the attacker forge release
+  artifacts, and vice-versa. Recommended for production deployments.
+
+### Generating a runtime keypair
+
+The server expects a **raw Ed25519 PEM public key**, not minisign's
+format. Generate with `openssl`:
+
+```shell
+openssl genpkey -algorithm ed25519 -out ruleset-signing.key
+openssl pkey   -in ruleset-signing.key -pubout -out ruleset-signing.pub
+```
+
+Keep `ruleset-signing.key` in the same custody regime as your other
+secrets (HSM, sealed secret, offline backup). The public half
+(`ruleset-signing.pub`) is what the Fathom server loads at boot.
+
+### Producing a detached signature
+
+Sign the **raw YAML bytes** you intend to POST — not a hash, not a
+normalised form. The server re-hashes the payload bytes internally and
+uses them both for verification and for `ruleset_hash_after`. Any pre-signing
+transformation (whitespace fix-ups, YAML re-emit) invalidates the
+signature.
+
+Python example using `cryptography`:
+
+```python
+from base64 import b64encode
+from pathlib import Path
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+yaml_bytes = Path("prod-2026-04-22.yaml").read_bytes()
+priv = load_pem_private_key(Path("ruleset-signing.key").read_bytes(), password=None)
+signature_b64 = b64encode(priv.sign(yaml_bytes)).decode("ascii")
+print(signature_b64)
+```
+
+The resulting base64 string goes into the `signature` field of the
+reload request. OpenSSL's `pkeyutl -sign` path works too, but keeping
+the YAML bytes byte-identical through the shell pipeline is error-
+prone; scripted signing is recommended.
+
+## Deployment configuration (fail-closed default)
+
+Two independent controls must both line up for a production deployment:
+
+1. **Config.** In `config.yaml` (or whichever layer feeds your server
+   factory):
+
+   ```yaml
+   rules:
+     hot_reload:
+       require_signature: true   # default
+   ```
+
+2. **Environment.** Point at the public key PEM file:
+
+   ```shell
+   export FATHOM_RULESET_PUBKEY_PATH=/etc/fathom/ruleset-signing.pub
+   ```
+
+The server loads the pubkey **at boot** and pins it onto
+`app.state.ruleset_pubkey`. If `require_signature=true` and the path
+is missing, unset, or unreadable, `build_app()` raises a
+`RuntimeError` with the message `ruleset pubkey unreadable or missing;
+set FATHOM_RULESET_PUBKEY_PATH or enable dev escape` and the server
+never starts. This is deliberate — failing at boot beats failing on
+first reload attempt.
+
+## Dev escape (development only)
+
+There is a single supported way to run the server with signature
+verification disabled, and it requires **both** of the following, by
+design (belt-and-suspenders — a single stray flag is not enough to
+lower the security floor):
+
+1. Config: `rules.hot_reload.require_signature: false`.
+2. Environment: `FATHOM_ALLOW_UNSIGNED_RULESETS=1`.
+
+Neither alone is sufficient; any other combination keeps the server
+fail-closed. When both are set, `build_app()` logs at WARN on startup:
+
+```
+ruleset signature verification disabled (require_signature=false +
+FATHOM_ALLOW_UNSIGNED_RULESETS=1); hot-reload will accept unsigned
+rulesets
+```
+
+The WARN line is emitted once per process; scrape for it in your log
+aggregator to detect dev escape accidentally turned on in prod. Every
+unsigned reload that succeeds under the dev escape still writes a
+`ruleset_reloaded` audit record, so there is no silent window.
+
+## Monitoring the live ruleset
+
+`GET /v1/status` (unauthenticated; liveness-shaped) returns:
+
+```json
+{
+  "ruleset_hash": "sha256:bbbb…",
+  "version":      "0.3.1",
+  "loaded_at":    "2026-04-22T22:15:07.482+00:00"
+}
+```
+
+`loaded_at` is the timestamp of the most recent reload, or the
+server's boot time if no reload has happened yet. The CLI wraps this
+endpoint:
+
+```shell
+fathom status --server https://fathom.prod.example.com
+```
+
+Output:
+
+```
+ruleset_hash: sha256:bbbb…
+version:      0.3.1
+loaded_at:    2026-04-22T22:15:07.482+00:00
+```
+
+Pass `--token` (or set `FATHOM_TOKEN`) if the server fronts `/v1/status`
+with auth in your environment. Exit code `0` means the call succeeded
+and the ruleset hash was reported; non-zero means the server was
+unreachable, returned an HTTP error, or replied with non-JSON.
+
+The `ruleset_hash` you see here should match the `ruleset_hash_after` value
+returned by the most recent `POST /v1/rules/reload`. If it does not,
+either a later reload happened between your calls, or the audit log
+and live state have diverged — investigate immediately.
+
+## Audit events
+
+Every reload — accepted or rejected — writes one record to the
+configured audit sink. Successful reloads emit:
+
+```json
+{
+  "event_type":         "ruleset_reloaded",
+  "ruleset_hash_before": "sha256:aaaa…",
+  "ruleset_hash_after":  "sha256:bbbb…",
+  "actor":              "bearer-token",
+  "timestamp":          "2026-04-22T22:15:07.482+00:00"
+}
+```
+
+Rejected reloads emit `event_type: ruleset_reload_rejected` with a
+`reason` field (`missing_signature`, `verification_failed`,
+`unknown_template`, …) and the *unchanged* `ruleset_hash_before`.
+
+The `attestation_token` returned from a successful reload is a JWT
+signed by the server's `AttestationService.sign_event()` (C6); you can
+verify it offline with the service's pubkey and replay it in your
+audit trail as a non-repudiation proof.
+
+## Rotating the runtime pubkey
+
+Rotate on a schedule (annual, matching the release-signing cadence)
+or immediately on suspected compromise:
+
+1. Generate a new Ed25519 keypair with `openssl` (see above); store
+   the private half in the same custody regime as the old one.
+2. Copy the new public key to a fresh path (e.g. `.pub.v2`) on each
+   Fathom host so you can roll back instantly if needed.
+3. Update the deployment's `FATHOM_RULESET_PUBKEY_PATH` to point at
+   the new `.pub.v2` file.
+4. Restart the server. `build_app()` reloads the pubkey at boot; there
+   is no hot path for pubkey rotation by design (the pubkey is the
+   trust anchor for reloads, so rotating it via a reload would be
+   circular).
+5. Confirm the new pubkey is live by POSTing a reload signed with the
+   new private key and watching `fathom status --server …` for a new
+   `ruleset_hash` and advanced `loaded_at`.
+6. Securely erase the previous private key once you have confirmed
+   the next scheduled ruleset push signs cleanly under the new key.
+
+The runtime pubkey and the release-signing pubkey rotate on
+independent schedules — if you reuse the same key for both (D2
+trade-off), plan one rotation event that covers both surfaces.
+
+## Migration from earlier Fathom builds
+
+This release is the **first** to ship `POST /v1/rules/reload`, so no
+operator has ever had a "signatures optional" hot-reload in
+production. However, operators who have been experimenting with
+pre-release dev builds that accepted unsigned rulesets need to know:
+
+- **The default is fail-closed.** After upgrading, a server started
+  without `FATHOM_RULESET_PUBKEY_PATH` will refuse to boot with
+  `ruleset pubkey unreadable or missing…`. This is intentional.
+- **Before restart, pick one of:**
+  1. **Production path (recommended).** Generate a runtime keypair
+     (or decide to reuse the release key), publish the pubkey file,
+     set `FATHOM_RULESET_PUBKEY_PATH` on every Fathom host, and keep
+     `rules.hot_reload.require_signature: true`.
+  2. **Dev/CI path.** Set **both** `rules.hot_reload.require_signature:
+     false` in config **and** `FATHOM_ALLOW_UNSIGNED_RULESETS=1` in
+     the environment. Either alone leaves fail-closed behaviour
+     active — deliberately, to stop a partial config from silently
+     downgrading security.
+- **Audit sink consumers.** Start recognising the two new
+  `event_type` values (`ruleset_reloaded`,
+  `ruleset_reload_rejected`) alongside the existing eval-shaped
+  records. They share the `actor` + `timestamp` envelope but carry
+  `ruleset_hash_before` / `ruleset_hash_after` instead of eval fields.
+
+
+## how-to/release-signing.md
+
+# Verifying release signatures
+
+Every Fathom release artifact from **0.5.0 onward** is signed with
+[minisign](https://jedisct1.github.io/minisign/) (detached Ed25519) and
+attached to its GitHub Release. This how-to shows you how to install minisign,
+verify a downloaded wheel or sdist, and understand the custody, rotation, and
+revocation policy for the signing key.
+
+**Releases before 0.5.0 are unsigned.** Signing was introduced with the 0.4.0
+tree, which reached PyPI as 0.5.0. The five earlier PyPI releases — 0.1.0,
+0.2.0, 0.3.0, 0.3.1 and 0.3.2 — have no `.minisig`, and the GitHub releases for
+0.3.0, 0.3.1, 0.3.3 and 0.4.0 carry no assets at all. There is nothing to
+verify for those versions, and no signature will be published retroactively:
+back-signing an old artifact today would assert a custody chain that did not
+exist when it was built. Use 0.5.0 or later if you need a verifiable artifact.
+
+## What is signed, and how
+
+- **Artifacts**: every `fathom_rules-*.whl` and `fathom_rules-*.tar.gz`
+  from 0.5.0 onward. `pypi-publish.yml` fails the release if any artifact
+  in `dist/` reaches the publish step without a sibling `.minisig`.
+- **Algorithm**: Ed25519 via minisign's standard `.minisig` format —
+  detached signature, one file per artifact, binary-safe.
+- **Where signatures appear**:
+  - Alongside each wheel / sdist as `<artifact>.minisig` on the GitHub
+    Release page.
+  - In the `dist/` directory produced by `scripts/sign_release.sh`
+    during the `pypi-publish` workflow.
+- **Pubkey**: published at
+  [`docs/reference/release-signing-pubkey.minisig`](../reference/release-signing-pubkey.minisig)
+  and embedded in the Fathom wheel at
+  `fathom/_data/release_pubkey.minisign` so that `fathom
+  verify-artifact` works offline.
+
+A `.minisig` file is a small text blob containing an Ed25519 signature
+plus a trusted comment. It is not a bundle — the artifact and its
+`.minisig` travel together but remain separate files.
+
+## Installing minisign
+
+Pick the instruction that matches your platform. All of them give you a
+`minisign` binary on your `PATH`.
+
+- **macOS** (Homebrew):
+
+  ```shell
+  brew install minisign
+  ```
+
+- **Linux** (Debian, Ubuntu):
+
+  ```shell
+  sudo apt install minisign
+  ```
+
+  On Fedora / RHEL: `sudo dnf install minisign`. On Arch: `sudo pacman
+  -S minisign`.
+
+- **Windows**: download a pre-built binary from the upstream release
+  page at
+  [`https://github.com/jedisct1/minisign/releases`](https://github.com/jedisct1/minisign/releases)
+  and place it somewhere on `PATH`. Alternatively, use WSL and follow
+  the Linux instructions above.
+
+Confirm the install:
+
+```shell
+minisign -v
+```
+
+## Verifying a downloaded artifact
+
+You have two equivalent paths. Use the first if you already have Fathom
+installed; use the second if you only have `minisign` and the public
+key file.
+
+### Option A — `fathom verify-artifact` (embedded pubkey)
+
+The CLI carries the release pubkey inside the wheel, so once you have
+any recent Fathom version installed you can verify later downloads
+offline:
+
+```shell
+fathom verify-artifact fathom_rules-1.2.0-py3-none-any.whl
+```
+
+If `<artifact>.minisig` lives next to the artifact, the CLI picks it up
+automatically. Override either side with `--sig <path>` or `--pubkey
+<path>` when auditing a specific file. Exit code `0` means the
+signature verified; non-zero means the verification failed or the
+inputs were malformed — re-download the artifact before trusting it.
+
+### Option B — raw `minisign`
+
+No Fathom install needed. Download the artifact, its `.minisig`, and
+the pubkey file from
+[`docs/reference/release-signing-pubkey.minisig`](../reference/release-signing-pubkey.minisig),
+then:
+
+```shell
+minisign -Vm fathom_rules-1.2.0-py3-none-any.whl \
+         -p release-signing-pubkey.minisig
+```
+
+`minisign` looks for `<artifact>.minisig` by default. Pass `-x <path>`
+to point at a signature that lives elsewhere. A `Signature and comment
+signature verified` line means the artifact is authentic.
+
+The pubkey's first line is also pasted into every GitHub Release body,
+so you can cross-check the key you fetched from the repository against
+the one on the release page.
+
+## M-of-N custody policy
+
+The release private key is never held in a single place. Two named
+custodians each hold one half of the operational state, and **both
+must agree out-of-band before a release tag is pushed**.
+
+- `MINISIGN_KEY_PRIMARY` — GitHub Actions secret, held by custodian A.
+  Loaded into `scripts/sign_release.sh` during the `pypi-publish`
+  workflow.
+- `MINISIGN_KEY_SECONDARY` — offline backup of the same keypair, held
+  by custodian B. Used only for rotation, recovery, and the custody
+  handshake described below.
+- Both custodians confirm the target tag, commit SHA, and intended
+  version via a signed email or Signal message before custodian A
+  authorises the tag push that triggers signing. No single custodian
+  can ship a release on their own, because the handshake is the
+  authorisation step — not merely a courtesy.
+
+The policy exists so that a compromise of a single machine, inbox, or
+GitHub token cannot produce a valid Fathom release.
+
+## Rotation cadence
+
+- **Scheduled**: rotate the keypair annually. Track the next rotation
+  date in the repository's release runbook.
+- **On compromise**: rotate immediately if either custodian suspects
+  their copy of the key has been exposed, if a custodian's workstation
+  is lost or stolen, or if `MINISIGN_KEY_PRIMARY` is ever printed to
+  logs.
+
+### Rotation procedure
+
+1. Both custodians meet out-of-band and generate a new keypair with
+   `minisign -G`.
+2. Update `docs/reference/release-signing-pubkey.minisig` **and**
+   `src/fathom/_data/release_pubkey.minisign` with the new public key,
+   in a single commit.
+3. Distribute the new private key: update the `MINISIGN_KEY_PRIMARY`
+   GitHub Actions secret; custodian B stores the new offline backup.
+4. Publish a dedicated release note flagging the rotation, including
+   the new key ID and the date from which signatures use it.
+5. Retire the previous private-key material (securely erase offline
+   copies, delete the old GitHub secret).
+
+## Revocation
+
+minisign has no CRL or OCSP equivalent — trust in a key is defined by
+the key file you hold. To revoke a compromised key:
+
+1. Follow the rotation procedure above, treating it as an emergency.
+2. Issue a release note that explicitly invalidates every artifact
+   signed by the previous key and lists which published versions are
+   affected.
+3. Recommend that users re-fetch and re-verify any still-in-use
+   artifacts against the new pubkey before continuing to rely on
+   them.
+
+Users who pin the pubkey (for example by vendoring
+`release-signing-pubkey.minisig`) should update their pinned copy from
+the new release. The embedded pubkey in `fathom/_data/` updates
+automatically once users install a release signed under the new key.
 
 
 ## concepts/index.md
@@ -3290,8 +3821,21 @@ scoping will work from.
 
 # Reference
 
-Every public surface of Fathom is documented here. All pages under this tab
-are generated from source — hand edits will be overwritten on next build.
+Every public surface of Fathom is documented here.
+
+Most pages under this tab are generated from source — the SDK, REST, gRPC, MCP,
+CLI, and rule-pack references are rewritten by `make docs-gen`, so hand edits to
+them are overwritten on the next build. The YAML pages and
+[Configuration](configuration.md) are hand-written and cite the files they
+describe in their frontmatter.
+
+Which of these surfaces the project promises to keep working is
+[VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md).
+
+## Deployment
+
+- [Configuration](configuration.md) — every `FATHOM_*` variable, gRPC TLS, and
+  the server token scopes
 
 ## SDKs
 
@@ -3322,6 +3866,98 @@ are generated from source — hand edits will be overwritten on next build.
 - [CMMC](rule-packs/cmmc.md)
 
 
+## reference/configuration.md
+
+# Configuration
+
+Fathom as a library takes its configuration through `Engine(...)` arguments and
+needs no environment. Everything below configures the **servers** — the REST
+app, the gRPC server, and the CLI's client commands.
+
+Each variable is read from the process environment. Where a variable is read
+per request rather than once at import, the table says so: those can be changed
+without a restart.
+
+## All variables
+
+| Variable | Read by | Default | Effect |
+|---|---|---|---|
+| `FATHOM_API_TOKEN` | REST, gRPC | *(none — required)* | The data-plane bearer token. Every `/v1/*` route and every RPC compares the presented `Authorization: Bearer …` against it with `hmac.compare_digest`. Unset means server mode refuses to authenticate anything. Read per verification. |
+| `FATHOM_ADMIN_TOKEN` | REST, gRPC | *(unset)* | Scopes the reload surface. When set, `POST /v1/rules/reload` and the `Reload` RPC accept **only** this token and the data-plane token stops working for them. When unset, reload falls back to `FATHOM_API_TOKEN`. |
+| `FATHOM_RULESET_ROOT` | REST | *(none — required)* | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400; an unset root is a 500, never an unjailed read. |
+| `FATHOM_RULESET_PUBKEY_PATH` | REST | *(none)* | PEM path of the public key that signed rulesets are verified against. Required at startup unless the dev escape below is engaged — a missing or unreadable key is a startup failure, not a warning. |
+| `FATHOM_ALLOW_UNSIGNED_RULESETS` | REST | `0` | Set to `1` **and** build the app with `require_signature=False` to accept unsigned reload payloads. Both are required; either alone keeps signature checking on. Logs a warning on every boot that uses it. |
+| `FATHOM_MAX_REQUEST_BYTES` | REST | `2097152` (2 MB) | Body cap on the data-plane routes, enforced on bytes actually received rather than `Content-Length`. `/v1/evaluate` runs a quadratic join over the facts it is given, so this bounds server CPU, not just memory. A non-numeric or non-positive value falls back to the default. Read per request. |
+| `FATHOM_MAX_RELOAD_BYTES` | REST, gRPC | `5242880` (5 MB) | Body cap on the reload route specifically, which the data-plane cap skips. gRPC's own receive limit is set below this. Same fallback behaviour. Read per request. |
+| `FATHOM_EXPOSE_DOCS` | REST | `0` | Set to `1` to serve `/docs`, `/redoc`, and `/openapi.json`. Off by default because they publish route and schema names to unauthenticated callers. Read once at import. |
+| `FATHOM_GRPC_TLS_CERT` | gRPC | *(none)* | PEM certificate path. Required with `FATHOM_GRPC_TLS_KEY` unless insecure mode is opted into. |
+| `FATHOM_GRPC_TLS_KEY` | gRPC | *(none)* | PEM private-key path, paired with the certificate above. |
+| `FATHOM_GRPC_ALLOW_INSECURE` | gRPC | `0` | Set to `1` to bind a plaintext port when no TLS pair is configured. See the warning below. |
+| `FATHOM_METRICS` | Engine | `0` | Set to `1` to enable Prometheus metrics collection without passing `enabled=True` to `MetricsCollector`. No-ops when `prometheus_client` is not installed, so setting it is safe on an install without the `metrics` extra. |
+| `FATHOM_TOKEN` | CLI | *(unset)* | Default bearer token for CLI commands that call a server. `--token` overrides it. |
+
+## gRPC TLS
+
+**The gRPC server refuses to start without TLS.** `serve()` binds a secure port
+only when both `FATHOM_GRPC_TLS_CERT` and `FATHOM_GRPC_TLS_KEY` name readable
+PEM files:
+
+```bash
+export FATHOM_GRPC_TLS_CERT=/etc/fathom/tls/server.crt
+export FATHOM_GRPC_TLS_KEY=/etc/fathom/tls/server.key
+export FATHOM_API_TOKEN="$(cat /run/secrets/fathom-api-token)"
+```
+
+```python
+from fathom.integrations.grpc_server import serve
+
+server = serve(port=50051)
+server.wait_for_termination()
+```
+
+With neither the pair nor an explicit opt-in, `serve()` raises `RuntimeError`
+naming the three variables. That is deliberate: the bearer token travels in an
+RPC metadata header, so an insecure port hands every token to any passive
+observer on the path.
+
+The opt-in exists for local development and for deployments that terminate TLS
+in a sidecar on the same host:
+
+```bash
+export FATHOM_GRPC_ALLOW_INSECURE=1   # plaintext port; token sent in the clear
+```
+
+Do not set it on a port reachable from another host. If a service mesh already
+terminates TLS, keep the plaintext listener bound to loopback.
+
+Client-certificate authentication (mTLS) is not wired up: the server passes a
+single key pair to `grpc.ssl_server_credentials` and does not request a client
+certificate. Callers are authenticated by bearer token only.
+
+## Server tokens
+
+Both server surfaces authenticate the same way — a bearer token compared in
+constant time — and both distinguish two scopes:
+
+- **Data plane** (`FATHOM_API_TOKEN`): evaluate, assert, query, retract.
+- **Admin** (`FATHOM_ADMIN_TOKEN`): ruleset reload.
+
+Setting only `FATHOM_API_TOKEN` means one token does both. Setting both means
+a leaked data-plane token cannot swap the policy the server enforces, which is
+the split worth having in production. See
+[Hot-reloading rulesets](../how-to/hot-reload.md) for the rest of the reload
+security model.
+
+## What is not configurable by environment
+
+- **Rule paths and engine options** — `Engine(...)` arguments: audit sink,
+  attestation service, session id, evaluation `run_limit`.
+- **Ports and worker counts** — `serve(port=…, max_workers=…)` for gRPC, and
+  the ASGI server's own flags for REST (`uvicorn --port`).
+- **Per-rule behaviour** — salience, module focus, and log level are properties
+  of the ruleset, not of the deployment.
+
+
 ## reference/python-sdk/index.md
 
 # Python SDK Reference
@@ -3330,15 +3966,31 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 
 ## Public symbols
 
-- [`Engine`](engine.md)
-- [`CompilationError`](compilationerror.md)
-- [`EvaluationError`](evaluationerror.md)
-- [`EvaluationLimitError`](evaluationlimiterror.md)
-- [`ScopeError`](scopeerror.md)
-- [`ValidationError`](validationerror.md)
 - [`AssertSpec`](assertspec.md)
 - [`AssertedFact`](assertedfact.md)
+- [`AttestationError`](attestationerror.md)
+- [`AttestationService`](attestationservice.md)
+- [`AuditLog`](auditlog.md)
+- [`AuditRecord`](auditrecord.md)
+- [`AuditSink`](auditsink.md)
+- [`ChainedAttestationLog`](chainedattestationlog.md)
+- [`CompilationError`](compilationerror.md)
+- [`Engine`](engine.md)
+- [`EvaluationError`](evaluationerror.md)
+- [`EvaluationLimitError`](evaluationlimiterror.md)
 - [`EvaluationResult`](evaluationresult.md)
+- [`FactStore`](factstore.md)
+- [`FathomError`](fathomerror.md)
+- [`FileSink`](filesink.md)
+- [`FleetConnectionError`](fleetconnectionerror.md)
+- [`FleetEngine`](fleetengine.md)
+- [`FleetError`](fleeterror.md)
+- [`InMemoryFactStore`](inmemoryfactstore.md)
+- [`NullSink`](nullsink.md)
+- [`ScopeError`](scopeerror.md)
+- [`ValidationError`](validationerror.md)
+- [`verify_chain`](verify_chain.md)
+- [`verify_token`](verify_token.md)
 
 
 ## reference/go-sdk/index.md

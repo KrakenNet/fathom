@@ -17,6 +17,9 @@ from fathom.models import AssertedFact, AuditRecord, EvaluationResult, LogLevel
 AuditPayload = AuditRecord | Mapping[str, Any]
 
 
+__all__ = ["AuditLog", "AuditPayload", "AuditSink", "FileSink", "NullSink"]
+
+
 @runtime_checkable
 class AuditSink(Protocol):
     """Protocol for audit record sinks."""

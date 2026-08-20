@@ -64,6 +64,14 @@ Use the [feature request template](https://github.com/KrakenNet/fathom/issues/ne
 4. Update documentation if you're changing public API
 5. Open a pull request
 
+### Changing a public surface
+
+`VERSIONING.md` lists what this project promises to keep working, and
+`tests/test_public_surface.py` fails when that list and `fathom.__all__` drift
+apart. Adding a name to `__all__` is a commitment, not a convenience — update
+`VERSIONING.md` in the same change, and say in the changelog what a caller has
+to do if you changed or removed one.
+
 ### Documentation that cites your code
 
 Every page under `docs/` lists the files it describes in its frontmatter

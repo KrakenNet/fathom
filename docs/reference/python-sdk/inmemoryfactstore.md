@@ -1,0 +1,3 @@
+# `fathom.InMemoryFactStore`
+
+::: fathom.InMemoryFactStore

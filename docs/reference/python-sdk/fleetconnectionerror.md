@@ -1,0 +1,3 @@
+# `fathom.FleetConnectionError`
+
+::: fathom.FleetConnectionError

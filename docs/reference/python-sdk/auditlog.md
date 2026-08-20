@@ -1,0 +1,3 @@
+# `fathom.AuditLog`
+
+::: fathom.AuditLog

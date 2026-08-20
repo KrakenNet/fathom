@@ -175,6 +175,7 @@ Entry points:
 - [How-to Guides](docs/how-to/index.md)
 - [Concepts](docs/concepts/index.md)
 - [Reference](docs/reference/index.md)
+- [Configuration](docs/reference/configuration.md) — every `FATHOM_*` variable and the gRPC TLS setup
 
 ## Performance Targets
 
@@ -219,6 +220,14 @@ uv run uvicorn fathom.integrations.rest:app --reload
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines and [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Stability
+
+Fathom is pre-1.0. [VERSIONING.md](VERSIONING.md) names the surfaces that are
+covered — `fathom.__all__`, the YAML authoring keys, the REST/gRPC/MCP
+contracts, and the CLI — states what a `0.x` minor and patch bump each mean for
+them, and defines the deprecation period. The symbol list there is checked
+against the package on every test run.
 
 ## Star History
 

@@ -1,0 +1,3 @@
+# `fathom.AttestationService`
+
+::: fathom.AttestationService

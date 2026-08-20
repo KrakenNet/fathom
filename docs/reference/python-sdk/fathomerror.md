@@ -1,0 +1,3 @@
+# `fathom.FathomError`
+
+::: fathom.FathomError

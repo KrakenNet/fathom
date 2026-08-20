@@ -61,7 +61,7 @@ jobs:
           version: 9
 
       - name: Install Python deps
-        run: uv sync --extra docs --extra server --extra mcp
+        run: uv sync --extra docs --extra server --extra mcp --extra attestation
 
       - name: Generate everything
         run: |

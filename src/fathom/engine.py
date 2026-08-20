@@ -41,6 +41,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Reserved prefix for fathom-internal CLIPS functions (see Engine.register_function).
+__all__ = ["Engine", "RESERVED_FUNCTION_PREFIX"]
+
+
 RESERVED_FUNCTION_PREFIX = "fathom-"
 
 # Default activation budget for a single evaluation. A ruleset whose rules

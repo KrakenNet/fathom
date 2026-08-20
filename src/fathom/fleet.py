@@ -28,6 +28,9 @@ FactData = dict[str, Any]
 FactId = str
 
 
+__all__ = ["FactStore", "FleetEngine", "InMemoryFactStore"]
+
+
 @runtime_checkable
 class FactStore(Protocol):
     """Protocol defining the async fact-storage interface."""

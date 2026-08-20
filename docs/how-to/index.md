@@ -15,3 +15,5 @@ last_verified: 2026-04-15
 - [Registering a Python function](register-function.md)
 - [Loading a rule pack](load-rule-pack.md)
 - [Embedding via SDK](embed-sdk.md)
+- [Hot-reloading rulesets in a running server](hot-reload.md)
+- [Verifying a signed release](release-signing.md)

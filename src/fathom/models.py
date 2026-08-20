@@ -132,6 +132,40 @@ def _validate_expression(expr: str) -> str:
     return expr
 
 
+__all__ = [
+    "ActionType",
+    "AssertFactRequest",
+    "AssertFactResponse",
+    "AssertSpec",
+    "AssertedFact",
+    "AuditRecord",
+    "CompileRequest",
+    "CompileResponse",
+    "ConditionEntry",
+    "ErrorResponse",
+    "EvaluateRequest",
+    "EvaluateResponse",
+    "EvaluationResult",
+    "FactChangeNotification",
+    "FactInput",
+    "FactPattern",
+    "FunctionDefinition",
+    "HierarchyDefinition",
+    "LogLevel",
+    "ModuleDefinition",
+    "QueryFactsRequest",
+    "QueryFactsResponse",
+    "RetractFactsRequest",
+    "RetractFactsResponse",
+    "RuleDefinition",
+    "RulesetDefinition",
+    "SlotDefinition",
+    "SlotType",
+    "TemplateDefinition",
+    "ThenBlock",
+]
+
+
 # --- Core Models (Section 3) ---
 
 

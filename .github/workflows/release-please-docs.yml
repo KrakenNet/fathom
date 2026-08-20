@@ -40,7 +40,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python deps
-        run: uv sync --extra docs --extra server --extra mcp
+        run: uv sync --extra docs --extra server --extra mcp --extra attestation
 
       # Same protoc install pattern as docs.yml (arduino/setup-protoc@v3
       # is unreliable, see comment there).

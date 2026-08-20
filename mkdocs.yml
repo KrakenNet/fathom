@@ -107,6 +107,8 @@ nav:
       - Registering a Python function: how-to/register-function.md
       - Loading a rule pack: how-to/load-rule-pack.md
       - Embedding via SDK: how-to/embed-sdk.md
+      - Hot-reloading rulesets: how-to/hot-reload.md
+      - Verifying a signed release: how-to/release-signing.md
   - Concepts:
       - Overview: concepts/index.md
       - Five Primitives: concepts/five-primitives.md
@@ -116,6 +118,7 @@ nav:
       - CLIPS Features Not In v1: concepts/not-in-v1.md
   - Reference:
       - Overview: reference/index.md
+      - Configuration: reference/configuration.md
       - Python SDK: reference/python-sdk/index.md
       - Go SDK: reference/go-sdk/index.md
       - TypeScript SDK: reference/typescript-sdk/index.md

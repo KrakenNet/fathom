@@ -52,7 +52,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python deps
-        run: uv sync --extra docs --extra server --extra mcp
+        run: uv sync --extra docs --extra server --extra mcp --extra attestation
 
       - name: Version sync
         run: uv run python scripts/check_version_sync.py
@@ -99,7 +99,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python deps
-        run: uv sync --extra docs --extra server --extra mcp
+        run: uv sync --extra docs --extra server --extra mcp --extra attestation
 
       # arduino/setup-protoc@v3 is unreliable (see ci.yml); install from the
       # upstream release archive. continue-on-error: a missing foreign

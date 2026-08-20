@@ -1,0 +1,3 @@
+# `fathom.AuditSink`
+
+::: fathom.AuditSink
