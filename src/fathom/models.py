@@ -580,6 +580,10 @@ class AuditRecord(BaseModel):
     duration_us: int
     metadata: dict[str, str] = Field(default_factory=dict)
     asserted_facts: list[AssertedFact] | None = None
+    #: The evaluation's attestation JWT, when the engine was given an
+    #: attestation service. Carried on the record so an exported line can be
+    #: verified on its own; ``None`` on an engine that does not sign.
+    attestation_token: str | None = None
 
 
 # --- REST Models (Phase 2) ---

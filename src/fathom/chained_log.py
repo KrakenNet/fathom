@@ -409,6 +409,20 @@ class ChainedAttestationLog:
             self.checkpoint()
         return chained
 
+    def write(self, record: Any) -> None:
+        """Append an audit record, satisfying :class:`fathom.audit.AuditSink`.
+
+        Lets the chained log stand in for ``FileSink`` wherever a sink is
+        taken -- ``Engine(audit_sink=ChainedAttestationLog(...))`` -- so
+        evaluation records land in a chain whose lines commit to their
+        predecessors, rather than in a flat file where a deletion leaves no
+        trace. Pydantic records are dumped in JSON mode so the line stays
+        canonicalisable; mappings (the transports' hot-reload events) pass
+        through as-is.
+        """
+        dump = getattr(record, "model_dump", None)
+        self.append(dump(mode="json") if dump is not None else dict(record))
+
     def checkpoint(self) -> ChainedRecord:
         """Append a signed checkpoint record pinning the current head.
 
