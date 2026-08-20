@@ -174,7 +174,7 @@ print(result.module_trace) # ["governance"]
 print(result.duration_us)  # ~90 (microseconds; varies by machine)
 ```
 
-`load_functions` must run before `load_rules`, because the rules reference the `below(...)` operator the classification function registers. The full project layout is:
+`load_functions` must run before `load_rules`, because the rules reference the `below(...)` operator the classification function registers. Getting that order wrong fails inside CLIPS, on the rule rather than on the order — `engine.load_pack_dir(".")` loads all four in the right sequence for you, and [Loading a rule pack](how-to/load-rule-pack.md) covers it. The full project layout is:
 
 ```
 templates/agent.yaml          agent + data_request schemas

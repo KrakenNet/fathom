@@ -321,6 +321,87 @@ class Engine:
                 detail=str(exc),
             ) from exc
 
+    #: How CLIPS reports a call to a function it does not have. The name it
+    #: quotes is frequently generated rather than authored -- a
+    #: ``type: classification`` function compiles to ``meets-or-exceeds``,
+    #: ``below`` and friends -- so it appears nowhere in the rule YAML the
+    #: author is staring at.
+    _MISSING_FUNCTION_RE = re.compile(r"Missing function declaration for '([^']+)'")
+
+    def _template_is_known(self, name: str) -> bool:
+        """Whether *name* is a deftemplate this engine can match on.
+
+        Checks the CLIPS environment as well as the YAML registry: a template
+        can also arrive through a raw build, and a check that only consulted
+        the registry would blame a load order that was in fact correct.
+        """
+        if name in self._template_registry:
+            return True
+        try:
+            self._env.find_template(name)
+        except Exception:
+            return False
+        return True
+
+    def _diagnose_rule_build(
+        self,
+        exc: CompilationError,
+        defn: RuleDefinition,
+        file: Path,
+        unknown_templates: list[str],
+    ) -> CompilationError | None:
+        """Re-describe a rule build failure that is really a load-order mistake.
+
+        CLIPS reports the generated construct, not the mistake: a rule
+        compiled before its templates fails with "Check appropriate syntax
+        for defrule", and one compiled before its functions fails with
+        EXPRNPSR3 naming a function the author never wrote. Both read as a
+        broken rule. ``load_rules`` already names this failure for modules;
+        these are the other two.
+
+        *unknown_templates* must be collected BEFORE the build: CLIPS creates
+        an implied deftemplate for each pattern it parses before it hits the
+        error, so asking afterwards reports the first pattern as known and
+        blames the wrong one.
+
+        Returns None when the failure is something else, so the original
+        CLIPS diagnostic is what the caller sees.
+        """
+        raw = exc.detail or str(exc)
+
+        if unknown_templates:
+            unique = list(dict.fromkeys(unknown_templates))
+            names = ", ".join(f"'{name}'" for name in unique)
+            noun = "template" if len(unique) == 1 else "templates"
+            verb = "is" if len(unique) == 1 else "are"
+            return CompilationError(
+                "[fathom.engine] load rules failed: rule "
+                f"'{defn.name}' matches {noun} {names}, which {verb} not "
+                "registered. Load templates first with load_templates(), or "
+                "load the whole pack with load_pack_dir().",
+                file=str(file),
+                construct=f"rule:{defn.name}",
+                detail=raw,
+            )
+
+        missing = self._MISSING_FUNCTION_RE.search(raw)
+        if missing:
+            return CompilationError(
+                "[fathom.engine] load rules failed: rule "
+                f"'{defn.name}' calls '{missing.group(1)}', which is not "
+                "defined in this engine. Functions must be loaded before the "
+                "rules that call them: call load_functions() first, or load "
+                "the whole pack with load_pack_dir(). If they are already "
+                "loaded, the name is one a function definition should have "
+                "produced -- a classification function generates CLIPS names "
+                "that do not appear in your YAML.",
+                file=str(file),
+                construct=f"rule:{defn.name}",
+                detail=raw,
+            )
+
+        return None
+
     # --- External functions ---
 
     def _register_external_functions(self, env: clips.Environment | None = None) -> None:
@@ -510,6 +591,8 @@ class Engine:
            ``functions``, ``rules``/``ruleset``).
 
         Loading order (both strategies): templates → modules → functions → rules.
+        This is :meth:`load_pack_dir` on a fresh engine — the ordering has one
+        implementation, in :mod:`fathom.packs`.
 
         Args:
             path: Directory containing rule definitions.
@@ -517,59 +600,18 @@ class Engine:
 
         Returns:
             A fully-loaded :class:`Engine` instance.
+
+        Raises:
+            CompilationError: If *path* is not a directory or holds nothing
+                this loader recognises.
         """
+        from fathom.packs import RulePackLoader
+
         engine = cls(**kwargs)
-        p = Path(path).resolve(strict=False)
-
-        templates_dir = p / "templates"
-        modules_dir = p / "modules"
-        functions_dir = p / "functions"
-        rules_dir = p / "rules"
-
-        # Strategy 1: subdirectory convention
-        has_subdirs = any(
-            d.is_dir() for d in [templates_dir, modules_dir, functions_dir, rules_dir]
-        )
-
-        if has_subdirs:
-            if templates_dir.is_dir():
-                engine.load_templates(str(templates_dir))
-            if modules_dir.is_dir():
-                engine.load_modules(str(modules_dir))
-            if functions_dir.is_dir():
-                engine.load_functions(str(functions_dir))
-            if rules_dir.is_dir():
-                engine.load_rules(str(rules_dir))
-        else:
-            # Strategy 2: key inspection — collect files by type, load in order
-            template_files: list[Path] = []
-            module_files: list[Path] = []
-            function_files: list[Path] = []
-            rule_files: list[Path] = []
-
-            for yaml_file in sorted(p.glob("*.yaml")):
-                with open(yaml_file) as f:
-                    data = yaml.safe_load(f)
-                if not isinstance(data, dict):
-                    continue
-                if "templates" in data:
-                    template_files.append(yaml_file)
-                elif "modules" in data or "focus_order" in data:
-                    module_files.append(yaml_file)
-                elif "functions" in data:
-                    function_files.append(yaml_file)
-                elif "rules" in data or "ruleset" in data:
-                    rule_files.append(yaml_file)
-
-            for tf in template_files:
-                engine.load_templates(str(tf))
-            for mf in module_files:
-                engine.load_modules(str(mf))
-            for ff in function_files:
-                engine.load_functions(str(ff))
-            for rf in rule_files:
-                engine.load_rules(str(rf))
-
+        # require_content=False: an empty directory has always produced an
+        # empty engine here, and FleetEngine builds its session engines that
+        # way before seeding templates by hand.
+        RulePackLoader.load_dir(engine, path, require_content=False)
         return engine
 
     # --- Template / Module / Function / Rule loading ---
@@ -755,7 +797,21 @@ class Engine:
                     clips_str = self._compiler.compile_rule(
                         rule_defn, ruleset.module, self._template_registry
                     )
-                    self._safe_build(clips_str, context=f"rule:{rule_defn.name}")
+                    # Collected before the build: a failed build leaves
+                    # implied deftemplates behind for the patterns CLIPS got
+                    # through, which would mask the real answer.
+                    unknown_templates = [
+                        pattern.template
+                        for pattern in rule_defn.when
+                        if not self._template_is_known(pattern.template)
+                    ]
+                    try:
+                        self._safe_build(clips_str, context=f"rule:{rule_defn.name}")
+                    except CompilationError as exc:
+                        better = self._diagnose_rule_build(exc, rule_defn, file, unknown_templates)
+                        if better is None:
+                            raise
+                        raise better from exc
                     self._rule_registry[key] = rule_defn
                     count += 1
 
@@ -931,10 +987,44 @@ class Engine:
         )
 
     def load_pack(self, pack_name: str) -> None:
-        """Load a rule pack by name."""
+        """Load a rule pack by name from the ``fathom.packs`` entry points.
+
+        For a pack that lives in a directory rather than an installed
+        distribution, use :meth:`load_pack_dir`.
+        """
         from fathom.packs import RulePackLoader
 
         RulePackLoader.load(self, pack_name)
+
+    def load_pack_dir(self, path: str | Path) -> None:
+        """Load a rule pack from a directory into this engine.
+
+        Loads ``templates`` → ``modules`` → ``functions`` → ``rules``, which
+        is the only order that works: a rule references the templates it
+        matches and the functions it calls, and CLIPS reports a violation of
+        that order as a diagnostic about the generated construct rather than
+        about the ordering. Both pack layouts are accepted — the
+        ``templates/`` ``modules/`` ``functions/`` ``rules/`` subdirectory
+        convention, and a flat directory of ``*.yaml`` whose top-level key
+        names the kind.
+
+        Unlike :meth:`from_rules`, this loads into an engine that already
+        exists, so a host can add a pack at runtime. Loading the same
+        directory twice is a no-op, and a pack that would redefine a template
+        another pack registered is rejected before anything is built.
+        ``PACK_DEPENDENCIES`` is not resolved for a directory pack: there is
+        no module to declare it on.
+
+        Args:
+            path: Directory holding the pack.
+
+        Raises:
+            CompilationError: If *path* is not a directory, holds nothing
+                recognised, or collides with a template already registered.
+        """
+        from fathom.packs import RulePackLoader
+
+        RulePackLoader.load_dir(self, path)
 
     # --- Atomic-swap ruleset reload (design C5, AC-5.3, NFR-8) ---
 
