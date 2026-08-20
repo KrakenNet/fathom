@@ -34,6 +34,9 @@ quadrant that matches what you're doing.
 - [Registering a Python function](how-to/register-function.md)
 - [Loading a rule pack](how-to/load-rule-pack.md)
 - [Embedding via SDK](how-to/embed-sdk.md)
+- [Hot-reloading rulesets](how-to/hot-reload.md)
+- [Verifying a signed release](how-to/release-signing.md)
+- [Running Policy Studio](how-to/policy-studio.md)
 
 ### Understand — Concepts
 
@@ -45,6 +48,7 @@ quadrant that matches what you're doing.
 
 ### Look up — Reference
 
+- [Configuration](reference/configuration.md) — every `FATHOM_*` variable
 - YAML: [Template](reference/yaml/template.md) ·
   [Rule](reference/yaml/rule.md) ·
   [Module](reference/yaml/module.md) ·
@@ -59,6 +63,13 @@ quadrant that matches what you're doing.
   [TypeScript](reference/typescript-sdk/index.md)
 - [Rule Packs](reference/rule-packs/owasp-agentic.md)
 - [Planned Integrations](reference/planned-integrations.md)
+
+## Stability
+
+Fathom is pre-1.0. `fathom.__all__` is the covered public surface, and
+[VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md)
+states what a `0.x` minor and patch each mean for it, the YAML keys, the
+REST/gRPC/MCP contracts, and the CLI.
 
 ## What is not in v1
 
@@ -806,6 +817,7 @@ constructs. `clear_facts()` and `reset()` only affect data, not compiled constru
 - [Embedding via SDK](embed-sdk.md)
 - [Hot-reloading rulesets in a running server](hot-reload.md)
 - [Verifying a signed release](release-signing.md)
+- [Running Policy Studio](policy-studio.md)
 
 
 ## how-to/writing-rules.md
@@ -2502,6 +2514,90 @@ Users who pin the pubkey (for example by vendoring
 `release-signing-pubkey.minisig`) should update their pinned copy from
 the new release. The embedded pubkey in `fathom/_data/` updates
 automatically once users install a release signed under the new key.
+
+
+## how-to/policy-studio.md
+
+# Running Policy Studio
+
+Policy Studio is a local browser UI over a real Fathom engine: load a ruleset,
+push facts at it, and read the decision, the rules that fired, and the audit
+line that came out. It is a **separate package** — `fathom-studio`, its own
+version line — because the engine wheel ships no UI code.
+
+## Install and run
+
+`fathom-studio` is not published to PyPI yet. Run it from a checkout, where
+it is a workspace member and `uv sync` already installs it:
+
+```bash
+git clone https://github.com/KrakenNet/fathom.git
+cd fathom
+uv sync
+
+export FATHOM_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+uv run fathom-studio
+```
+
+The process prints the URL to open and binds `127.0.0.1:8020`. `--host` and
+`--port` override the bind; `FATHOM_STUDIO_PORT` sets the port from the
+environment.
+
+Open it as `http://127.0.0.1:8020/?token=$FATHOM_API_TOKEN` **once**. The
+token is validated and stored in the `fathom_token` cookie, which the SPA's
+`fetch` calls and the plain HTML forms then carry for you.
+
+## The token gate
+
+The Studio mounts the production REST app in the same process, so it holds
+itself to the same door: every route that loads a ruleset, drives the engine,
+or mints an attestation token requires the same `FATHOM_API_TOKEN` the REST
+app requires. There is no second secret. Present it as either
+`Authorization: Bearer <token>` (for `curl` and tests) or the cookie above.
+
+Only three things are ungated, and none of them carry engine data: `/health`,
+the SPA shell at `/`, and its static assets under `/creem`. With
+`FATHOM_API_TOKEN` unset, every gated route answers 401 — an unconfigured
+Studio exposes nothing.
+
+## What the views do
+
+| View | What it drives |
+|---|---|
+| Reasoning Bench | Loads a bundled scenario, evaluates it, and shows decision, reason, and the firing rules |
+| Live Wire | A rolling decision stream and deny-rate strip. The traffic is synthetic — it samples the bundled scenarios — but every packet is a real evaluation |
+| Rules | The compiled rules of the selected ruleset, with their conditions |
+| Templates | The fact schemas the ruleset declares |
+| Audit | The signed, hash-linked record of what the Studio has evaluated so far |
+
+Nine demo scenarios ship with the package, covering five example rulesets:
+hello allow/deny, RBAC with modules, Bell-LaPadula classification, temporal
+anomaly detection, and LangChain guardrails. Each is a copy of the matching
+`examples/0N-*` directory, held byte-identical to it by a test. Point
+`FATHOM_RULESET_ROOT` at your own directory to drive the Studio with your
+rulesets instead.
+
+Decisions are never faked. `POST /studio/api/evaluate` builds a fresh
+`Engine` for the chosen ruleset, asserts the facts, evaluates, and renders
+what came back — the same stateless shape `/v1/evaluate` uses, so working
+memory never leaks from one bench run into the next.
+
+## What it is not
+
+- **Not a sandbox.** The REST app is *mounted*, not proxied: it runs in the
+  Studio's process, under `/api`, sharing that module's in-memory session
+  store. Anything driven through `/api` — including the server-rendered
+  panels, which call it with a per-browser `X-Session-Id` — lands in the same
+  working memory a REST client of that process sees.
+- **Not a stable API.** The `/studio/api/*` routes are unversioned and
+  excluded from [the compatibility policy](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md);
+  they change with the UI.
+- **Not your audit log.** The Audit view's chain lives in process memory,
+  holds the most recent 200 records, and is signed with a keypair generated
+  at startup — it dies with the process. For a durable, verifiable log, use
+  `ChainedAttestationLog` from the library
+  ([Audit & Attestation](../concepts/audit-attestation.md)).
+- **Not hardened for exposure.** It binds loopback by default. Keep it there.
 
 
 ## concepts/index.md
@@ -5425,7 +5521,7 @@ Each entry declares a **Status** of one of:
 **Status:** Partial.
 
 **Location:** `packages/fathom-go/` — a hand-written REST client plus
-generated gRPC bindings. Package contents: `client.go` (180 lines),
+generated gRPC bindings. Package contents: `client.go` (181 lines),
 `client_test.go` (818 lines), `grpc_test.go` (230 lines, build-tagged
 `integration`), `tools.go`, `go.mod`, `go.sum`, `Makefile`, and
 `proto/` with `fathom.pb.go` + `fathom_grpc.pb.go`. `go.mod` declares
@@ -5566,6 +5662,36 @@ known-bad decisions would fail open on anything it had not heard of.
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
 `fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
 
+## Policy Studio — `packages/fathom-studio/`
+
+**Status:** Partial.
+
+**Location:** `packages/fathom-studio/` — package identity `fathom-studio` at
+`0.1.0`, a uv workspace member of this repo. It depends on `fathom-rules`
+like any other consumer; the engine wheel ships no Studio code.
+
+**What works today:** A browser UI over a real engine — five views (Reasoning
+Bench, Live Wire, Rules, Templates, Audit) served as a zero-build React SPA,
+a JSON backend under `/studio/api`, server-rendered HTMX panels, and the
+production REST app mounted in the same process under `/api`. Nine demo
+scenarios ship as package data, held byte-identical to the repo's
+`examples/0N-*` directories by a test. Its pytest suite runs in CI: root
+`testpaths` includes `packages/fathom-studio/tests`, so the required `test`
+job covers it.
+
+**What is missing:**
+
+- **No published release.** `fathom-studio` is not on PyPI and no workflow
+  builds or publishes it; run it from a checkout with `uv run fathom-studio`.
+- **No stability promise.** The `/studio/api/*` routes are unversioned and
+  explicitly excluded from
+  [VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md).
+- **In-memory audit only.** The Audit view's chain is process-local, capped
+  at 200 records, and signed with a keypair minted at startup. The durable
+  equivalent is `fathom.chained_log.ChainedAttestationLog`.
+
+**How to use today:** [Running Policy Studio](../how-to/policy-studio.md).
+
 ## Known blockers
 
 - **Proto ↔ `go.mod` path alignment** — previously flagged as
@@ -5576,14 +5702,16 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
   `packages/fathom-go/go.mod:1`. Generated bindings now live in
   `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
-- **No CI for the TypeScript or editor packages.** The Python test suite
-  (1551 tests, `.github/workflows/ci.yml`) and the Go suite
-  (`.github/workflows/go-ci.yml`, unit + `-tags integration`) both run on
-  every pull request. The TypeScript vitest suite (tracked as issue
-  [#39](https://github.com/KrakenNet/fathom/issues/39)) and the editor
-  (issue [#43](https://github.com/KrakenNet/fathom/issues/43)) remain
-  uncovered, so every "works today" claim for those two packages reduces
-  to "works when run locally against a developer's machine."
+- **No CI for the editor package.** The Python suite
+  (`.github/workflows/ci.yml`, which also covers the Studio), the Go suite
+  (`.github/workflows/go-ci.yml`, unit + `-tags integration`) and the
+  TypeScript suite (`.github/workflows/ts-ci.yml`, the required `ts-test`
+  check, closing issue
+  [#39](https://github.com/KrakenNet/fathom/issues/39)) all run on every
+  pull request. The editor (issue
+  [#43](https://github.com/KrakenNet/fathom/issues/43)) remains uncovered —
+  it has no test script to run — so every "works today" claim for that
+  package reduces to "works when run locally against a developer's machine."
 
 ## See also
 
@@ -5591,9 +5719,9 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   shipped adapters (including LangChain) live here.
 - [REST API](./rest/index.md) — the wire protocol the Go and TypeScript
   SDKs target.
-- [gRPC API](./grpc/index.md) — the proto surface the Go SDK does **not**
-  yet implement.
-- [Go SDK](./go-sdk/fathom-go.md) — gomarkdoc output for the REST client
+- [gRPC API](./grpc/index.md) — the proto surface, which the Go SDK now
+  implements through the generated bindings in `packages/fathom-go/proto/`.
+- [Go SDK](./go-sdk/fathom-go.md) — gomarkdoc output for the clients
   described above.
 - [TypeScript SDK](./typescript-sdk/index.md) — typedoc output for
   `@fathom-rules/sdk`.

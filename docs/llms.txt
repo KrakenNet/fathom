@@ -19,6 +19,7 @@ Deterministic reasoning runtime for AI agents
 - [Embedding via SDK](https://fathom.krakn.ai/latest/how-to/embed-sdk/) — Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTTP clients to the REST server).
 - [Hot-reloading rulesets in a running server](https://fathom.krakn.ai/latest/how-to/hot-reload/) — Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed default and dev escape, rotate the runtime pubkey, and confirm the live ruleset with `fathom status`.
 - [Verifying release signatures](https://fathom.krakn.ai/latest/how-to/release-signing/) — Install minisign, verify a Fathom wheel or sdist, and understand the custody + rotation policy for the release key.
+- [Running Policy Studio](https://fathom.krakn.ai/latest/how-to/policy-studio/) — Start the Studio from a checkout, get past its token gate, and know what its five views drive — the real engine, mounted in the same process.
 - [Concepts](https://fathom.krakn.ai/latest/concepts/) — Understanding-oriented pages on Fathom's primitives, runtime model, and deferred CLIPS features.
 - [Five Primitives](https://fathom.krakn.ai/latest/concepts/five-primitives/) — Templates, Facts, Rules, Modules, Functions — the author-level vocabulary Fathom compiles to CLIPS.
 - [Runtime & Working Memory](https://fathom.krakn.ai/latest/concepts/runtime-and-working-memory/) — How the Fathom engine runs — sessions, the evaluation loop, module focus, and why deny rules take lower salience under last-write-wins.

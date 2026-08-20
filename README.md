@@ -93,11 +93,17 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - **FastAPI REST server** with bearer-token auth and rule-path jailing
 - **gRPC server** with bearer-token auth (see `protos/fathom.proto`)
 - **MCP tool server** (`FathomMCPServer`) for agent discovery
-- **LangChain adapter** callback handler
+- **Framework adapters** — LangChain callback handler, CrewAI before-tool-call
+  hook, OpenAI Agents SDK tool guardrail, Google ADK before-tool callback.
+  Each is allowlist-only: the call proceeds when the decision is exactly
+  `allow`, and every other outcome raises `PolicyViolation` (ADK returns an
+  error dict instead)
 - **CLI** — `fathom validate`, `fathom compile`, `fathom test`, `fathom bench`, `fathom info`, `fathom status`, `fathom verify-artifact`, `fathom verify-chain`, `fathom repl`
 - **Docker sidecar** (Debian slim + uv)
 - **Prometheus metrics** export (`/metrics` endpoint)
-- **Policy Studio** — FastAPI + HTMX UI that mounts the REST engine in-process under `/api` (`python -m fathom.studio.app`)
+- **Policy Studio** — browser UI over a real engine, shipped as its own
+  package (`packages/fathom-studio/`, run with `uv run fathom-studio`). See
+  [Running Policy Studio](docs/how-to/policy-studio.md)
 
 **Rule packs**
 
@@ -105,12 +111,19 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - `fathom-nist-800-53` — Access control, audit, information flow
 - `fathom-hipaa` — PHI handling, minimum necessary, breach triggers
 - `fathom-cmmc` — CMMC Level 2+ controls
+- `fathom-ssvc` — SSVC supplier, deployer, and CISA vulnerability-triage trees (144 rules)
 
 **SDKs (in progress)**
 
-- `fathom-go` — REST + gRPC client (`packages/fathom-go/`)
-- `fathom-ts` — `@fathom-rules/sdk` (`packages/fathom-ts/`); hand-written client, 4 of 10 REST endpoints
-- `fathom-editor` — React visual rule editor (`packages/fathom-editor/`); stub
+- `fathom-go` — REST + gRPC client (`packages/fathom-go/`); unit and
+  integration suites run in CI, not yet published to a Go proxy
+- `fathom-ts` — `@fathom-rules/sdk` (`packages/fathom-ts/`); hand-written
+  client covering 4 of the 10 REST endpoints, vitest suite required in CI,
+  not yet published to npm
+
+Scaffolds that are **not** usable yet — including the `fathom-editor` visual
+rule editor — are catalogued in
+[Planned Integrations](docs/reference/planned-integrations.md).
 
 ## Core Primitives
 
@@ -206,7 +219,7 @@ git clone https://github.com/KrakenNet/fathom.git
 cd fathom
 uv sync --all-extras            # --all-extras is required for the full test suite
 
-uv run pytest                   # 1695 tests
+uv run pytest                   # engine, integrations, and Studio suites
 uv run ruff check src/ tests/   # lint
 uv run mypy src/                # type check
 uv run pytest --cov=fathom      # coverage report

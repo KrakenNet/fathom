@@ -10,12 +10,13 @@ sources:
   - packages/fathom-ts/package.json
   - packages/fathom-ts/src/client.ts
   - packages/fathom-editor/package.json
+  - packages/fathom-studio/pyproject.toml
   - src/fathom/integrations/langchain.py
   - src/fathom/integrations/crewai.py
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
 
 # Planned Integrations
@@ -39,7 +40,7 @@ Each entry declares a **Status** of one of:
 **Status:** Partial.
 
 **Location:** `packages/fathom-go/` — a hand-written REST client plus
-generated gRPC bindings. Package contents: `client.go` (180 lines),
+generated gRPC bindings. Package contents: `client.go` (181 lines),
 `client_test.go` (818 lines), `grpc_test.go` (230 lines, build-tagged
 `integration`), `tools.go`, `go.mod`, `go.sum`, `Makefile`, and
 `proto/` with `fathom.pb.go` + `fathom_grpc.pb.go`. `go.mod` declares
@@ -180,6 +181,36 @@ known-bad decisions would fail open on anything it had not heard of.
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
 `fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
 
+## Policy Studio — `packages/fathom-studio/`
+
+**Status:** Partial.
+
+**Location:** `packages/fathom-studio/` — package identity `fathom-studio` at
+`0.1.0`, a uv workspace member of this repo. It depends on `fathom-rules`
+like any other consumer; the engine wheel ships no Studio code.
+
+**What works today:** A browser UI over a real engine — five views (Reasoning
+Bench, Live Wire, Rules, Templates, Audit) served as a zero-build React SPA,
+a JSON backend under `/studio/api`, server-rendered HTMX panels, and the
+production REST app mounted in the same process under `/api`. Nine demo
+scenarios ship as package data, held byte-identical to the repo's
+`examples/0N-*` directories by a test. Its pytest suite runs in CI: root
+`testpaths` includes `packages/fathom-studio/tests`, so the required `test`
+job covers it.
+
+**What is missing:**
+
+- **No published release.** `fathom-studio` is not on PyPI and no workflow
+  builds or publishes it; run it from a checkout with `uv run fathom-studio`.
+- **No stability promise.** The `/studio/api/*` routes are unversioned and
+  explicitly excluded from
+  [VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md).
+- **In-memory audit only.** The Audit view's chain is process-local, capped
+  at 200 records, and signed with a keypair minted at startup. The durable
+  equivalent is `fathom.chained_log.ChainedAttestationLog`.
+
+**How to use today:** [Running Policy Studio](../how-to/policy-studio.md).
+
 ## Known blockers
 
 - **Proto ↔ `go.mod` path alignment** — previously flagged as
@@ -190,14 +221,16 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
   `packages/fathom-go/go.mod:1`. Generated bindings now live in
   `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
-- **No CI for the TypeScript or editor packages.** The Python test suite
-  (1551 tests, `.github/workflows/ci.yml`) and the Go suite
-  (`.github/workflows/go-ci.yml`, unit + `-tags integration`) both run on
-  every pull request. The TypeScript vitest suite (tracked as issue
-  [#39](https://github.com/KrakenNet/fathom/issues/39)) and the editor
-  (issue [#43](https://github.com/KrakenNet/fathom/issues/43)) remain
-  uncovered, so every "works today" claim for those two packages reduces
-  to "works when run locally against a developer's machine."
+- **No CI for the editor package.** The Python suite
+  (`.github/workflows/ci.yml`, which also covers the Studio), the Go suite
+  (`.github/workflows/go-ci.yml`, unit + `-tags integration`) and the
+  TypeScript suite (`.github/workflows/ts-ci.yml`, the required `ts-test`
+  check, closing issue
+  [#39](https://github.com/KrakenNet/fathom/issues/39)) all run on every
+  pull request. The editor (issue
+  [#43](https://github.com/KrakenNet/fathom/issues/43)) remains uncovered —
+  it has no test script to run — so every "works today" claim for that
+  package reduces to "works when run locally against a developer's machine."
 
 ## See also
 
@@ -205,9 +238,9 @@ Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
   shipped adapters (including LangChain) live here.
 - [REST API](./rest/index.md) — the wire protocol the Go and TypeScript
   SDKs target.
-- [gRPC API](./grpc/index.md) — the proto surface the Go SDK does **not**
-  yet implement.
-- [Go SDK](./go-sdk/fathom-go.md) — gomarkdoc output for the REST client
+- [gRPC API](./grpc/index.md) — the proto surface, which the Go SDK now
+  implements through the generated bindings in `packages/fathom-go/proto/`.
+- [Go SDK](./go-sdk/fathom-go.md) — gomarkdoc output for the clients
   described above.
 - [TypeScript SDK](./typescript-sdk/index.md) — typedoc output for
   `@fathom-rules/sdk`.

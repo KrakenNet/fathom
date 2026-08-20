@@ -4,7 +4,7 @@ sources:
   - pyproject.toml
   - src/fathom/__init__.py
   - README.md
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
 
 # Fathom
@@ -41,6 +41,9 @@ quadrant that matches what you're doing.
 - [Registering a Python function](how-to/register-function.md)
 - [Loading a rule pack](how-to/load-rule-pack.md)
 - [Embedding via SDK](how-to/embed-sdk.md)
+- [Hot-reloading rulesets](how-to/hot-reload.md)
+- [Verifying a signed release](how-to/release-signing.md)
+- [Running Policy Studio](how-to/policy-studio.md)
 
 ### Understand — Concepts
 
@@ -52,6 +55,7 @@ quadrant that matches what you're doing.
 
 ### Look up — Reference
 
+- [Configuration](reference/configuration.md) — every `FATHOM_*` variable
 - YAML: [Template](reference/yaml/template.md) ·
   [Rule](reference/yaml/rule.md) ·
   [Module](reference/yaml/module.md) ·
@@ -66,6 +70,13 @@ quadrant that matches what you're doing.
   [TypeScript](reference/typescript-sdk/index.md)
 - [Rule Packs](reference/rule-packs/owasp-agentic.md)
 - [Planned Integrations](reference/planned-integrations.md)
+
+## Stability
+
+Fathom is pre-1.0. `fathom.__all__` is the covered public surface, and
+[VERSIONING.md](https://github.com/KrakenNet/fathom/blob/main/VERSIONING.md)
+states what a `0.x` minor and patch each mean for it, the YAML keys, the
+REST/gRPC/MCP contracts, and the CLI.
 
 ## What is not in v1
 

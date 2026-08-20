@@ -109,6 +109,7 @@ nav:
       - Embedding via SDK: how-to/embed-sdk.md
       - Hot-reloading rulesets: how-to/hot-reload.md
       - Verifying a signed release: how-to/release-signing.md
+      - Running Policy Studio: how-to/policy-studio.md
   - Concepts:
       - Overview: concepts/index.md
       - Five Primitives: concepts/five-primitives.md
