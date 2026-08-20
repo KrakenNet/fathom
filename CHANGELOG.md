@@ -62,6 +62,21 @@ gaps between 0.3.1 and 0.5.0 are explained under
 - Eight reference pages described validators, YAML forms, and a call
   signature that had not existed since 0.9.0 — one of them taught rule YAML
   that no longer compiles (bare `expression: active`, `alias: req`).
+- The release gate could not pass, on any release. It waited for every check
+  run on the tagged commit to finish — including the three publish workflows
+  the tag itself starts, each of which calls that same gate and queues its
+  own build, sign and publish jobs behind it. Every gate sat waiting for its
+  siblings and for itself, timed out after 20 minutes, and failed. It now
+  ignores the check suites the tag started and judges the commit on the
+  checks its branch ran. **0.9.0 was tagged and released on GitHub but never
+  reached PyPI because of this**; 0.8.0 is the newest release there until
+  this one publishes.
+- Merging pull requests back to back cancelled the test matrix on the commits
+  left behind: `cancel-in-progress` was keyed on the ref, and on main every
+  merge shares one. A cancelled check is not a passing one, so a commit cut
+  as a release tag could arrive with no test evidence at all — which is what
+  happened to 0.9.0. Pull-request runs still supersede each other; pushes are
+  keyed on their own SHA and never cancel.
 
 ### Changed
 - The audit record carries its own signature. `docs/concepts/audit-attestation.md`
