@@ -11,6 +11,102 @@ commit list on its
 gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
+## [0.10.0] - 2026-08-20
+
+### Added
+- A declared public surface. `VERSIONING.md` names what this project
+  supports — the Python symbols, the YAML authoring keys, the REST, gRPC
+  and MCP contracts, the CLI, and the `FATHOM_*` variables — and
+  `tests/test_public_surface.py` fails when that list and `fathom.__all__`
+  disagree. Before this, `__all__` existed on the top-level package and
+  nowhere else, so every other module's contents were public by accident of
+  import. `__all__` is now declared on `engine`, `models`, `errors`,
+  `audit`, `fleet`, `attestation`, and `chained_log`; the top-level package
+  re-exports the audit sinks, the fleet types, the full exception hierarchy
+  (`FathomError` was not exported at all, so `except FathomError` needed a
+  submodule import), and the attestation and chained-log entry points.
+  Those last four resolve through a module `__getattr__` so `import fathom`
+  still works without the optional `attestation` extra; touching one
+  without it raises `ImportError` naming the extra.
+- `docs/reference/configuration.md`: all thirteen `FATHOM_*` variables with
+  their defaults, the token scopes for both authenticated surfaces, and the
+  gRPC TLS story — the server refuses to start without a key pair unless
+  `FATHOM_GRPC_ALLOW_INSECURE=1`, which was true in the code and written
+  down nowhere.
+- A how-to for Policy Studio: how to run it from a checkout (it is not on
+  PyPI), how its token gate works, what its five views drive, and the four
+  things it is not — a sandbox, a stable API, a durable audit log, or safe
+  to expose.
+- `metadata` on the evaluate response, everywhere. A firing rule's
+  `then.metadata` was dropped on the floor by `/v1/evaluate` and absent from
+  the gRPC response; it now reaches REST, gRPC, and the Go and TypeScript
+  clients.
+
+### Fixed
+- A pack that declared modules but no `focus_order:` fired nothing at all.
+  CLIPS drains only the agenda of the module holding the focus, so with an
+  empty focus list every rule scoped to a declared module sat unfired and
+  the caller got the default decision back — a wrong answer, not an error,
+  from a pack whose rules all matched. `load_modules` now focuses the
+  declared modules in declaration order when nothing else has set a focus;
+  an explicit `focus_order:` or an earlier `set_focus` still wins.
+- `attestation_token` was structurally always null on `/v1/evaluate`. The
+  REST app held an attestation service on `app.state` and then built its
+  engines without it, so a configured service signed nothing the API
+  returned. The service is now threaded into both the stateless engine and
+  the session engines.
+- gRPC could not tell "no rule decided" from a decision of `""`: proto3
+  sends an unset string as empty to every client. `decision` and `reason`
+  are now `optional`, and the Go gRPC client reads back the
+  `attestation_token` it previously discarded.
+- Eight reference pages described validators, YAML forms, and a call
+  signature that had not existed since 0.9.0 — one of them taught rule YAML
+  that no longer compiles (bare `expression: active`, `alias: req`).
+
+### Changed
+- The audit record carries its own signature. `docs/concepts/audit-attestation.md`
+  claimed an exported audit line could not be modified without breaking
+  `verify_token`, while the same page said two sections earlier that the JWT
+  was deliberately kept off `AuditRecord`. The second statement was the true
+  one, so the claim was empty: a line lifted out of the log carried no
+  signature at all. `AuditRecord` now has `attestation_token`, and
+  `ChainedAttestationLog` satisfies `AuditSink`, so
+  `Engine(audit_sink=ChainedAttestationLog(path, service))` writes
+  evaluations into a hash-chained log where a deleted or reordered entry
+  breaks linkage — which a per-line signature cannot detect.
+- The threat model now separates what the token covers (decision,
+  rule_trace, session, iat, input_hash) from what it does not (reason,
+  metadata, duration, the fact lists).
+- The PyPI classifier moves from Alpha to Beta. Not to Production/Stable:
+  that is a claim about a 1.0 readiness audit that has not happened.
+- The doc-source freshness gate blocks the branch that caused the drift.
+  It was advisory everywhere, and a warning nobody reads is not a gate — but
+  a whole-repo version fails whoever opens the next pull request rather than
+  the author who changed the source. The required `docs` job now runs it
+  scoped to the sources the branch itself touched; the whole-repo sweep
+  stays advisory.
+- The benchmark gate's slack factor is measured rather than guessed. Five
+  consecutive runs put the single-rule median at 1.2x to 1.9x of the
+  developer machine the published targets come from, and the gate sat at
+  1.5x — failing on the hardware instead of on the code. It is 2.0x now, and
+  README, the workflow, and the script all state the measurement.
+- Release automation: pre-1.0 breaking changes take a minor bump rather than
+  a major one, and both commits a release pull request carries are signed
+  off, so the DCO check no longer needs a hand-written remediation commit on
+  every release.
+
+### Security
+- `SECURITY.md` has a policy instead of three lines. It named 0.7.x as the
+  supported version after 0.8.0 had shipped, and offered no disclosure
+  timeline, no embargo, and no CVE process. The support window now points at
+  `VERSIONING.md` instead of a table that goes stale every release,
+  disclosure is coordinated through GitHub's CNA with a 90-day backstop, and
+  scope is explicit in both directions. The out-of-scope list matters most:
+  `test:` conditional elements and `type: raw` functions emit author-written
+  CLIPS verbatim by design, and `FATHOM_GRPC_ALLOW_INSECURE` and the
+  unsigned-ruleset dev escape each require an explicit opt-in and log what
+  they turned off. Unstated, every one of those reads as a finding.
+
 ## [0.9.0] - 2026-08-20
 
 ### Changed (breaking)
