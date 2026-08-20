@@ -20,12 +20,14 @@ Two properties this deliberately has:
   mornings. The p95 is printed so a real regression stays visible in the log
   even while it is still under the bar.
 * **CI applies a slack factor.** The published targets describe a developer
-  machine, which is what a reader of README is holding. A GitHub runner
-  measured ~1.7x slower on the compilation case, so enforcing the published
-  numbers there verbatim would fail on the machine rather than on the code.
-  ``--slack`` multiplies every limit; CI passes 1.5 and prints it. A regression
-  large enough to matter clears that factor easily -- the last one found here
-  was 2x.
+  machine, which is what a reader of README is holding. A GitHub shared runner
+  measured 1.2x to 1.9x slower than that machine across five consecutive runs
+  of the same job, so enforcing the published numbers there verbatim would
+  fail on the hardware rather than on the code. ``--slack`` multiplies every
+  limit and is printed in the header; CI passes 2.0, which covers the
+  measured spread with a little room. A regression large enough to matter
+  clears that factor easily -- the last one found here was 2x on the
+  developer machine, which lands at 4x of the published target on a runner.
 """
 
 from __future__ import annotations
