@@ -87,5 +87,9 @@ jobs:
           git config user.name "release-bot"
           git config user.email "release-bot@users.noreply.github.com"
           git add -A
-          git commit -m "chore(release): regenerate docs artifacts for version bump"
+          # -s: the DCO app checks every commit on the release PR, and
+          # this one is authored by release-bot. Signing off as that
+          # same identity satisfies it; without this the release PR
+          # needs a hand-written third-party remediation commit.
+          git commit -s -m "chore(release): regenerate docs artifacts for version bump"
           git push
