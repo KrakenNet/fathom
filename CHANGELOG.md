@@ -11,6 +11,45 @@ commit list on its
 gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
+## [0.9.0] - 2026-08-20
+
+### Changed (breaking)
+- `focus_order` runs modules in the order it lists. The list was pushed onto
+  the CLIPS focus stack reversed, so the last module named ran first. A
+  multi-module ruleset that relied on the old behaviour must reverse its
+  list; single-module rulesets, and rulesets whose modules do not write
+  competing decisions, are unaffected.
+
+### Fixed
+- The Docker image builds again — `mkdir -p /rules` ran after the switch to a
+  non-root user — and CI now builds it, runs it, and checks the container's
+  identity on every pull request.
+- The TypeScript SDK no longer sits beside a second, stale API spec. The
+  repo-root `openapi.json`, frozen at 0.3.0, and the dead generated client
+  that was never imported are both gone;
+  `docs/reference/rest/openapi.json` is the only spec.
+
+### Security
+- Publishing is gated on green required checks and runs from tag pushes only.
+  `workflow_dispatch` is gone from the publish path, which previously let any
+  account with write access publish signed artifacts built from any ref, and
+  every third-party action in that path is pinned to a commit SHA.
+- Dependabot no longer auto-merges `github_actions` bumps: those PRs rewrite
+  the workflows that hold the signing key and the PyPI identity.
+- Every user-installable requirement carries an upper version bound, so a
+  future major release cannot be resolved into an install this release was
+  never tested against.
+
+### Changed
+- CI enforces the published performance targets (`bench`, with a documented
+  1.5x allowance for shared runners), the version numbers printed in prose,
+  the dependency diff on each pull request, and a build of
+  `packages/fathom-editor`.
+- A determinism test asserts the engine's core claim directly: the same facts
+  produce the same decision across repeated and re-ordered runs.
+- The release-signing guide scopes its guarantee to 0.5.0 and later; the five
+  earlier PyPI releases are unsigned.
+
 ## [0.8.0] - 2026-08-19
 
 ### Removed (breaking)
