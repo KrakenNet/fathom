@@ -1,0 +1,23 @@
+# The Dockerfile COPYs explicit paths, so this file is about build-context
+# size, not correctness: without it every `docker build` uploads .git, the
+# node_modules trees under packages/, and the docs site to the daemon first.
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/dist
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+docs
+site
+tests
+packages/fathom-editor
+packages/fathom-go
+packages/fathom-ts
+packages/fathom-studio/src
+packages/fathom-studio/tests
+coverage.xml
+*.log

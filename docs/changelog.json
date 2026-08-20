@@ -1,5 +1,179 @@
 [
   {
+    "version": "0.8.0",
+    "date": "2026-08-19",
+    "added": [],
+    "changed": [
+      "Agent adapters block every decision that is not `allow`. A ruleset that",
+      "`AttestationService.sign(...)` raises `AttestationError` when `input_facts`",
+      "Ruleset validation is strict: unknown keys, duplicate rule names, duplicate",
+      "`POST /v1/reload` returns `ruleset failed to compile` or `unable to read"
+    ],
+    "deprecated": [],
+    "removed": [
+      "`fathom.studio` \u2014 the Policy Studio moved to its own `fathom-studio`",
+      "`Engine.__init__(experimental_backward_chaining=...)` \u2014 a permanent no-op"
+    ],
+    "fixed": [
+      "Attestation tokens are bound to the facts they were computed over, and",
+      "Transport requests are bounded, and REST and gRPC share one session store.",
+      "Rule-pack salience ordering is correct and pack loading reports what it",
+      "Dependency advisories cleared across the Python lock and the Go module."
+    ],
+    "security": []
+  },
+  {
+    "version": "0.7.4",
+    "date": "2026-07-20",
+    "added": [],
+    "changed": [
+      "Documentation only: SSVC listed among the shipped rule packs, stale CLI"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.7.3",
+    "date": "2026-06-24",
+    "added": [],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "CI: foreign documentation generators fail loudly instead of silently"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.7.2",
+    "date": "2026-06-24",
+    "added": [],
+    "changed": [
+      "Documentation only: Getting Started and CONTRIBUTING made accurate and"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.7.1",
+    "date": "2026-06-24",
+    "added": [],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "Dependabot configuration: `cooldown.default-days` replaces the"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.7.0",
+    "date": "2026-06-06",
+    "added": [
+      "Go SDK gRPC client wrapper that handles `SubscribeChanges` reloads.",
+      "Admin token and request-body cap for ruleset reload over REST and gRPC.",
+      "SSVC supplier, deployer and CISA decision trees, built from pinned",
+      "Policy Studio scaffold: panels, seed scenarios and guardrails."
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.6.0",
+    "date": "2026-06-05",
+    "added": [
+      "gRPC `SubscribeChanges` streams are cancelled on ruleset reload, so a client"
+    ],
+    "changed": [
+      "`experimental_backward_chaining` documented as a reserved no-op rather than"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.5.0",
+    "date": "2026-06-05",
+    "added": [
+      "Hash-chained JWS attestation log and the `fathom verify-chain` command."
+    ],
+    "changed": [
+      "Re-released the 0.4.0 tree under a `v*.*.*` tag, the pattern"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.4.0",
+    "date": "2026-06-05",
+    "added": [
+      "`Engine.reload_rules()` atomic swap and the `Engine.ruleset_hash` property.",
+      "REST `GET /v1/status` and `POST /v1/rules/reload`; gRPC `Reload` RPC.",
+      "Ruleset signature verification, with the public key bootstrapped from the",
+      "`fathom status` and `fathom verify-artifact` commands, and",
+      "SSVC rule pack \u2014 templates, rules and modules \u2014 with the CISA source",
+      "minisign release signing: `scripts/sign_release.sh`, the committed public",
+      "Go SDK gRPC stubs committed at `packages/fathom-go/proto/`."
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.3.3",
+    "date": "2026-05-14",
+    "added": [
+      "gRPC `SubscribeChanges` RPC now emits real fact-change events. `Engine`"
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [
+      "`FunctionDefinition.type = \"temporal\"` \u2014 vestigial. Temporal operators"
+    ],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.3.2",
+    "date": "2026-04-27",
+    "added": [],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "CI and documentation-generation fixes made between 0.3.1 and 0.3.3."
+    ],
+    "security": []
+  },
+  {
+    "version": "0.3.1",
+    "date": "2026-04-17",
+    "added": [
+      "PyPI publishing workflow."
+    ],
+    "changed": [
+      "Supported Python baseline moved from 3.14 back to 3.13."
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "Pydantic import failures in the published wheel."
+    ],
+    "security": []
+  },
+  {
     "version": "0.3.0",
     "date": "2026-04-14",
     "added": [
@@ -21,7 +195,10 @@
       "`Engine.register_function(name, fn)`: public API for registering Python"
     ],
     "changed": [
-      "`AuditRecord.asserted_facts` is now populated with the list of user facts"
+      "`AuditRecord.asserted_facts` is now populated with the list of user facts",
+      "**0.3.2** is on PyPI with no matching git tag; it was published from an",
+      "**0.3.3** and **0.4.0** are tagged and have GitHub releases but never reached",
+      "Release artifacts are minisign-signed from **0.5.0** onward. The five earlier"
     ],
     "deprecated": [],
     "removed": [],

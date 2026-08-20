@@ -72,9 +72,10 @@ def main() -> None:
     check("erin", "editor", "read", "salary_sheet", "confidential")
     check("frank", "admin", "read", "salary_sheet", "confidential")
 
-    print("\nThe rule_trace shows which rules fired; modules in focus_order")
-    print("run first — non-admins hitting confidential data get stopped in")
-    print("'deny_checks' before 'role_permits' ever gets a chance.")
+    print("\nThe rule_trace shows which rules fired, in order. Both modules")
+    print("always run — 'role_permits' first, then 'deny_checks' — and because")
+    print("the evaluator is last-write-wins, the deny module runs last so its")
+    print("verdict is the one that survives.")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@
 
 > **Part of the [Kraken](https://github.com/KrakenNet) stack:** [**Fathom**](https://github.com/KrakenNet/fathom) (reasoning engine) · [Nautilus](https://github.com/KrakenNet/nautilus) (policy data broker) · [Stargraph](https://github.com/KrakenNet/stargraph) (agent-graph framework).
 
-**Current version:** 0.7.0
+**Current version:** 0.8.0 <!-- x-release-please-version -->
 
 **License:** MIT
 
@@ -109,7 +109,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 **SDKs (in progress)**
 
 - `fathom-go` — REST + gRPC client (`packages/fathom-go/`)
-- `fathom-ts` — `@fathom-rules/sdk` v0.1.0 (`packages/fathom-ts/`); OpenAPI-generated client pending
+- `fathom-ts` — `@fathom-rules/sdk` (`packages/fathom-ts/`); hand-written client, 4 of 10 REST endpoints
 - `fathom-editor` — React visual rule editor (`packages/fathom-editor/`); stub
 
 ## Core Primitives
@@ -143,7 +143,7 @@ result = engine.evaluate()
 **As a REST sidecar**
 
 ```bash
-docker run -p 8080:8080 -v ./rules:/rules kraken/fathom:latest
+docker run -p 8080:8080 -v ./rules:/rules ghcr.io/krakennet/fathom:latest
 curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8080/v1/evaluate \
   -d '{"facts": [...], "ruleset": "access-control"}'
 ```
@@ -178,12 +178,19 @@ Entry points:
 
 ## Performance Targets
 
-| Operation              | Target  |
-| ---------------------- | ------- |
-| Single rule evaluation | < 100µs |
-| 100-rule evaluation    | < 500µs |
-| Fact assertion         | < 10µs  |
-| YAML compilation       | < 50ms  |
+| Operation              | Target         |
+| ---------------------- | -------------- |
+| Single rule evaluation | < 100µs        |
+| 100-rule evaluation    | < 500µs        |
+| Fact assertion         | < 25µs         |
+| YAML compilation       | < 2ms per rule |
+
+Measured by `scripts/benchmark.py` and enforced on every pull request by CI's
+`bench` job, which fails the build if a median regresses past its target.
+Compilation is stated per rule because it scales with pack size: the packaged
+SSVC pack is 144 rules. The numbers above are what the benchmark reports on a
+developer machine; CI enforces them with a 1.5x allowance (`--slack 1.5`)
+because a shared runner is roughly that much slower.
 
 ## Related Projects
 

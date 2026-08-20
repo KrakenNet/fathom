@@ -6,7 +6,7 @@ Fathom is a deterministic reasoning runtime for AI agents, built on CLIPS via
 clipspy. Rules are authored in YAML, compiled to CLIPS constructs, and
 evaluated in microseconds with auditable traces.
 
-Current release: `fathom-rules` 0.7.0 (requires Python 3.12+).
+Current release: `fathom-rules` 0.8.0 (requires Python 3.12+). <!-- x-release-please-version -->
 
 ## Start here
 
@@ -444,10 +444,13 @@ focus_order:
 ```
 
 The optional `focus_order` list tells the engine which modules to activate and
-in what order. Internally, `Compiler.compile_focus_stack` reverses this list
-before building the CLIPS `(focus ...)` command because CLIPS uses push
-semantics — the last module pushed ends up on top of the execution stack and
-therefore runs first.
+in what order: the first name runs first. It maps straight onto the CLIPS
+`(focus ...)` command, which gives the focus to its first argument and queues
+the rest behind it.
+
+Every listed module runs — an earlier one does not short-circuit the ones
+after it. Because decisions are last-write-wins, the module listed last is
+the one whose decision survives.
 
 ## 4. Define two rules with different salience
 
@@ -2274,10 +2277,10 @@ snapshots.
 `Engine.evaluate()` is short; the work is delegated to
 `src/fathom/evaluator.py`. The sequence inside `Evaluator.evaluate()` is:
 
-1. **Push the focus stack.** `_setup_focus_stack()` emits a single
-   `(focus ...)` eval with the registered module order reversed, so the
-   first module in the configured list ends up on top of the stack and
-   runs first.
+1. **Set the focus.** `_setup_focus_stack()` emits a single `(focus ...)`
+   eval listing the modules in `focus_order`. `(focus A B C)` gives A the
+   focus first and queues B and C behind it, so the configured order is
+   the execution order.
 2. **Expire TTL facts.** If a `FactManager` is wired in, expired facts are
    retracted before any rules get a chance to match them.
 3. **Run to quiescence.** `self._env.run()` fires rules until no activations
@@ -2316,18 +2319,22 @@ deterministic. The compiler emits every non-MAIN module as:
 is created with `(defmodule MAIN (export ?ALL))` the first time modules are
 loaded, so every module can see the shared `__fathom_decision` template.
 
-At evaluation, the runtime pushes each registered module onto the focus
-stack. CLIPS only considers activations from the module at the top of the
-stack; when no rules in that module can fire, it pops, and the next module
-gets its turn. Fathom's rule is that the first module in `focus_order` is
-the first to run, which is why `_setup_focus_stack()` emits modules in
-reverse order — the last `(focus X)` argument ends up on top.
+At evaluation, the runtime hands the focus to each registered module in
+turn. CLIPS only considers activations from the module currently in focus;
+when no rules in it can fire, the next module in the list gets its turn.
+The first module in `focus_order` is the first to run, and
+`_setup_focus_stack()` emits the list unchanged to say so.
 
 The practical upshot is that modules are a coarse-grained ordering tool.
 If `policy` comes before `logging` in the focus order, every
 activatable `policy` rule fires before any `logging` rule gets a chance,
 regardless of salience across module boundaries. Within a single module,
 salience takes over.
+
+Ordering is not short-circuiting: every module in the list runs. Since the
+evaluator is last-write-wins, the module listed **last** writes the
+decision the caller receives, so a module whose job is to overrule the
+others belongs at the end of `focus_order`.
 
 ## Fail-closed salience and last-write-wins
 
@@ -3937,10 +3944,16 @@ exclusively by the explicit `focus_order:` list at the top of the module
 YAML file (or by a later `Engine.set_focus(...)` call).
 
 At evaluation time, `_setup_focus_stack` in `src/fathom/evaluator.py`
-emits a single `(focus ...)` eval with the registered focus list
-reversed — so the first name in `focus_order` ends up on top of the
-CLIPS focus stack and runs first. `priority` is never consulted during
-this step.
+emits a single `(focus ...)` eval listing the modules in the order they
+appear in `focus_order` — `(focus A B C)` gives A the focus first and
+queues B and C behind it. `priority` is never consulted during this step.
+
+Every module in the list runs: CLIPS drains the first module's agenda,
+then moves to the next. A decision in an earlier module does **not**
+short-circuit the ones after it. Because the evaluator is
+last-write-wins, the module you list **last** is the one whose decision
+the caller sees — so a guardrail module belongs at the end of
+`focus_order`, not the start.
 
 What `priority` is actually used for today:
 
@@ -3968,8 +3981,9 @@ focus_order:
 ```
 
 Here `classification` runs first because it appears first in
-`focus_order`. The `priority: 100` on `access-control` is informational
-and does not reorder the stack.
+`focus_order`, and `access-control` runs after it — so `access-control`
+writes the final decision. The `priority: 100` is informational and does
+not reorder anything.
 
 ## The MAIN module
 
@@ -4690,33 +4704,42 @@ at [Go SDK](./go-sdk/fathom-go.md).
 **Status:** Partial.
 
 **Location:** `packages/fathom-ts/` — published identity
-`@fathom-rules/sdk` at `0.1.0` per `package.json`. Source lives in
+`@fathom-rules/sdk`, versioned in lockstep with the engine (release-please
+writes `package.json` from the same tag, and `scripts/check_version_sync.py`
+fails the build if the two drift). Source lives in
 `src/client.ts` (215 lines), `src/errors.ts` (77 lines), and
 `src/index.ts` (26 lines). Vitest suites in `test/client.test.ts` and
 `test/errors.test.ts`.
 
 **What works today:** A hand-written `FathomClient` plus a typed error
-hierarchy. The package ships at v0.1.0 with 34
+hierarchy. The package ships with 34
 vitest tests passing (15 in `test/client.test.ts`, 19 in
 `test/errors.test.ts`), and the typedoc reference is generated into
 `docs/reference/typescript-sdk/` by the `docs` npm script in
-`package.json:14`.
+`package.json`. The suite is wired into CI: `.github/workflows/ts-ci.yml`
+runs typecheck, build and vitest as the required `ts-test` check on every
+pull request.
 
-**What works (additional):** The OpenAPI-generated client has been
-produced and committed. `openapi.json` lives at the repo root, and
-`packages/fathom-ts/src/generated/` contains `core/`, `index.ts`,
-`schemas.gen.ts`, `services.gen.ts`, and `types.gen.ts` — the output of
-the `generate` script at `package.json:12` (which shells out to
-`scripts/generate.sh` calling `npx @hey-api/openapi-ts` against
-`../../openapi.json`).
+**There is no generated client.** `src/generated/` used to hold one, and
+this page used to describe it as working. It was generated once, in April
+2026, from a copy of the spec at the repo root that was frozen at API
+version 0.3.0 — two endpoints behind the live one — and nothing in the
+package ever imported it. Its `generate` script emitted zero files against
+the pinned `@hey-api/openapi-ts`, so it could not be refreshed either.
+Both the dead tree and the stale root spec are gone; the single spec is
+[`docs/reference/rest/openapi.json`](./rest/openapi.json), regenerated by
+`scripts/export_openapi.py` and held to the running app by
+`tests/test_scripts/test_export_openapi.py`.
 
 **What is missing:**
 
+- **The client covers 4 of the 10 documented endpoints** — `/v1/evaluate`,
+  `/v1/facts` (assert and retract) and `/v1/query`. `/v1/compile`,
+  `/v1/templates`, `/v1/modules`, `/v1/rules`, `/v1/rules/reload`,
+  `/v1/status` and `/health` have no method on `FathomClient`.
 - **No published npm release.** `repository.url` in `package.json` points
   at the monorepo; no `dist/` is published. Tracked as issue
   [#40](https://github.com/KrakenNet/fathom/issues/40).
-- **No CI for the TS suite.** Vitest suites pass locally only. Tracked as
-  issue [#39](https://github.com/KrakenNet/fathom/issues/39).
 
 **How to use today:** Clone the monorepo, `pnpm install` in
 `packages/fathom-ts/`, and import from the local workspace path. The

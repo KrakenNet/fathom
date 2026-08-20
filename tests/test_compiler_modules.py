@@ -148,19 +148,26 @@ class TestCompileModuleValidation:
 
 
 class TestCompileFocusStack:
-    """Tests for focus stack compilation with reversal."""
+    """Tests for focus stack compilation.
+
+    ``(focus A B C)`` gives A the focus first, so the YAML order maps
+    straight through. These assertions used to expect the list reversed,
+    which is how ``focus_order`` came to mean its own opposite.
+    """
 
     @pytest.mark.parametrize(
         "order,expected",
         [
             (["A"], "(focus A)"),
-            (["A", "B"], "(focus B A)"),
-            (["A", "B", "C"], "(focus C B A)"),
-            (["A", "B", "C", "D"], "(focus D C B A)"),
-            (["A", "B", "C", "D", "E"], "(focus E D C B A)"),
+            (["A", "B"], "(focus A B)"),
+            (["A", "B", "C"], "(focus A B C)"),
+            (["A", "B", "C", "D"], "(focus A B C D)"),
+            (["A", "B", "C", "D", "E"], "(focus A B C D E)"),
         ],
     )
-    def test_focus_reversal(self, compiler: Compiler, order: list[str], expected: str) -> None:
+    def test_focus_preserves_yaml_order(
+        self, compiler: Compiler, order: list[str], expected: str
+    ) -> None:
         result = compiler.compile_focus_stack(order)
         assert result == expected
 
@@ -169,7 +176,7 @@ class TestCompileFocusStack:
         [
             (
                 ["classification", "governance", "routing"],
-                "(focus routing governance classification)",
+                "(focus classification governance routing)",
             ),
             (
                 ["governance"],
@@ -177,7 +184,7 @@ class TestCompileFocusStack:
             ),
             (
                 ["audit", "governance"],
-                "(focus governance audit)",
+                "(focus audit governance)",
             ),
         ],
     )
@@ -195,13 +202,13 @@ class TestCompileFocusStack:
         result = compiler.compile_focus_stack(["A", "B"])
         assert result.endswith(")")
 
-    def test_focus_single_element_not_reversed(self, compiler: Compiler) -> None:
+    def test_focus_single_element(self, compiler: Compiler) -> None:
         result = compiler.compile_focus_stack(["only"])
         assert result == "(focus only)"
 
-    def test_focus_two_elements_swapped(self, compiler: Compiler) -> None:
+    def test_focus_two_elements_keep_their_order(self, compiler: Compiler) -> None:
         result = compiler.compile_focus_stack(["first", "second"])
-        assert result == "(focus second first)"
+        assert result == "(focus first second)"
 
     def test_focus_preserves_module_names(self, compiler: Compiler) -> None:
         names = ["my-module", "test_mod", "M1"]
@@ -209,11 +216,10 @@ class TestCompileFocusStack:
         for name in names:
             assert name in result
 
-    def test_focus_order_is_push_semantics(self, compiler: Compiler) -> None:
-        """First in YAML = first to execute = last pushed onto stack."""
+    def test_first_in_yaml_is_first_to_execute(self, compiler: Compiler) -> None:
+        """The whole contract of the key, in one assertion."""
         result = compiler.compile_focus_stack(["exec_first", "exec_second"])
-        # exec_first should be last in the focus command (pushed last = top)
-        assert result == "(focus exec_second exec_first)"
+        assert result == "(focus exec_first exec_second)"
 
     @pytest.mark.parametrize("count", [1, 2, 3, 5, 8])
     def test_focus_n_modules_all_present(self, compiler: Compiler, count: int) -> None:
@@ -492,4 +498,4 @@ class TestModuleCompileIntegration:
             result = compiler.compile_module(mod)
             assert f"(defmodule {mod.name}" in result
         focus = compiler.compile_focus_stack(focus_order)
-        assert focus == "(focus routing governance classification)"
+        assert focus == "(focus classification governance routing)"

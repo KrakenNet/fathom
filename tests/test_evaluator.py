@@ -355,24 +355,27 @@ rules:
         assert "policy_mod" in result.module_trace
 
     def test_focus_order_determines_module_sequence(self, two_module_engine):
-        """Focus order [audit_mod, policy_mod] processed by CLIPS focus stack."""
+        """`focus_order: [audit_mod, policy_mod]` runs audit_mod first.
+
+        This assertion used to be `set(...) == {...}` under a comment saying
+        the observed order was the opposite of what was expected -- which was
+        true, because the compiler emitted the focus list reversed. The order
+        is the entire contract of the key, so it is pinned exactly.
+        """
         two_module_engine.assert_fact("request", {"type": "api"})
         result = two_module_engine.evaluate()
-        # CLIPS processes focus stack LIFO — last pushed gets focus first.
-        # focus_order=[audit_mod, policy_mod] → reversed push → policy_mod pushed last
-        # but LIFO means audit_mod on top. However actual CLIPS behavior shows
-        # policy_mod first. Verify actual observed order.
-        assert len(result.module_trace) == 2
-        # Verify both modules present regardless of order
-        assert set(result.module_trace) == {"audit_mod", "policy_mod"}
+        assert result.module_trace == ["audit_mod", "policy_mod"]
 
     def test_last_module_decision_wins(self, two_module_engine):
-        """Last-write-wins: the last module's rule to fire determines decision."""
+        """Last-write-wins: the last module to fire determines the decision.
+
+        audit_mod runs first and says deny; policy_mod runs after it and says
+        allow, so allow is what the caller sees.
+        """
         two_module_engine.assert_fact("request", {"type": "api"})
         result = two_module_engine.evaluate()
-        # The last rule to fire writes the final decision.
-        # With focus stack [audit_mod, policy_mod], audit_mod fires last → deny
-        assert result.decision == "deny"
+        assert result.decision == "allow"
+        assert result.reason == "policy says allow"
 
     def test_rule_traces_from_both_modules(self, two_module_engine):
         """Rule trace contains rules from both modules."""

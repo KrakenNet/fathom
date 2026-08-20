@@ -4,7 +4,7 @@ summary: How the Fathom engine runs — sessions, the evaluation loop, module fo
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-06-05
+last_verified: 2026-08-19
 sources:
   - src/fathom/engine.py
   - src/fathom/evaluator.py
@@ -90,10 +90,10 @@ snapshots.
 `Engine.evaluate()` is short; the work is delegated to
 `src/fathom/evaluator.py`. The sequence inside `Evaluator.evaluate()` is:
 
-1. **Push the focus stack.** `_setup_focus_stack()` emits a single
-   `(focus ...)` eval with the registered module order reversed, so the
-   first module in the configured list ends up on top of the stack and
-   runs first.
+1. **Set the focus.** `_setup_focus_stack()` emits a single `(focus ...)`
+   eval listing the modules in `focus_order`. `(focus A B C)` gives A the
+   focus first and queues B and C behind it, so the configured order is
+   the execution order.
 2. **Expire TTL facts.** If a `FactManager` is wired in, expired facts are
    retracted before any rules get a chance to match them.
 3. **Run to quiescence.** `self._env.run()` fires rules until no activations
@@ -132,18 +132,22 @@ deterministic. The compiler emits every non-MAIN module as:
 is created with `(defmodule MAIN (export ?ALL))` the first time modules are
 loaded, so every module can see the shared `__fathom_decision` template.
 
-At evaluation, the runtime pushes each registered module onto the focus
-stack. CLIPS only considers activations from the module at the top of the
-stack; when no rules in that module can fire, it pops, and the next module
-gets its turn. Fathom's rule is that the first module in `focus_order` is
-the first to run, which is why `_setup_focus_stack()` emits modules in
-reverse order — the last `(focus X)` argument ends up on top.
+At evaluation, the runtime hands the focus to each registered module in
+turn. CLIPS only considers activations from the module currently in focus;
+when no rules in it can fire, the next module in the list gets its turn.
+The first module in `focus_order` is the first to run, and
+`_setup_focus_stack()` emits the list unchanged to say so.
 
 The practical upshot is that modules are a coarse-grained ordering tool.
 If `policy` comes before `logging` in the focus order, every
 activatable `policy` rule fires before any `logging` rule gets a chance,
 regardless of salience across module boundaries. Within a single module,
 salience takes over.
+
+Ordering is not short-circuiting: every module in the list runs. Since the
+evaluator is last-write-wins, the module listed **last** writes the
+decision the caller receives, so a module whose job is to overrule the
+others belongs at the end of `focus_order`.
 
 ## Fail-closed salience and last-write-wins
 

@@ -8,6 +8,11 @@ name: dependabot-auto-merge
 # never contain a major. The gate is therefore "not a major" — which auto-merges
 # grouped (null) and explicit patch/minor PRs while leaving explicit majors open.
 #
+# `github_actions` bumps are excluded: those PRs rewrite the workflow files
+# themselves — including the release path that holds the signing key and the
+# PyPI identity — so they are the one ecosystem where an unreviewed merge
+# changes what CI is allowed to do. They stay open for a human.
+#
 # Uses pull_request_target so the workflow token can approve/merge. It never checks
 # out or runs PR code — it only calls the gh API — the GitHub-documented safe pattern.
 on: pull_request_target
@@ -25,8 +30,14 @@ jobs:
         id: meta
         uses: dependabot/fetch-metadata@v3
 
-      - name: Approve and enable auto-merge (skip majors)
-        if: ${{ steps.meta.outputs.update-type != 'version-update:semver-major' }}
+      - name: Approve and enable auto-merge (skip majors and workflow bumps)
+        # Branch prefix as well as the ecosystem output: `package-ecosystem`
+        # is empty on some grouped PRs, and an empty string would pass a
+        # `!=` test.
+        if: >
+          steps.meta.outputs.update-type != 'version-update:semver-major' &&
+          steps.meta.outputs.package-ecosystem != 'github_actions' &&
+          !startsWith(github.event.pull_request.head.ref, 'dependabot/github_actions/')
         run: |
           gh pr review --approve "$PR_URL"
           gh pr merge --auto --squash "$PR_URL"

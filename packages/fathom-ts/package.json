@@ -1,6 +1,6 @@
 {
   "name": "@fathom-rules/sdk",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "description": "TypeScript SDK for the Fathom policy engine REST API",
   "license": "MIT",
   "main": "dist/index.js",
@@ -9,7 +9,6 @@
     "dist"
   ],
   "scripts": {
-    "generate": "bash scripts/generate.sh",
     "build": "tsc",
     "docs": "typedoc --plugin typedoc-plugin-markdown --readme none --hideBreadcrumbs --gitRevision master --out ../../docs/reference/typescript-sdk src/index.ts",
     "lint": "tsc --noEmit",

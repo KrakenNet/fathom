@@ -11,7 +11,7 @@
 #   make verify-grpc       — check committed stubs match proto (CI drift check)
 
 # OPENAPI_SPEC must be generated first (e.g., from FastAPI's /openapi.json endpoint)
-OPENAPI_SPEC ?= ../../openapi.json
+OPENAPI_SPEC ?= ../../docs/reference/rest/openapi.json
 PROTO_DIR    ?= ../../protos
 OUT_DIR      ?= ./generated
 

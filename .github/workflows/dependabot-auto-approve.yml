@@ -10,6 +10,11 @@ name: dependabot-auto-approve
 # review. github-actions[bot] approving dependabot[bot]'s PR is a distinct
 # identity, so the approval counts (repo setting
 # "Allow GitHub Actions to create and approve pull requests" is enabled).
+#
+# `github_actions` bumps are excluded: those PRs rewrite the workflow files
+# themselves -- including the release path that holds the signing key and the
+# PyPI identity -- so they are the one ecosystem where an unreviewed merge
+# changes what CI itself is allowed to do. They stay open for a human.
 
 on: pull_request
 
@@ -28,7 +33,14 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Approve patch/minor
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        # Branch prefix as well as the ecosystem output: `package-ecosystem`
+        # is empty on some grouped PRs, and an empty string would pass a
+        # `!=` test.
+        if: >
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+          steps.meta.outputs.package-ecosystem != 'github_actions' &&
+          !startsWith(github.event.pull_request.head.ref, 'dependabot/github_actions/')
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

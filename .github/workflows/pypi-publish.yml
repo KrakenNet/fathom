@@ -1,32 +1,91 @@
 name: pypi-publish
+
+# Tag pushes only. `workflow_dispatch: {}` used to sit here as well, which
+# meant any account with write access could publish signed artifacts built
+# from any ref they chose -- the `pypi` environment carries no protection
+# rules and no branch policy to stop it. Releases come from tags.
 on:
   push:
     tags:
       - "v*.*.*"
-  workflow_dispatch: {}
+
 permissions:
-  id-token: write
-  contents: write
+  contents: read
+
+# Third-party actions are pinned to a full commit SHA, not a tag and
+# emphatically not `release/v1`, which is a mutable BRANCH: this pipeline
+# materialises the minisign signing key and holds `id-token: write` for PyPI,
+# so an upstream force-push would otherwise be a direct path to both.
+# Dependabot's github-actions ecosystem understands SHA pins and proposes the
+# updates.
+
 jobs:
-  publish:
+  # Every publish workflow shares this precondition; see release-gate.yml.
+  gate:
+    uses: ./.github/workflows/release-gate.yml
+    permissions:
+      contents: read
+      checks: read
+
+  build:
+    needs: gate
     runs-on: ubuntu-latest
-    environment: pypi
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.13"
 
-      - name: Clean old artifacts
-        run: rm -rf dist/
-
       - name: Build
-        run: uv build
+        run: |
+          set -euo pipefail
+          rm -rf dist/
+          uv build
 
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  sign:
+    # Signing is its own job so that the decrypted minisign key never shares a
+    # runner with the third-party publish action. This job holds the key and
+    # emits only detached signatures; `publish` holds the PyPI identity and
+    # never sees the key.
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pypi
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      # From the upstream release archive, not apt: `apt-get update` refreshes
+      # every configured repo, so one unhealthy runner mirror fails the step
+      # for the length of the run. A release pipeline is the last place that
+      # should depend on Ubuntu mirror health.
       - name: Install minisign
-        run: sudo apt-get update && sudo apt-get install -y minisign
+        run: |
+          set -euo pipefail
+          MINISIGN_VERSION=0.12
+          MINISIGN_SHA256=9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73
+          for i in 1 2 3; do
+            curl -fsSL -o /tmp/minisign.tar.gz \
+              "https://github.com/jedisct1/minisign/releases/download/${MINISIGN_VERSION}/minisign-${MINISIGN_VERSION}-linux.tar.gz" \
+              && break || { echo "download attempt $i failed; retrying in $((i * 5))s"; sleep $((i * 5)); }
+          done
+          echo "${MINISIGN_SHA256}  /tmp/minisign.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/minisign.tar.gz -C /tmp minisign-linux/x86_64/minisign
+          sudo install -m 0755 /tmp/minisign-linux/x86_64/minisign /usr/local/bin/minisign
+          minisign -v
 
       - name: Write signing key
         env:
@@ -40,19 +99,56 @@ jobs:
           printf '%s\n' "${MINISIGN_KEY_PRIMARY}" > /tmp/mini.key
           chmod 600 /tmp/mini.key
 
+      # sign_release.sh signs every dist/*.whl and dist/*.tar.gz and verifies
+      # each one against the published public key before returning, so a
+      # missing or bad signature fails here rather than after upload.
       - name: Sign and verify artifacts
         run: bash scripts/sign_release.sh /tmp/mini.key docs/reference/release-signing-pubkey.minisig
 
-      - name: Stash signatures out of dist/
+      - name: Collect signatures
         run: |
+          set -euo pipefail
           mkdir -p sigs
           mv dist/*.minisig sigs/
+          # Every artifact must have come out with a signature beside it.
+          for f in dist/*.whl dist/*.tar.gz; do
+            test -f "sigs/$(basename "$f").minisig" || {
+              echo "::error::no signature produced for $f"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sigs
+          path: sigs/
+          if-no-files-found: error
+
+  publish:
+    needs: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pypi
+    permissions:
+      # OIDC for PyPI trusted publishing; `contents: write` for the signature
+      # upload onto the GitHub release.
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sigs
+          path: sigs/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
+      # No checkout in this job, so gh needs the repo named explicitly.
       - name: Upload signatures to GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: gh release upload "${GITHUB_REF_NAME}" sigs/*.minisig

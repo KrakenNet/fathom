@@ -4,7 +4,7 @@ summary: Install minisign, verify a Fathom wheel or sdist, and understand the cu
 audience: [app-developers, operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-06-24
+last_verified: 2026-08-19
 sources:
   - scripts/sign_release.sh
   - src/fathom/cli.py
@@ -15,15 +15,25 @@ sources:
 
 # Verifying release signatures
 
-Every Fathom release artifact published to PyPI and attached to a GitHub
-Release is signed with [minisign](https://jedisct1.github.io/minisign/)
-(detached Ed25519). This how-to shows you how to install minisign,
-verify a downloaded wheel or sdist, and understand the custody,
-rotation, and revocation policy for the signing key.
+Every Fathom release artifact from **0.5.0 onward** is signed with
+[minisign](https://jedisct1.github.io/minisign/) (detached Ed25519) and
+attached to its GitHub Release. This how-to shows you how to install minisign,
+verify a downloaded wheel or sdist, and understand the custody, rotation, and
+revocation policy for the signing key.
+
+**Releases before 0.5.0 are unsigned.** Signing was introduced with the 0.4.0
+tree, which reached PyPI as 0.5.0. The five earlier PyPI releases — 0.1.0,
+0.2.0, 0.3.0, 0.3.1 and 0.3.2 — have no `.minisig`, and the GitHub releases for
+0.3.0, 0.3.1, 0.3.3 and 0.4.0 carry no assets at all. There is nothing to
+verify for those versions, and no signature will be published retroactively:
+back-signing an old artifact today would assert a custody chain that did not
+exist when it was built. Use 0.5.0 or later if you need a verifiable artifact.
 
 ## What is signed, and how
 
-- **Artifacts**: every `fathom_rules-*.whl` and `fathom_rules-*.tar.gz`.
+- **Artifacts**: every `fathom_rules-*.whl` and `fathom_rules-*.tar.gz`
+  from 0.5.0 onward. `pypi-publish.yml` fails the release if any artifact
+  in `dist/` reaches the publish step without a sibling `.minisig`.
 - **Algorithm**: Ed25519 via minisign's standard `.minisig` format —
   detached signature, one file per artifact, binary-safe.
 - **Where signatures appear**:
