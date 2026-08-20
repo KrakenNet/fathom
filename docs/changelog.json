@@ -1,5 +1,27 @@
 [
   {
+    "version": "0.9.0",
+    "date": "2026-08-20",
+    "added": [],
+    "changed": [
+      "`focus_order` runs modules in the order it lists. The list was pushed onto",
+      "CI enforces the published performance targets (`bench`, with a documented",
+      "A determinism test asserts the engine's core claim directly: the same facts",
+      "The release-signing guide scopes its guarantee to 0.5.0 and later; the five"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "The Docker image builds again \u2014 `mkdir -p /rules` ran after the switch to a",
+      "The TypeScript SDK no longer sits beside a second, stale API spec. The"
+    ],
+    "security": [
+      "Publishing is gated on green required checks and runs from tag pushes only.",
+      "Dependabot no longer auto-merges `github_actions` bumps: those PRs rewrite",
+      "Every user-installable requirement carries an upper version bound, so a"
+    ]
+  },
+  {
     "version": "0.8.0",
     "date": "2026-08-19",
     "added": [],
