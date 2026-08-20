@@ -1,6 +1,13 @@
 """Drift gate: fail if any page's cited sources were modified after
 the page's last_verified date, or if a cited source file is missing.
 
+Two scopes. With no arguments every page is checked -- the maintainer sweep,
+which answers "what has gone stale anywhere". With ``--changed-vs REF`` only
+the sources this branch touched are considered, which is the scope a merge
+gate needs: editing a source ages every page citing it, so a whole-repo gate
+would fail the next unrelated pull request instead of the one that caused
+the drift.
+
 Honors `.git-blame-ignore-revs` (the standard git convention used by
 `git blame` and `git config blame.ignoreRevsFile`) so that format-only
 or otherwise non-content commits don't trip the gate. Add a SHA to
@@ -17,6 +24,7 @@ Exit codes: 0 clean; 1 drift or missing source; 2 misconfig.
 """
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -105,7 +113,12 @@ def _last_commit_date(
     return None, saw_commit
 
 
-def _check_page(page: Path, repo: Path, ignore: set[str]) -> list[str]:
+def _check_page(
+    page: Path,
+    repo: Path,
+    ignore: set[str],
+    scope: set[str] | None = None,
+) -> list[str]:
     try:
         fm = _read_frontmatter(page)
     except ValueError as exc:
@@ -120,6 +133,8 @@ def _check_page(page: Path, repo: Path, ignore: set[str]) -> list[str]:
         return [f"{page}: last_verified missing or not a date"]
     errors: list[str] = []
     for src in sources:
+        if scope is not None and src not in scope:
+            continue
         src_path = repo / src
         if not src_path.exists():
             errors.append(f"{page}: cited source {src!r} does not exist")
@@ -139,18 +154,62 @@ def _check_page(page: Path, repo: Path, ignore: set[str]) -> list[str]:
     return errors
 
 
+def _changed_files(repo: Path, base: str) -> set[str] | None:
+    """Repo-relative paths that differ between *base* and the working tree.
+
+    Returns None if the diff cannot be taken (unknown ref, shallow clone),
+    which the caller treats as "check everything" rather than "check nothing":
+    a gate that silently passes on a bad ref is worse than a noisy one.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"{base}...HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
 def main(argv: list[str]) -> int:
-    repo = Path(argv[1] if len(argv) > 1 else ".").resolve()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("repo", nargs="?", default=".")
+    parser.add_argument(
+        "--changed-vs",
+        metavar="REF",
+        help=(
+            "only report pages whose cited sources this branch actually changed "
+            "since REF. Without it every page is checked, which is the right "
+            "shape for a maintainer sweep but the wrong one for a merge gate: "
+            "a source edit ages every page citing it, and the failure would "
+            "land on whoever opens the next unrelated pull request."
+        ),
+    )
+    args = parser.parse_args(argv[1:])
+
+    repo = Path(args.repo).resolve()
     docs = repo / "docs"
     if not docs.is_dir():
         print(f"error: {docs} not a directory", file=sys.stderr)
         return 2
+
+    scope: set[str] | None = None
+    if args.changed_vs:
+        scope = _changed_files(repo, args.changed_vs)
+        if scope is None:
+            print(
+                f"warning: cannot diff against {args.changed_vs!r}; checking every page",
+                file=sys.stderr,
+            )
+
     ignore = _read_ignore_revs(repo)
     had_errors = False
     for page in sorted(docs.rglob("*.md")):
         if "/superpowers/" in page.as_posix():
             continue
-        errors = _check_page(page, repo, ignore)
+        errors = _check_page(page, repo, ignore, scope)
         for e in errors:
             print(e, file=sys.stderr)
         if errors:

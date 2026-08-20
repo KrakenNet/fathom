@@ -64,6 +64,26 @@ Use the [feature request template](https://github.com/KrakenNet/fathom/issues/ne
 4. Update documentation if you're changing public API
 5. Open a pull request
 
+### Documentation that cites your code
+
+Every page under `docs/` lists the files it describes in its frontmatter
+`sources:`, with a `last_verified:` date. If your branch edits a file some page
+cites, the required `docs` job fails until that page is re-verified **in the
+same branch**: read the claims it makes about your file, correct the ones your
+change made false, and set `last_verified:` to today.
+
+```bash
+uv run python scripts/check_doc_sources.py --changed-vs origin/main  # what CI gates
+uv run python scripts/check_doc_sources.py                           # everything stale, anywhere
+```
+
+Only the sources your branch touched are gated. The whole-repo sweep is a
+warning in the advisory `docs-quality` job — it is a maintenance list, not
+your problem to clear.
+
+Line numbers in a citation (`src/fathom/engine.py` line 1179) move when the
+file does; re-check them rather than only bumping the date.
+
 ### Sign-off (DCO)
 
 Every commit must be signed off, certifying you wrote the change (or have the right to submit it) under the project license. Add the sign-off line by committing with `-s`:
