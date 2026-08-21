@@ -22,6 +22,58 @@ gaps between 0.3.1 and 0.5.0 are explained under
   exposes no accessor for an activation's basis, so the evidence is compiled
   in: the flag is off by default and the generated CLIPS is byte-identical
   to before while it stays off.
+### Removed
+
+- **The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)
+  and the script that produced it. Postman imports OpenAPI natively
+  (*Import → OpenAPI*), and `docs/reference/rest/openapi.json` was already
+  published beside the collection — the generator existed only to pre-bake
+  that import, and most of it was post-processing to beat the converter's
+  nondeterminism so the drift gate could pass. The REST docs now point at
+  the import instead.
+- **The `fathom-editor` scaffold** (`packages/fathom-editor/`). Six React
+  component stubs, `private: true`, no tests, no backend wiring, and a CI job
+  whose only assertion was that the tree still compiled — while Policy Studio
+  shipped a working browser UI over a real engine. Building a visual editor
+  remains tracked as
+  [#43](https://github.com/KrakenNet/fathom/issues/43); the scaffold is in git
+  history if it is ever the right starting point.
+- **`MetricsCollector.inc_sessions_active` / `.dec_sessions_active`**, and
+  **`fathom.yaml_utils.validate_yaml_file` / `.load_and_validate`** (with
+  `YAMLValidationError`, which only they raised). No caller in the package,
+  and neither module is a covered surface under
+  [VERSIONING.md](VERSIONING.md). `MetricsCollector.set_sessions_active`
+  already replaced the inc/dec pair and is what the session store calls.
+
+### Changed
+
+- **`PolicyViolation` is now one class**, defined in `fathom.integrations` and
+  re-exported by each adapter. It was declared four times, identically, so
+  `except langchain.PolicyViolation` did not catch what the CrewAI adapter
+  raised. Every existing import path still works, and importing it no longer
+  pulls in any adapter's optional dependency.
+  
+### Fixed
+
+- **Loading a second rule pack no longer unfocuses the first.**
+  `Engine.load_modules` applied each file's declared `focus_order` through
+  `Engine.set_focus`, which replaces the focus order rather than extending
+  it. CLIPS only drains the agenda of the module holding the focus, so the
+  first pack's rules stayed in the registry and silently stopped firing —
+  the decision fell through to the engine default with an empty rule trace.
+  The same call also skipped its no-`focus_order` fallback whenever any
+  focus already existed, leaving a pack that declared modules but no order
+  unfocused as soon as it was not the first one loaded. Focus is now
+  cumulative across loads; `Engine.set_focus` keeps its documented
+  replace-everything semantics.
+- **`not_equals`, `in` and `not_in` now quote their literals for a slot
+  declared `string`.** Only `equals` did. CLIPS holds a symbol and a string
+  to be unequal, so on a string slot `not_equals(admin)` was always true
+  and `in([admin, root])` never matched — both without any diagnostic,
+  because they compile into `:(...)` predicates CLIPS does not type-check.
+  `not_in` emitted an unquoted `~` constraint, which at least failed the
+  build with `[CSTRNCHK1]`. No shipped rule pack uses a string slot with
+  these operators.
 
 ## [0.10.0] - 2026-08-20
 

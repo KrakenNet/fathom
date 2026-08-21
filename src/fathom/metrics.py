@@ -260,26 +260,13 @@ class MetricsCollector:
     def set_sessions_active(self, count: int) -> None:
         """Set the live session count.
 
-        Preferred over :meth:`inc_sessions_active` /
-        :meth:`dec_sessions_active`: the store publishes ``len(self._sessions)``
-        directly, so a missed decrement on an eviction path cannot leave the
-        gauge permanently wrong.
+        A set, not an inc/dec pair: the store publishes
+        ``len(self._sessions)`` directly, so a missed decrement on an
+        eviction path cannot leave the gauge permanently wrong.
         """
         if self._noop:
             return
         self.sessions_active.set(count)
-
-    def inc_sessions_active(self) -> None:
-        """Increment active session count."""
-        if self._noop:
-            return
-        self.sessions_active.inc()
-
-    def dec_sessions_active(self) -> None:
-        """Decrement active session count."""
-        if self._noop:
-            return
-        self.sessions_active.dec()
 
     def record_templates_loaded(self, count: int) -> None:
         """Record templates loaded."""

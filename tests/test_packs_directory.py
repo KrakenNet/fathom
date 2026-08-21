@@ -237,3 +237,69 @@ class TestFromRulesSharesTheLoader:
 
         assert set(constructed.rule_registry) == set(loaded.rule_registry)
         assert set(constructed.template_registry) == set(loaded.template_registry)
+
+
+# =========================================================================
+# 4. Focus is engine-wide: a second pack must not unfocus the first
+# =========================================================================
+
+
+def _write_flat_pack(root: Path, name: str, *, focus: bool = True) -> Path:
+    """A one-module pack whose rule denies on ``(<name> (id go))``."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "01-templates.yaml").write_text(
+        f"templates:\n  - name: {name}\n    slots:\n      - name: id\n        type: symbol\n"
+    )
+    focus_line = f"focus_order: [{name}]\n" if focus else ""
+    (root / "02-modules.yaml").write_text(f"modules:\n  - name: {name}\n{focus_line}")
+    (root / "03-rules.yaml").write_text(
+        f"ruleset: {name}\nmodule: {name}\nrules:\n"
+        f"  - name: deny-{name}\n    when:\n      - template: {name}\n"
+        '        conditions:\n          - slot: id\n            expression: "equals(go)"\n'
+        f"    then:\n      action: deny\n      reason: {name}\n"
+    )
+    return root
+
+
+class TestFocusSurvivesASecondPack:
+    """``set_focus`` REPLACES, so loading pack B used to silently unfocus A.
+
+    Nothing raised and A's rules stayed in the registry -- they simply
+    stopped firing, and the decision fell through to the engine default with
+    an empty ``rule_trace``. Policy that reads as enforced and is not.
+    """
+
+    def test_both_packs_still_fire(self, tmp_path: Path) -> None:
+        engine = Engine()
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "a", "alpha"))
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "b", "beta"))
+
+        assert engine.evaluate_once([("alpha", {"id": "go"})]).reason == "alpha"
+        assert engine.evaluate_once([("beta", {"id": "go"})]).reason == "beta"
+
+    def test_a_pack_declaring_no_focus_order_still_fires(self, tmp_path: Path) -> None:
+        """The fallback used to be skipped whenever *any* focus already existed."""
+        engine = Engine()
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "a", "alpha"))
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "b", "beta", focus=False))
+
+        assert engine.evaluate_once([("alpha", {"id": "go"})]).reason == "alpha"
+        assert engine.evaluate_once([("beta", {"id": "go"})]).reason == "beta"
+
+    def test_the_declared_order_is_kept(self, tmp_path: Path) -> None:
+        engine = Engine()
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "a", "alpha"))
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "b", "beta"))
+
+        assert engine.focus_order == ["alpha", "beta"]
+
+    def test_set_focus_still_replaces(self, tmp_path: Path) -> None:
+        """The public API keeps its documented semantics; only loading appends."""
+        engine = Engine()
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "a", "alpha"))
+        engine.load_pack_dir(_write_flat_pack(tmp_path / "b", "beta"))
+
+        engine.set_focus(["beta"])
+
+        assert engine.focus_order == ["beta"]
+        assert engine.evaluate_once([("alpha", {"id": "go"})]).rule_trace == []

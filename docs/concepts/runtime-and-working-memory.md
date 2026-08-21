@@ -144,7 +144,9 @@ from `Engine.set_focus(...)`. If a pack declares modules and sets neither,
 without that fallback the focus list is empty, no module's agenda is ever
 drained, and the caller gets the default decision back from a pack whose
 rules all matched. Declaration order is a floor, not a design: state
-`focus_order:` whenever the sequence matters.
+`focus_order:` whenever the sequence matters. Each load appends to the
+focus order rather than replacing it, so loading a second pack leaves the
+first one enforced; only `Engine.set_focus(...)` replaces it outright.
 
 The practical upshot is that modules are a coarse-grained ordering tool.
 If `policy` comes before `logging` in the focus order, every
