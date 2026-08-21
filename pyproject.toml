@@ -109,7 +109,7 @@ grpc = [
     "grpcio-tools>=1.60,<2",
 ]
 fleet = [
-    "redis[hiredis]>=5,<8",
+    "redis[hiredis]>=5,<9",
 ]
 fleet-pg = [
     "asyncpg>=0.29,<1",
