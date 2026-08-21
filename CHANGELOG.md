@@ -11,6 +11,26 @@ commit list on its
 gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
+## [Unreleased]
+
+### Fixed
+- Cross-fact references (`equals($alias.field)`) now compile to a real CLIPS
+  join. The reference emitted `?alias-field` in the pattern that used it, but
+  nothing bound that variable on the pattern the alias named — so CLIPS bound
+  it there instead, the constraint did nothing, and the rule matched the
+  cartesian product of its patterns. It failed silently: no error, no
+  warning, the rule fired on facts the author never joined. The shipped
+  Bell-LaPadula example denied a legal read by matching a resource and a
+  subject the request never named.
+- A reference to an alias no pattern declares is now a `CompilationError`
+  instead of the same silent match-everything.
+- `bind:` combined with an operator that emits a predicate (`not_equals`,
+  `greater_than`, `less_than`, `contains`, `matches`) produced a rule CLIPS
+  refused to load — `[ANALYSIS4] Variable ?s_0_<slot> was referenced ...
+  before being defined` — because only the leading variable of a conjunctive
+  slot constraint binds. The bind now takes over the generated variable
+  rather than being chained in front of it.
+
 ## [0.10.0] - 2026-08-20
 
 ### Added

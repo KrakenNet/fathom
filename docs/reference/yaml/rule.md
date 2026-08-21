@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
 
 # Rule
@@ -154,7 +154,35 @@ directory is present, does this for you.
 **Aliases.** `alias:` on a fact pattern names it for `$alias.field`
 references. An alias must start with `$` followed by a CLIPS identifier, may
 not be `$p<number>` (that namespace is generated for unaliased patterns),
-and may not be reused by two patterns in the same rule.
+and may not be reused by two patterns in the same rule. Referencing an alias
+no pattern declares is a compile error — CLIPS would otherwise accept the
+rule and match everything, since the reference would be the variable's first
+occurrence and so bind rather than constrain.
+
+Compiling a reference makes the *aliased* pattern mention the join variable
+too, adding a slot constraint if the pattern had none on that slot:
+
+```yaml
+when:
+  - template: access_request
+    alias: $req
+    conditions:
+      - slot: mode
+        expression: equals(read)
+  - template: resource
+    conditions:
+      - slot: id
+        expression: equals($req.object_id)   # joins on ?req-object_id
+```
+
+```clips
+(access_request (mode "read") (object_id ?req-object_id))
+(resource (id ?req-object_id))
+```
+
+Only one variable may bind a slot, so when the aliased slot already binds
+one the compiler reuses it where it can and falls back to an equality
+`(test ...)` where it cannot — a `bind:` you declared is never renamed.
 
 **Stability.** The operator set and this grammar are covered by the 1.0
 compatibility promise. The generated CLIPS *variable names*

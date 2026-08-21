@@ -794,7 +794,15 @@ class TestCompileBind:
         assert "(agent (level ?lvl&secret))" in result
 
     def test_bind_with_not_equals_expression(self, compiler: Compiler) -> None:
-        """AC-2.3: bind + not_equals emits `(slot ?var&?s_0_slot&:(neq ?s_0_slot literal))`."""
+        """AC-2.3: bind + not_equals emits `(slot ?var&:(neq ?var literal))`.
+
+        The bind takes over the generated constraint variable rather than
+        being chained in front of it: CLIPS binds only the leading variable
+        of a conjunctive slot constraint, so the older
+        `(level ?lvl&?s_0_level&:(neq ?s_0_level public))` shape was rejected
+        at load time with `[ANALYSIS4] Variable ?s_0_level was referenced ...
+        before being defined`.
+        """
         rule = _make_rule(
             name="bind-neq",
             when=[
@@ -810,7 +818,8 @@ class TestCompileBind:
         result = compiler.compile_rule(rule, "MAIN")
         # Bind variable appears and is joined to the inequality constraint via `&`.
         assert "?lvl" in result
-        assert "(agent (level ?lvl&?s_0_level&:(neq ?s_0_level public)))" in result
+        assert "(agent (level ?lvl&:(neq ?lvl public)))" in result
+        assert "?s_0_level" not in result
 
     def test_test_standalone_emits_only_test_ce(self, compiler: Compiler) -> None:
         """``test`` alone emits ``(test ...)`` without a slot pattern."""
