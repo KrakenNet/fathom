@@ -11,6 +11,30 @@ commit list on its
 gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
+## [Unreleased]
+
+### Fixed
+
+- **Loading a second rule pack no longer unfocuses the first.**
+  `Engine.load_modules` applied each file's declared `focus_order` through
+  `Engine.set_focus`, which replaces the focus order rather than extending
+  it. CLIPS only drains the agenda of the module holding the focus, so the
+  first pack's rules stayed in the registry and silently stopped firing —
+  the decision fell through to the engine default with an empty rule trace.
+  The same call also skipped its no-`focus_order` fallback whenever any
+  focus already existed, leaving a pack that declared modules but no order
+  unfocused as soon as it was not the first one loaded. Focus is now
+  cumulative across loads; `Engine.set_focus` keeps its documented
+  replace-everything semantics.
+- **`not_equals`, `in` and `not_in` now quote their literals for a slot
+  declared `string`.** Only `equals` did. CLIPS holds a symbol and a string
+  to be unequal, so on a string slot `not_equals(admin)` was always true
+  and `in([admin, root])` never matched — both without any diagnostic,
+  because they compile into `:(...)` predicates CLIPS does not type-check.
+  `not_in` emitted an unquoted `~` constraint, which at least failed the
+  build with `[CSTRNCHK1]`. No shipped rule pack uses a string slot with
+  these operators.
+
 ## [0.10.0] - 2026-08-20
 
 ### Added

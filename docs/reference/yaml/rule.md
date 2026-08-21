@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
 
 # Rule
@@ -146,10 +146,14 @@ from compiling it as part of a ruleset:
 | `string` | quoted CLIPS string, escaped | `equals(a@b.com)` → `(id "a@b.com")` |
 | `symbol`, `integer`, `float`, `boolean` | bare CLIPS token | `equals(admin)` → `(role admin)` |
 
-An unquoted literal in a `string` slot is rejected by CLIPS at load time
-(`[CSTRNCHK1]`), so always compile against the templates — `fathom compile`
-on a ruleset directory, or on a rule file whose sibling `templates/`
-directory is present, does this for you.
+Compiling without the templates is not a mistake CLIPS reliably catches.
+`equals` and `not_in` emit a pattern constraint, so an unquoted literal
+against a `string` slot is rejected at load time (`[CSTRNCHK1]`) —
+but `not_equals` and `in` emit a `:(...)` predicate, which CLIPS does not
+type-check, and a symbol never equals a string: the rule builds clean and
+then decides every fact the wrong way. Always compile against the
+templates — `fathom compile` on a ruleset directory, or on a rule file
+whose sibling `templates/` directory is present, does this for you.
 
 **Aliases.** `alias:` on a fact pattern names it for `$alias.field`
 references. An alias must start with `$` followed by a CLIPS identifier, may

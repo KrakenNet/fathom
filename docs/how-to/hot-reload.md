@@ -4,7 +4,7 @@ summary: Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed
 audience: [operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/integrations/grpc_server.py
