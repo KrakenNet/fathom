@@ -14,6 +14,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+# Re-exported: `from fathom.integrations.<adapter> import PolicyViolation`
+# was the only import path before this class was shared.
+from fathom.integrations import PolicyViolation as PolicyViolation
+
 try:
     import agents  # noqa: F401
 except ImportError as _exc:
@@ -24,29 +28,6 @@ except ImportError as _exc:
 
 if TYPE_CHECKING:
     from fathom.engine import Engine
-
-
-class PolicyViolation(Exception):  # noqa: N818 -- name per design spec
-    """Raised when Fathom does not explicitly allow a tool call.
-
-    Attributes:
-        decision: The evaluation decision — any value other than ``"allow"``
-            (e.g. ``"deny"``, ``"escalate"``, ``"route"``, ``"scope"``), or
-            ``None`` when no rule fired and no default decision is configured.
-        reason: Human-readable reason from the matching rule.
-        rule_trace: Ordered list of rules that fired during evaluation.
-    """
-
-    def __init__(
-        self,
-        decision: str | None,
-        reason: str | None,
-        rule_trace: list[str],
-    ) -> None:
-        self.decision = decision
-        self.reason = reason
-        self.rule_trace = rule_trace
-        super().__init__(f"Policy violation: {decision} — {reason}")
 
 
 def _build_tool_request_facts(

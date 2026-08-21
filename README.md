@@ -121,8 +121,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
   client covering 4 of the 10 REST endpoints, vitest suite required in CI,
   not yet published to npm
 
-Scaffolds that are **not** usable yet — including the `fathom-editor` visual
-rule editor — are catalogued in
+Integrations that are scaffolded, partial, or planned are catalogued in
 [Planned Integrations](docs/reference/planned-integrations.md).
 
 ## Core Primitives

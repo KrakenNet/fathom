@@ -70,10 +70,9 @@ class TestNoopMode:
         mc = MetricsCollector(enabled=False)
         mc.set_working_memory_facts(template="template", count=42)
 
-    def test_inc_dec_sessions_active_noop(self) -> None:
+    def test_set_sessions_active_noop(self) -> None:
         mc = MetricsCollector(enabled=False)
-        mc.inc_sessions_active()
-        mc.dec_sessions_active()
+        mc.set_sessions_active(3)
 
     def test_record_templates_loaded_noop(self) -> None:
         mc = MetricsCollector(enabled=False)
@@ -262,11 +261,10 @@ class TestEnabledMode:
         )
         assert val == 7.0
 
-    def test_sessions_active_inc_dec(self) -> None:
+    def test_sessions_active_is_set_outright(self) -> None:
         mc = MetricsCollector(enabled=True)
-        mc.inc_sessions_active()
-        mc.inc_sessions_active()
-        mc.dec_sessions_active()
+        mc.set_sessions_active(2)
+        mc.set_sessions_active(1)
         val = self._registry.get_sample_value("fathom_sessions_active", labels={})
         assert val == 1.0
 

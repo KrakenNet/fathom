@@ -13,6 +13,37 @@ gaps between 0.3.1 and 0.5.0 are explained under
 
 ## [Unreleased]
 
+### Removed
+
+- **The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)
+  and the script that produced it. Postman imports OpenAPI natively
+  (*Import → OpenAPI*), and `docs/reference/rest/openapi.json` was already
+  published beside the collection — the generator existed only to pre-bake
+  that import, and most of it was post-processing to beat the converter's
+  nondeterminism so the drift gate could pass. The REST docs now point at
+  the import instead.
+- **The `fathom-editor` scaffold** (`packages/fathom-editor/`). Six React
+  component stubs, `private: true`, no tests, no backend wiring, and a CI job
+  whose only assertion was that the tree still compiled — while Policy Studio
+  shipped a working browser UI over a real engine. Building a visual editor
+  remains tracked as
+  [#43](https://github.com/KrakenNet/fathom/issues/43); the scaffold is in git
+  history if it is ever the right starting point.
+- **`MetricsCollector.inc_sessions_active` / `.dec_sessions_active`**, and
+  **`fathom.yaml_utils.validate_yaml_file` / `.load_and_validate`** (with
+  `YAMLValidationError`, which only they raised). No caller in the package,
+  and neither module is a covered surface under
+  [VERSIONING.md](VERSIONING.md). `MetricsCollector.set_sessions_active`
+  already replaced the inc/dec pair and is what the session store calls.
+
+### Changed
+
+- **`PolicyViolation` is now one class**, defined in `fathom.integrations` and
+  re-exported by each adapter. It was declared four times, identically, so
+  `except langchain.PolicyViolation` did not catch what the CrewAI adapter
+  raised. Every existing import path still works, and importing it no longer
+  pulls in any adapter's optional dependency.
+  
 ### Fixed
 
 - **Loading a second rule pack no longer unfocuses the first.**

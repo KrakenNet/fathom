@@ -73,7 +73,7 @@ jobs:
 
       # The Linux job installs the full toolchain so the conditional skips in
       # test_release_sig.py, test_grpc_docs.py, test_go_sdk_docs.py,
-      # test_ts_sdk_docs.py and test_postman.py actually run (issue #16). The
+      # and test_ts_sdk_docs.py actually run (issue #16). The
       # prometheus packages for test_rest_metrics.py come from the `metrics`
       # extra via `uv sync --all-extras` above. Windows/macOS matrix legs keep
       # skipping these (the minisign/protoc archives are Linux-only); Linux is
@@ -155,7 +155,7 @@ jobs:
           sudo tar -xzf /tmp/protoc-gen-doc.tar.gz -C /usr/local/bin protoc-gen-doc
           protoc-gen-doc --version
 
-      - name: Install Node (test_ts_sdk_docs.py, test_postman.py)
+      - name: Install Node (test_ts_sdk_docs.py)
         if: runner.os == 'Linux'
         uses: actions/setup-node@v7
         with:
@@ -183,7 +183,6 @@ jobs:
             tests/test_rest_metrics.py \
             tests/test_scripts/test_go_sdk_docs.py \
             tests/test_scripts/test_ts_sdk_docs.py \
-            tests/test_scripts/test_postman.py \
             tests/test_scripts/test_grpc_docs.py 2>&1)"
           echo "$out"
           if echo "$out" | grep -q "SKIPPED"; then
