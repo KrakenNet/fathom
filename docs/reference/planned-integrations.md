@@ -9,7 +9,6 @@ sources:
   - packages/fathom-go/go.mod
   - packages/fathom-ts/package.json
   - packages/fathom-ts/src/client.ts
-  - packages/fathom-editor/package.json
   - packages/fathom-studio/pyproject.toml
   - src/fathom/integrations/langchain.py
   - src/fathom/integrations/crewai.py
@@ -128,34 +127,18 @@ Both the dead tree and the stale root spec are gone; the single spec is
 generated API reference lives at
 [TypeScript SDK](./typescript-sdk/index.md).
 
-## Visual Rule Editor — `packages/fathom-editor/`
+## Visual Rule Editor
 
-**Status:** Partial (stub).
+**Status:** Planned.
 
-**Location:** `packages/fathom-editor/` — package identity `@fathom/editor`
-at `0.1.0` with `"private": true` set in `package.json:4`. Dependencies:
-React `^19.2.7`, Vite `^8.0.16`; dev toolchain TypeScript `^6.0.3`.
-
-**What exists:** Component stubs under `src/components/`: `RuleTree.tsx`,
-`ConditionBuilder.tsx`, `TemplateBrowser.tsx`, `ClipsPreview.tsx`,
-`TestRunner.tsx`, `YamlEditor.tsx`. Entry at `src/App.tsx`, Vite bootstrap
-at `src/main.tsx`, and an `src/api/` directory for backend glue.
-
-**What is missing:**
-
-- **No tests.** `package.json` declares no `test` script and no test
-  runner is installed.
-- **No backend wiring.** The original v1 design described the editor as
-  "components exist but not production-ready." The stubs do not round-trip against a live Fathom
-  REST server.
-- **Not publishable.** The package is marked `private: true` and has no
-  build artifact consumers. Building this stub out into a working visual
-  rule editor is tracked as issue
-  [#43](https://github.com/KrakenNet/fathom/issues/43).
-
-**How to use today:** `pnpm install && pnpm dev` inside
-`packages/fathom-editor/` runs the Vite dev server. This is a development
-scaffold, not a supported end-user artifact.
+The original v1 design named a browser-based rule editor. A React scaffold
+lived at `packages/fathom-editor/` and was removed: six component stubs, no
+tests, no backend wiring, and a CI job whose only assertion was that the tree
+still compiled. It never round-tripped against a live Fathom server, and
+Policy Studio (below) had meanwhile shipped
+a working browser UI over a real engine. Building the editor out is tracked as
+issue [#43](https://github.com/KrakenNet/fathom/issues/43); the scaffold is in
+git history if it is ever the right starting point.
 
 ## Framework adapters
 
@@ -221,16 +204,13 @@ job covers it.
   `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
   `packages/fathom-go/go.mod:1`. Generated bindings now live in
   `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
-- **No CI for the editor package.** The Python suite
+- **Every in-tree package is now covered by CI.** The Python suite
   (`.github/workflows/ci.yml`, which also covers the Studio), the Go suite
   (`.github/workflows/go-ci.yml`, unit + `-tags integration`) and the
   TypeScript suite (`.github/workflows/ts-ci.yml`, the required `ts-test`
   check, closing issue
   [#39](https://github.com/KrakenNet/fathom/issues/39)) all run on every
-  pull request. The editor (issue
-  [#43](https://github.com/KrakenNet/fathom/issues/43)) remains uncovered —
-  it has no test script to run — so every "works today" claim for that
-  package reduces to "works when run locally against a developer's machine."
+  pull request.
 
 ## See also
 

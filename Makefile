@@ -27,7 +27,6 @@ docs-gen:
 # so a dev could commit stale docs that CI (with the toolchain) then
 # regenerates differently — a false drift-gate failure on an unrelated PR.
 docs-gen-foreign:
-	@if command -v npx >/dev/null 2>&1; then uv run python scripts/generate_postman_collection.py; else echo "skip: postman (npx missing)"; fi
 	@if command -v protoc >/dev/null 2>&1 && command -v protoc-gen-doc >/dev/null 2>&1; then uv run python scripts/generate_grpc_docs.py; else echo "skip: grpc (protoc/protoc-gen-doc missing)"; fi
 	@if command -v go >/dev/null 2>&1; then uv run python scripts/generate_go_sdk_docs.py; else echo "skip: go-sdk (go missing)"; fi
 	@if command -v pnpm >/dev/null 2>&1 || command -v npm >/dev/null 2>&1; then uv run python scripts/generate_ts_sdk_docs.py; else echo "skip: ts-sdk (pnpm/npm missing)"; fi

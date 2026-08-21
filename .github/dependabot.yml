@@ -50,7 +50,6 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/packages/fathom-ts"
-      - "/packages/fathom-editor"
     schedule:
       interval: "weekly"
     labels:

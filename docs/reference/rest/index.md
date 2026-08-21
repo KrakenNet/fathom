@@ -17,7 +17,7 @@ build.
 
 - **Interactive try-it:** [Swagger UI](try.md)
 - **Raw schema:** [`openapi.json`](openapi.json)
-- **Postman collection:** [`fathom.postman_collection.json`](fathom.postman_collection.json)
+- **Postman:** *Import → OpenAPI* pointed at `openapi.json`.
 - **Insomnia:** use *Import from URL* pointed at `openapi.json`.
 
 ## Reference
