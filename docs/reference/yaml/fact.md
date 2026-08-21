@@ -9,7 +9,7 @@ sources:
   - src/fathom/engine.py
   - src/fathom/facts.py
   - src/fathom/integrations/rest.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
 
 # Fact

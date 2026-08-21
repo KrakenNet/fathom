@@ -4,7 +4,7 @@ summary: Load rules from a directory or a distributed Python package via Engine.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 sources:
   - src/fathom/engine.py
   - src/fathom/packs.py
