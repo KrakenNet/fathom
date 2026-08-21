@@ -47,6 +47,11 @@ _CLIPS_ALLOWED_MAP: dict[SlotType, str] = {
 _ARG_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:@/+?$-]+$")
 _QUOTED_ARG_RE = re.compile(r'^"(?:[^"\\]|\\.)*"$')
 
+# The variable a compiled slot constraint binds, and the shape of the ones the
+# compiler generates itself — the only ones it may rename.
+_LEADING_VAR_RE = re.compile(r"^\?([A-Za-z][A-Za-z0-9_-]*)")
+_GENERATED_VAR_RE = re.compile(r"^s_\d+_")
+
 
 #: Prefix for the pattern-address variables that carry match evidence.
 #: Hyphenated so it cannot collide with a generated slot variable
@@ -214,10 +219,36 @@ class Compiler:
                 )
             aliases[pattern.alias] = pattern.template
 
+        # Every slot each alias is joined on. The pattern that owns the alias
+        # has to bind the join variable, or the reference silently degrades
+        # into a cartesian product (see _bind_join_slots).
+        joins: dict[str, set[str]] = {}
+        for pattern in defn.when:
+            for cond in pattern.conditions:
+                target = self._cross_ref_target(cond.expression)
+                if target is None:
+                    continue
+                alias, field = target
+                if f"${alias}" not in aliases:
+                    raise CompilationError(
+                        "[fathom.compiler] compile rule failed: "
+                        f"rule {defn.name!r} references undeclared alias '${alias}' in "
+                        f"{cond.expression!r}; declare it with 'alias: ${alias}' on the "
+                        "fact pattern it names",
+                        construct=f"rule:{defn.name}",
+                    )
+                joins.setdefault(alias, set()).add(field)
+
         # LHS: fact patterns and test CEs
         all_test_ces: list[str] = []
         for pattern_index, pattern in enumerate(defn.when):
-            lhs, test_ces = self._compile_fact_pattern(pattern, aliases, pattern_index, templates)
+            lhs, test_ces = self._compile_fact_pattern(
+                pattern,
+                aliases,
+                pattern_index,
+                templates,
+                joins.get((pattern.alias or "").lstrip("$"), set()),
+            )
             if self._match_evidence:
                 # Bind the pattern address so the RHS can name the fact that
                 # actually matched; clipspy exposes no accessor for an
@@ -253,6 +284,7 @@ class Compiler:
         aliases: dict[str, str],
         pattern_index: int = 0,
         templates: dict[str, TemplateDefinition] | None = None,
+        join_slots: set[str] | None = None,
     ) -> tuple[str, list[str]]:
         """Compile a FactPattern into a CLIPS LHS pattern string.
 
@@ -260,6 +292,10 @@ class Compiler:
         list. It namespaces every constraint variable so two patterns that
         constrain a same-named slot do not collide into an unintended CLIPS
         join (see design §Constraint Variable Naming).
+
+        ``join_slots`` names the slots other patterns cross-reference through
+        this pattern's alias; each gains a ``?<alias>-<slot>`` binding so the
+        reference compiles to a real join.
 
         Returns:
             A tuple of (pattern_string, list_of_test_CEs).  The test CEs
@@ -271,8 +307,6 @@ class Compiler:
             tmpl_def = templates.get(pattern.template)
             if tmpl_def is not None:
                 slot_types = {slot.name: slot.type for slot in tmpl_def.slots}
-        if not pattern.conditions:
-            return f"({pattern.template})", []
 
         slot_parts: list[str] = []
         test_ces: list[str] = []
@@ -297,6 +331,11 @@ class Compiler:
                 slot_parts.append(result)
             if cond.test is not None:
                 test_ces.append(f"(test {cond.test.strip()})")
+        if join_slots:
+            slot_parts, join_tests = self._bind_join_slots(
+                slot_parts, join_slots, (pattern.alias or "").lstrip("$")
+            )
+            test_ces.extend(join_tests)
         if not slot_parts:
             return f"({pattern.template})", test_ces
         slots_str = " ".join(slot_parts)
@@ -1000,6 +1039,84 @@ class Compiler:
         alias, field = ref.split(".", 1)
         return f"?{alias}-{field}"
 
+    #: Operators whose argument is resolved as a cross-fact reference. The
+    #: others (``in``, ``not_in``, ``contains``, ``matches``, the temporal
+    #: set) treat a leading ``$`` as literal text, so a ``$`` inside a regex
+    #: is not mistaken for a join.
+    _CROSS_REF_OPS = frozenset({"equals", "not_equals", "greater_than", "less_than"})
+
+    @classmethod
+    def _cross_ref_target(cls, expr: str | None) -> tuple[str, str] | None:
+        """Return the ``(alias, field)`` *expr* joins on, or ``None``.
+
+        Mirrors the operator dispatch in :meth:`_compile_condition` exactly,
+        so this never reports a join the compiler would not emit.
+        """
+        if not expr:
+            return None
+        try:
+            op, arg = cls._parse_operator(expr)
+        except CompilationError:
+            return None  # reported with full context further down the pipeline
+        if op not in cls._CROSS_REF_OPS and op not in cls._CLASSIFICATION_OPS:
+            return None
+        if not arg.startswith("$") or "." not in arg:
+            return None
+        alias, field = arg[1:].split(".", 1)
+        return alias, field
+
+    @staticmethod
+    def _leading_slot_var(slot: str, part: str) -> str | None:
+        """Name of the variable a compiled slot constraint binds, if any.
+
+        CLIPS binds only the *leading* variable of a conjunctive slot
+        constraint; every later one is a reference, and a reference to a
+        variable nothing has defined is a build error. So anything that needs
+        to bind on a slot has to know what already does.
+        """
+        prefix = f"({slot} "
+        if not part.startswith(prefix) or not part.endswith(")"):
+            return None
+        match = _LEADING_VAR_RE.match(part[len(prefix) : -1])
+        return match.group(1) if match else None
+
+    @staticmethod
+    def _bind_join_slots(
+        slot_parts: list[str], join_slots: set[str], alias: str
+    ) -> tuple[list[str], list[str]]:
+        """Make this pattern mention ``?<alias>-<slot>`` for each joined slot.
+
+        A cross-fact reference emits ``?<alias>-<field>`` in the *referencing*
+        pattern. CLIPS binds a variable on first occurrence, so unless the
+        pattern that owns the alias mentions it too, the variable binds there
+        and constrains nothing: the rule matches the cartesian product of its
+        patterns instead of the joined tuple, with no error at all.
+
+        Returns the rewritten slot parts and any extra ``(test ...)`` CEs.
+        """
+        parts = list(slot_parts)
+        tests: list[str] = []
+        for slot in sorted(join_slots):
+            var = f"?{alias}-{slot}"
+            prefix = f"({slot} "
+            index = next((i for i, part in enumerate(parts) if part.startswith(prefix)), None)
+            if index is None:
+                parts.append(f"({slot} {var})")
+                continue
+            existing = Compiler._leading_slot_var(slot, parts[index])
+            if existing is None:
+                parts[index] = f"({slot} {var}&{parts[index][len(prefix) : -1]})"
+            elif existing == var[1:]:
+                continue  # classification and temporal operators bind it themselves
+            elif _GENERATED_VAR_RE.match(existing):
+                parts[index] = parts[index].replace(f"?{existing}", var)
+            else:
+                # An author's ``bind:``, or another alias's join variable.
+                # Neither may be renamed, and the slot already has its one
+                # binding, so the join becomes an equality test instead.
+                tests.append(f"(test (eq ?{existing} {var}))")
+        return parts, tests
+
     # Classification operators that produce a slot binding + test CE
     _CLASSIFICATION_OPS: dict[str, str] = {
         "below": "below",
@@ -1094,7 +1211,17 @@ class Compiler:
         variable participates in the CLIPS pattern-binding chain alongside
         whatever constraint the expression already emitted. See design
         §LHS Bind Emission.
+
+        When the expression already emitted its own constraint variable, the
+        author's bind *replaces* it rather than joining it: CLIPS binds only
+        the leading variable of a conjunctive slot constraint and rejects any
+        later one as referenced-before-defined. The generated name is an
+        implementation detail (see the Stability note in
+        ``docs/reference/yaml/rule.md``), so it is the one that gives way.
         """
+        existing = Compiler._leading_slot_var(slot, pattern)
+        if existing is not None:
+            return pattern.replace(f"?{existing}", bind)
         prefix = f"({slot} "
         if pattern.startswith(prefix) and pattern.endswith(")"):
             body = pattern[len(prefix) : -1]

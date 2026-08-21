@@ -74,6 +74,22 @@ gaps between 0.3.1 and 0.5.0 are explained under
   `not_in` emitted an unquoted `~` constraint, which at least failed the
   build with `[CSTRNCHK1]`. No shipped rule pack uses a string slot with
   these operators.
+- **Cross-fact references (`equals($alias.field)`) now compile to a real
+  join.** The reference emitted `?alias-field` in the pattern that used it,
+  but nothing bound that variable on the pattern the alias named — so CLIPS
+  bound it there instead, the constraint did nothing, and the rule matched
+  the cartesian product of its patterns. Silent: no error, no warning, the
+  rule fired on facts the author never joined. The shipped Bell-LaPadula
+  example denied a legal read by matching a resource and a subject the
+  request never named. A reference to an alias no pattern declares is now a
+  `CompilationError` instead of failing open the same way.
+- **`bind:` plus a predicate operator now produces a rule CLIPS will load.**
+  With `not_equals`, `greater_than`, `less_than`, `contains` or `matches`,
+  the bind was chained in front of the generated constraint variable —
+  `(level ?lvl&?s_0_level&:(neq ?s_0_level public))` — which CLIPS rejects
+  with `[ANALYSIS4] Variable ?s_0_level was referenced in CE #1 slot 'level'
+  before being defined`, because only the leading variable of a conjunctive
+  slot constraint binds. The bind now takes over the generated variable.
 
 ## [0.10.0] - 2026-08-20
 
