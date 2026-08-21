@@ -86,6 +86,15 @@ _DECISION_TEMPLATE = (
     '    (slot metadata (type STRING) (default "")))'
 )
 
+# Built only on an ``Engine(match_evidence=True)``. Lives in MAIN, which every
+# generated module imports with ``(import MAIN ?ALL)``, so a rule in any module
+# can assert it.
+_EVIDENCE_TEMPLATE = (
+    "(deftemplate MAIN::__fathom_evidence"
+    '    (slot rule (type STRING) (default ""))'
+    "    (multislot facts (type INTEGER)))"
+)
+
 
 # ---------------------------------------------------------------------------
 # Compartment helpers — pure functions, testable in isolation
@@ -168,6 +177,7 @@ class Engine:
         attestation_service: AttestationService | None = None,
         metrics: bool = False,
         run_limit: int | None = _DEFAULT_RUN_LIMIT,
+        match_evidence: bool = False,
     ) -> None:
         """Initialise a new Engine instance.
 
@@ -190,6 +200,11 @@ class Engine:
                 :class:`~fathom.errors.EvaluationLimitError`. ``None``
                 runs to quiescence with no budget. Defaults to
                 ``100_000``.
+            match_evidence: Record which facts, with which slot values,
+                fired each rule (:attr:`EvaluationResult.match_evidence`).
+                Off by default: it makes the compiler bind a pattern
+                address to every condition and assert an extra fact per
+                firing, so leaving it off costs nothing at all.
 
         Note:
             Engine is thread-safe: every public method serialises on an
@@ -215,7 +230,8 @@ class Engine:
         self._reload_listeners: list[Callable[[], None]] = []
         self._ruleset_yaml_bytes: bytes | None = None
 
-        self._compiler = Compiler()
+        self._match_evidence = match_evidence
+        self._compiler = Compiler(match_evidence=match_evidence)
         self._fact_manager = FactManager(
             env_provider=lambda: self._env,
             template_registry=self._template_registry,
@@ -226,6 +242,7 @@ class Engine:
             focus_order=self._focus_order,
             fact_manager=self._fact_manager,
             run_limit=run_limit,
+            match_evidence=match_evidence,
         )
         self._audit_log = AuditLog(audit_sink or NullSink())
         self._attestation_service = attestation_service
@@ -236,6 +253,8 @@ class Engine:
 
         # Build the decision template into the CLIPS environment
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision")
+        if match_evidence:
+            self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence")
 
         # Register Python external functions into CLIPS
         self._register_external_functions()
@@ -652,7 +671,8 @@ class Engine:
         Raises:
             CompilationError: On duplicate module names or invalid YAML.
         """
-        count = 0
+        loaded: list[str] = []
+        declared: list[str] = []
         self._lock.acquire()
         try:
             p = Path(path)
@@ -678,23 +698,32 @@ class Engine:
                     clips_str = self._compiler.compile_module(defn)
                     self._safe_build(clips_str, context=f"module:{defn.name}")
                     self._module_registry[defn.name] = defn
-                    count += 1
-                if focus_order:
-                    self.set_focus(focus_order)
+                    loaded.append(defn.name)
+                declared += focus_order
 
-            # A pack that declares modules but no `focus_order` used to fire
-            # nothing at all. CLIPS only drains the agenda of the module that
-            # holds the focus, so every rule scoped to a declared module sat
-            # unfired and the caller silently got the default decision -- a
-            # wrong answer, not an error. The module reference described the
-            # omission as merely non-deterministic ordering, which is what it
-            # should be: focus the declared modules in declaration order.
-            if not self._focus_order and self._module_registry:
-                self.set_focus(list(self._module_registry))
+            # Focus is engine-wide and :meth:`set_focus` REPLACES, so applying
+            # a declared focus order directly made a second pack unfocus the
+            # first: its rules stayed in the registry and simply stopped
+            # firing, and the decision fell through to the engine default with
+            # an empty rule trace. Append instead.
+            #
+            # When this call declared no focus order at all, its modules would
+            # otherwise never be focused, which is the same silent failure --
+            # CLIPS only drains the agenda of the module holding the focus, so
+            # the rules sit unfired and the caller gets the default decision.
+            # A declared order is taken as written (and may name a dependency
+            # pack's module, which is why it is not just `loaded`): a partial
+            # focus order is the author excluding a module on purpose.
+            #
+            # A pack cannot reorder a focus another pack established; within
+            # one pack the declared order is kept.
+            focus = list(dict.fromkeys([*self._focus_order, *(declared or loaded)]))
+            if focus != self._focus_order:
+                self.set_focus(focus)
         finally:
             self._lock.release()
-            if count:
-                self._metrics.record_modules_loaded(count)
+            if loaded:
+                self._metrics.record_modules_loaded(len(loaded))
 
     def load_functions(self, path: str) -> None:
         """Load YAML function definitions from *path*.
@@ -1137,6 +1166,8 @@ class Engine:
 
         # Decision template — matches what __init__ does on startup.
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision", env=new_env)
+        if self._match_evidence:
+            self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence", env=new_env)
 
         # Export MAIN so non-MAIN modules can import its constructs —
         # mirrors load_modules() first-module-seen behaviour.

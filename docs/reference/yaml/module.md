@@ -103,11 +103,19 @@ for the full focus-stack mechanics.
 ### When `focus_order` is omitted
 
 A pack that declares modules and no `focus_order:` is focused on every
-declared module, in declaration order: files in load order, and within a
-file the order the `modules:` list is written. `Engine.load_modules`
-applies this once, after every module file is parsed, and only if
-nothing has set a focus order already — so a `focus_order:` in any file,
-or an earlier `Engine.set_focus(...)`, wins outright.
+module *that call* declared, in declaration order: files in load order,
+and within a file the order the `modules:` list is written.
+`Engine.load_modules` applies this once, after every module file is
+parsed, and only when that call parsed no `focus_order:` of its own — a
+`focus_order:` in any of its files wins outright, and a partial one is
+read as the author excluding a module on purpose.
+
+Focus is engine-wide and **cumulative across calls**: whatever a call
+contributes is appended to the order already in place, never substituted
+for it. Loading a second rule pack therefore leaves the first one
+enforced. `Engine.set_focus(...)` is the exception and is documented as
+such — it replaces the whole order, which is how you narrow focus
+deliberately.
 
 The fallback exists because omitting `focus_order:` is not a request for
 a different order; it is the absence of a request. CLIPS drains only the

@@ -53,12 +53,27 @@ _LEADING_VAR_RE = re.compile(r"^\?([A-Za-z][A-Za-z0-9_-]*)")
 _GENERATED_VAR_RE = re.compile(r"^s_\d+_")
 
 
-class Compiler:
-    """Compiles Fathom YAML definitions into CLIPS construct strings."""
+#: Prefix for the pattern-address variables that carry match evidence.
+#: Hyphenated so it cannot collide with a generated slot variable
+#: (``?s_<index>_<slot>``) or a cross-reference variable
+#: (``?<alias>-<slot>``); CLIPS rejects a leading underscore outright.
+_EVIDENCE_VAR = "fathom-ev-"
 
-    def __init__(self) -> None:
+
+class Compiler:
+    """Compiles Fathom YAML definitions into CLIPS construct strings.
+
+    Args:
+        match_evidence: Emit the constructs that record which facts fired
+            each rule. Off by default: it binds a pattern address to every
+            CE and asserts an extra fact per firing, so the generated CLIPS
+            is byte-identical to the old output while it stays off.
+    """
+
+    def __init__(self, match_evidence: bool = False) -> None:
         # Track the first hierarchy loaded for backward-compat unscoped shims
         self._first_hierarchy_name: str | None = None
+        self._match_evidence = match_evidence
 
     @staticmethod
     def _escape_clips_string(value: str) -> str:
@@ -234,6 +249,11 @@ class Compiler:
                 templates,
                 joins.get((pattern.alias or "").lstrip("$"), set()),
             )
+            if self._match_evidence:
+                # Bind the pattern address so the RHS can name the fact that
+                # actually matched; clipspy exposes no accessor for an
+                # activation's basis, so the evidence has to be compiled in.
+                lhs = f"?{_EVIDENCE_VAR}{pattern_index} <- {lhs}"
             lines.append(f"    {lhs}")
             all_test_ces.extend(test_ces)
 
@@ -247,6 +267,13 @@ class Compiler:
         # RHS: action assertion
         rhs = self._compile_action(defn.then, full_name)
         lines.append(rhs)
+
+        # Evidence is emitted for every firing rule, including the
+        # assert-only ones that never produce a ``__fathom_decision``.
+        if self._match_evidence:
+            indices = " ".join(f"(fact-index ?{_EVIDENCE_VAR}{i})" for i in range(len(defn.when)))
+            escaped = self._escape_clips_string(full_name)
+            lines.append(f'    (assert (__fathom_evidence (rule "{escaped}") (facts {indices})))')
 
         lines.append(")")
         return "\n".join(lines)
@@ -1160,6 +1187,23 @@ class Compiler:
         )
 
     @staticmethod
+    def _literal(arg: str, op: str, slot_type: SlotType | None) -> str:
+        """Return *arg* as a CLIPS literal fit for a slot of *slot_type*.
+
+        A STRING slot only ever holds a quoted CLIPS string, and CLIPS holds a
+        symbol and a string to be unequal -- so an unquoted literal against one
+        decides every fact the wrong way. Only ``equals`` used to quote, which
+        left ``not_equals`` and ``in`` silently inverted (both hide inside a
+        ``:(...)`` predicate CLIPS does not type-check) and ``not_in`` failing
+        the build. Quoting is the guard here: escaping is what keeps a literal
+        from breaking out, so the token check that guards symbol slots does not
+        apply.
+        """
+        if slot_type is SlotType.STRING and not _QUOTED_ARG_RE.match(arg):
+            return f'"{Compiler._escape_clips_string(arg)}"'
+        return Compiler._validate_operator_arg(arg, op)
+
+    @staticmethod
     def _inject_bind_into_pattern(slot: str, pattern: str, bind: str) -> str:
         """Inject a CLIPS bind variable into a compiled slot pattern.
 
@@ -1272,16 +1316,11 @@ class Compiler:
             # Empty arg means match empty string ""
             if not arg:
                 return f'({slot} "")'
-            # A string slot only accepts a quoted CLIPS literal; quote and
-            # escape the argument unless the author already quoted it.
-            if slot_type is SlotType.STRING and not _QUOTED_ARG_RE.match(arg):
-                return f'({slot} "{self._escape_clips_string(arg)}")'
-            # Simple symbol literal: direct pattern match
-            return f"({slot} {self._validate_operator_arg(arg, op)})"
+            return f"({slot} {self._literal(arg, op, slot_type)})"
         elif op == "not_equals":
             if cross_ref is not None:
                 return f"({slot} {slot_var}&:(neq {slot_var} {cross_ref}))"
-            arg = self._validate_operator_arg(arg, op)
+            arg = self._literal(arg, op, slot_type)
             return f"({slot} {slot_var}&:(neq {slot_var} {arg}))"
         elif op == "greater_than":
             if cross_ref is not None:
@@ -1294,11 +1333,11 @@ class Compiler:
             arg = self._validate_operator_arg(arg, op)
             return f"({slot} {slot_var}&:(< {slot_var} {arg}))"
         elif op == "in":
-            items = [self._validate_operator_arg(i, op) for i in self._parse_list_arg(arg)]
+            items = [self._literal(i, op, slot_type) for i in self._parse_list_arg(arg)]
             or_clauses = " ".join(f"(eq {slot_var} {item})" for item in items)
             return f"({slot} {slot_var}&:(or {or_clauses}))"
         elif op == "not_in":
-            items = [self._validate_operator_arg(i, op) for i in self._parse_list_arg(arg)]
+            items = [self._literal(i, op, slot_type) for i in self._parse_list_arg(arg)]
             negations = "".join(f"&~{item}" for item in items)
             return f"({slot} {slot_var}{negations})"
         elif op == "contains":

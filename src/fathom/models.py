@@ -152,6 +152,7 @@ __all__ = [
     "FunctionDefinition",
     "HierarchyDefinition",
     "LogLevel",
+    "MatchEvidence",
     "ModuleDefinition",
     "QueryFactsRequest",
     "QueryFactsResponse",
@@ -555,6 +556,18 @@ class HierarchyDefinition(BaseModel):
         return v
 
 
+class MatchEvidence(BaseModel):
+    """The working memory that made one rule firing happen.
+
+    ``rule_trace`` says a rule fired; this says which facts it fired on.
+    One entry per firing, so a rule that fires twice on different facts
+    appears twice. Populated only on an ``Engine(match_evidence=True)``.
+    """
+
+    rule: str
+    facts: list[AssertedFact] = Field(default_factory=list)
+
+
 class EvaluationResult(BaseModel):
     """Result returned by :meth:`Engine.evaluate` after rule execution."""
 
@@ -565,6 +578,9 @@ class EvaluationResult(BaseModel):
     duration_us: int = 0
     attestation_token: str | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
+    #: Per-firing match basis, empty unless the engine was built with
+    #: ``match_evidence=True``.
+    match_evidence: list[MatchEvidence] = Field(default_factory=list)
 
 
 class AuditRecord(BaseModel):
@@ -580,6 +596,9 @@ class AuditRecord(BaseModel):
     duration_us: int
     metadata: dict[str, str] = Field(default_factory=dict)
     asserted_facts: list[AssertedFact] | None = None
+    #: Per-firing match basis, carried through from the evaluation result.
+    #: ``None`` on an engine built without ``match_evidence=True``.
+    match_evidence: list[MatchEvidence] | None = None
     #: The evaluation's attestation JWT, when the engine was given an
     #: attestation service. Carried on the record so an exported line can be
     #: verified on its own; ``None`` on an engine that does not sign.

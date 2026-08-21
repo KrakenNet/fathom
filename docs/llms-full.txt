@@ -3015,7 +3015,9 @@ from `Engine.set_focus(...)`. If a pack declares modules and sets neither,
 without that fallback the focus list is empty, no module's agenda is ever
 drained, and the caller gets the default decision back from a pack whose
 rules all matched. Declaration order is a floor, not a design: state
-`focus_order:` whenever the sequence matters.
+`focus_order:` whenever the sequence matters. Each load appends to the
+focus order rather than replacing it, so loading a second pack leaves the
+first one enforced; only `Engine.set_focus(...)` replaces it outright.
 
 The practical upshot is that modules are a coarse-grained ordering tool.
 If `policy` comes before `logging` in the focus order, every
@@ -3474,6 +3476,7 @@ class AuditRecord(BaseModel):
     duration_us: int
     metadata: dict[str, str] = Field(default_factory=dict)
     asserted_facts: list[AssertedFact] | None = None
+    match_evidence: list[MatchEvidence] | None = None
     attestation_token: str | None = None
 ```
 
@@ -3500,6 +3503,9 @@ Field by field:
   decision's rule.
 - **`asserted_facts`** — populated only when at least one loaded rule
   declares an RHS `asserts` block (see below).
+- **`match_evidence`** — which facts, with which slot values, made each
+  rule fire. `None` unless the engine was built with `match_evidence=True`
+  (see below).
 - **`attestation_token`** — the JWT signed for this same evaluation, copied
   onto the record so an exported line can be checked without the caller's
   copy of the token. `None` on an engine constructed without an
@@ -3619,6 +3625,54 @@ Two things worth flagging:
   step 4 and copied onto `AuditRecord.attestation_token` in step 6. The
   caller gets the same token on the result to forward separately if it
   wants to.
+
+## Match evidence: which facts fired the rule
+
+`rules_fired` names the rules; it doesn't say what they matched. Over a
+working memory of a hundred facts that leaves a deny unexplainable after the
+fact — you know *deny-uncleared* fired, not which agent tripped it.
+
+`Engine(match_evidence=True)` records the basis of every firing:
+
+```python
+engine = Engine.from_rules("policy/", match_evidence=True)
+engine.assert_fact("agent", {"id": "alpha", "clearance": "secret"})
+engine.assert_fact("agent", {"id": "bravo", "clearance": "none"})
+
+result = engine.evaluate()
+for firing in result.match_evidence:
+    print(firing.rule)                    # "governance::deny-uncleared"
+    for fact in firing.facts:
+        print(fact.template, fact.slots)  # agent {'id': 'bravo', 'clearance': 'none'}
+```
+
+One `MatchEvidence` entry per firing — a rule that fires twice on different
+facts appears twice — and one `AssertedFact` per condition element on the
+rule's left-hand side, in the order the conditions were written. Rules with
+no `then.action` are covered too, so an assert-only rule that quietly seeded
+a fact still explains itself.
+
+The same list is copied onto the `AuditRecord`, so evidence survives to the
+sink and through JSON serialization.
+
+### Why it is opt-in
+
+clipspy exposes no accessor for the facts behind an activation, so the
+evidence has to be compiled in: with the flag on, every condition element
+gains a pattern-address binding and every rule gains an extra `assert` on
+its right-hand side. That is a change to the generated CLIPS, not a Python
+wrapper around it.
+
+Leaving the flag off is therefore free rather than merely cheap — the
+compiler emits byte-identical CLIPS to what it emitted before the feature
+existed, the `__fathom_evidence` template is never built, and the evaluator
+returns an empty list without touching working memory. `scripts/benchmark.py`
+holds single-rule evaluation to the same `<100µs` target with the feature in
+the tree.
+
+Turn it on when you need to explain decisions after the fact — compliance
+review, incident forensics, debugging a rule that fires on the wrong join.
+Leave it off for steady-state enforcement.
 
 ## Attestation as signed proof
 
@@ -4116,7 +4170,7 @@ security model.
 ## What is not configurable by environment
 
 - **Rule paths and engine options** — `Engine(...)` arguments: audit sink,
-  attestation service, session id, evaluation `run_limit`.
+  attestation service, session id, evaluation `run_limit`, `match_evidence`.
 - **Ports and worker counts** — `serve(port=…, max_workers=…)` for gRPC, and
   the ASGI server's own flags for REST (`uvicorn --port`).
 - **Per-rule behaviour** — salience, module focus, and log level are properties
@@ -4191,7 +4245,7 @@ build.
 
 - **Interactive try-it:** [Swagger UI](try.md)
 - **Raw schema:** [`openapi.json`](openapi.json)
-- **Postman collection:** [`fathom.postman_collection.json`](fathom.postman_collection.json)
+- **Postman:** *Import → OpenAPI* pointed at `openapi.json`.
 - **Insomnia:** use *Import from URL* pointed at `openapi.json`.
 
 ## Reference
@@ -4564,10 +4618,14 @@ from compiling it as part of a ruleset:
 | `string` | quoted CLIPS string, escaped | `equals(a@b.com)` → `(id "a@b.com")` |
 | `symbol`, `integer`, `float`, `boolean` | bare CLIPS token | `equals(admin)` → `(role admin)` |
 
-An unquoted literal in a `string` slot is rejected by CLIPS at load time
-(`[CSTRNCHK1]`), so always compile against the templates — `fathom compile`
-on a ruleset directory, or on a rule file whose sibling `templates/`
-directory is present, does this for you.
+Compiling without the templates is not a mistake CLIPS reliably catches.
+`equals` and `not_in` emit a pattern constraint, so an unquoted literal
+against a `string` slot is rejected at load time (`[CSTRNCHK1]`) —
+but `not_equals` and `in` emit a `:(...)` predicate, which CLIPS does not
+type-check, and a symbol never equals a string: the rule builds clean and
+then decides every fact the wrong way. Always compile against the
+templates — `fathom compile` on a ruleset directory, or on a rule file
+whose sibling `templates/` directory is present, does this for you.
 
 **Aliases.** `alias:` on a fact pattern names it for `$alias.field`
 references. An alias must start with `$` followed by a CLIPS identifier, may
@@ -4871,11 +4929,19 @@ for the full focus-stack mechanics.
 ### When `focus_order` is omitted
 
 A pack that declares modules and no `focus_order:` is focused on every
-declared module, in declaration order: files in load order, and within a
-file the order the `modules:` list is written. `Engine.load_modules`
-applies this once, after every module file is parsed, and only if
-nothing has set a focus order already — so a `focus_order:` in any file,
-or an earlier `Engine.set_focus(...)`, wins outright.
+module *that call* declared, in declaration order: files in load order,
+and within a file the order the `modules:` list is written.
+`Engine.load_modules` applies this once, after every module file is
+parsed, and only when that call parsed no `focus_order:` of its own — a
+`focus_order:` in any of its files wins outright, and a partial one is
+read as the author excluding a module on purpose.
+
+Focus is engine-wide and **cumulative across calls**: whatever a call
+contributes is appended to the order already in place, never substituted
+for it. Loading a second rule pack therefore leaves the first one
+enforced. `Engine.set_focus(...)` is the exception and is documented as
+such — it replaces the whole order, which is how you narrow focus
+deliberately.
 
 The fallback exists because omitting `focus_order:` is not a request for
 a different order; it is the absence of a request. CLIPS drains only the
@@ -5673,34 +5739,18 @@ Both the dead tree and the stale root spec are gone; the single spec is
 generated API reference lives at
 [TypeScript SDK](./typescript-sdk/index.md).
 
-## Visual Rule Editor — `packages/fathom-editor/`
+## Visual Rule Editor
 
-**Status:** Partial (stub).
+**Status:** Planned.
 
-**Location:** `packages/fathom-editor/` — package identity `@fathom/editor`
-at `0.1.0` with `"private": true` set in `package.json:4`. Dependencies:
-React `^19.2.7`, Vite `^8.0.16`; dev toolchain TypeScript `^6.0.3`.
-
-**What exists:** Component stubs under `src/components/`: `RuleTree.tsx`,
-`ConditionBuilder.tsx`, `TemplateBrowser.tsx`, `ClipsPreview.tsx`,
-`TestRunner.tsx`, `YamlEditor.tsx`. Entry at `src/App.tsx`, Vite bootstrap
-at `src/main.tsx`, and an `src/api/` directory for backend glue.
-
-**What is missing:**
-
-- **No tests.** `package.json` declares no `test` script and no test
-  runner is installed.
-- **No backend wiring.** The original v1 design described the editor as
-  "components exist but not production-ready." The stubs do not round-trip against a live Fathom
-  REST server.
-- **Not publishable.** The package is marked `private: true` and has no
-  build artifact consumers. Building this stub out into a working visual
-  rule editor is tracked as issue
-  [#43](https://github.com/KrakenNet/fathom/issues/43).
-
-**How to use today:** `pnpm install && pnpm dev` inside
-`packages/fathom-editor/` runs the Vite dev server. This is a development
-scaffold, not a supported end-user artifact.
+The original v1 design named a browser-based rule editor. A React scaffold
+lived at `packages/fathom-editor/` and was removed: six component stubs, no
+tests, no backend wiring, and a CI job whose only assertion was that the tree
+still compiled. It never round-tripped against a live Fathom server, and
+Policy Studio (below) had meanwhile shipped
+a working browser UI over a real engine. Building the editor out is tracked as
+issue [#43](https://github.com/KrakenNet/fathom/issues/43); the scaffold is in
+git history if it is ever the right starting point.
 
 ## Framework adapters
 
@@ -5721,7 +5771,9 @@ on the previous call's working memory.
 The guard is **allowlist-only**: it permits the call when — and only when —
 the decision is exactly `allow`. Every other outcome (`deny`, `escalate`,
 `route`, `scope`, a missing decision, or any value a future release adds)
-raises `PolicyViolation`, or returns an error dict for ADK. A denylist of
+raises `PolicyViolation` — one class, defined in `fathom.integrations` and
+re-exported by every adapter, so one `except` covers all four — or returns
+an error dict for ADK. A denylist of
 known-bad decisions would fail open on anything it had not heard of.
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
 `fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
@@ -5766,16 +5818,13 @@ job covers it.
   `go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1"`, matching
   `packages/fathom-go/go.mod:1`. Generated bindings now live in
   `packages/fathom-go/proto/{fathom.pb.go,fathom_grpc.pb.go}`.
-- **No CI for the editor package.** The Python suite
+- **Every in-tree package is now covered by CI.** The Python suite
   (`.github/workflows/ci.yml`, which also covers the Studio), the Go suite
   (`.github/workflows/go-ci.yml`, unit + `-tags integration`) and the
   TypeScript suite (`.github/workflows/ts-ci.yml`, the required `ts-test`
   check, closing issue
   [#39](https://github.com/KrakenNet/fathom/issues/39)) all run on every
-  pull request. The editor (issue
-  [#43](https://github.com/KrakenNet/fathom/issues/43)) remains uncovered —
-  it has no test script to run — so every "works today" claim for that
-  package reduces to "works when run locally against a developer's machine."
+  pull request.
 
 ## See also
 

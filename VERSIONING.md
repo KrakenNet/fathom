@@ -94,10 +94,9 @@ notice or a changelog entry:
 - Rule firing order beyond what salience and `focus_order` specify.
 - Wall-clock timings, including the published performance targets. They are
   measurements of an implementation on one machine, not a contract.
-- Policy Studio (`packages/fathom-studio/`) and the visual editor
-  (`packages/fathom-editor/`). The Studio ships as its own package on its own
-  version line, and its routes — including the REST app it mounts under `/api`
-  — are not covered here.
+- Policy Studio (`packages/fathom-studio/`). It ships as its own package on
+  its own version line, and its routes — including the REST app it mounts
+  under `/api` — are not covered here.
 - The Go and TypeScript SDKs, which are pre-release and version separately.
 - Test helpers, fixtures, and everything under `tests/` and `scripts/`.
 

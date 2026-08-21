@@ -265,3 +265,36 @@ rules:
         )
         engine.assert_fact("agent", {"id": "bravo", "clearance": "secret"})
         assert engine.evaluate().decision is None
+
+
+class TestJoinsUnderMatchEvidence:
+    """The two features touch the same patterns and must compose.
+
+    Match evidence prefixes each condition element with a pattern address,
+    and the join fix adds a slot binding to the pattern that owns the alias.
+    Nothing covered both at once until they landed in the same tree.
+    """
+
+    @pytest.fixture
+    def evidence(self, tmp_path: Path) -> list:
+        engine = Engine.from_rules(_write_pack(tmp_path / "pack"), match_evidence=True)
+        engine.assert_fact("agent", {"id": "alpha", "clearance": "secret"})
+        engine.assert_fact("agent", {"id": "bravo", "clearance": "none"})
+        engine.assert_fact("request", {"agent_id": "alpha", "target": "hr"})
+        engine.assert_fact("request", {"agent_id": "bravo", "target": "payroll"})
+        return engine.evaluate().match_evidence
+
+    def test_the_rule_fires_once(self, evidence: list) -> None:
+        assert len(evidence) == 1
+
+    def test_the_evidence_names_the_joined_pair(self, evidence: list) -> None:
+        [firing] = evidence
+        assert [f.template for f in firing.facts] == ["agent", "request"]
+        assert firing.facts[0].slots["id"] == "bravo"
+        assert firing.facts[1].slots["agent_id"] == "bravo"
+
+    def test_the_pattern_address_wraps_the_bound_pattern(self) -> None:
+        clips = Compiler(match_evidence=True).compile_rule(
+            _rule(("agent_id", "equals($a.id)", None)), "governance"
+        )
+        assert "?fathom-ev-0 <- (agent (clearance none) (id ?a-id))" in clips

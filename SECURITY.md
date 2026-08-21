@@ -96,8 +96,6 @@ advisory as soon as it is confirmed, with whatever mitigation exists.
 - **Findings in a dependency** with no Fathom-specific path to reach them.
   Report those upstream; if Fathom's use makes an upstream issue exploitable
   when it otherwise would not be, that is in scope and worth saying.
-- **The visual editor** (`packages/fathom-editor`), which is a stub and is not
-  shipped.
 
 ## Hardening the deployment
 

@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from fathom.errors import EvaluationError, EvaluationLimitError
-from fathom.models import EvaluationResult, LogLevel
+from fathom.models import AssertedFact, EvaluationResult, LogLevel, MatchEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -32,12 +32,14 @@ class Evaluator:
         focus_order: list[str],
         fact_manager: FactManager | None = None,
         run_limit: int | None = None,
+        match_evidence: bool = False,
     ) -> None:
         self._env_provider = env_provider
         self._default_decision = default_decision
         self._focus_order = focus_order
         self._fact_manager = fact_manager
         self._run_limit = run_limit
+        self._match_evidence = match_evidence
 
     def set_focus_order(self, modules: list[str]) -> None:
         """Replace the evaluator's focus order."""
@@ -76,6 +78,7 @@ class Evaluator:
                     module_trace=module_trace,
                     duration_us=duration_us,
                     metadata=metadata,
+                    match_evidence=self._capture_match_evidence(env),
                 ),
                 log_level,
             )
@@ -90,6 +93,9 @@ class Evaluator:
             # above: a leftover ``__fathom_decision`` fact wedges every
             # later evaluate() with a stale or unparseable decision.
             self._cleanup_decision_facts(env)
+            if self._match_evidence:
+                for fact in list(self._iter_evidence_facts(env)):
+                    fact.retract()
 
     def _run(self, env: clips.Environment) -> None:
         """Run the agenda to quiescence, honouring the activation budget."""
@@ -216,3 +222,33 @@ class Evaluator:
         """Iterate over all ``__fathom_decision`` facts in working memory."""
         template = env.find_template("__fathom_decision")
         return template.facts()
+
+    def _iter_evidence_facts(self, env: clips.Environment) -> Any:
+        """Iterate over all ``__fathom_evidence`` facts in working memory."""
+        return env.find_template("__fathom_evidence").facts()
+
+    def _capture_match_evidence(self, env: clips.Environment) -> list[MatchEvidence]:
+        """Resolve each firing's recorded fact indices back to fact snapshots.
+
+        The compiler asserts one ``__fathom_evidence`` fact per firing,
+        holding the rule name and the ``fact-index`` of every fact that
+        matched its LHS. Nothing retracts during a run, so every index still
+        resolves against working memory here.
+        """
+        if not self._match_evidence:
+            return []
+        firings = list(self._iter_evidence_facts(env))
+        if not firings:
+            return []
+        by_index = {fact.index: fact for fact in env.facts()}
+        return [
+            MatchEvidence(
+                rule=firing["rule"],
+                facts=[
+                    AssertedFact(template=matched.template.name, slots=dict(matched))
+                    for index in firing["facts"]
+                    if (matched := by_index.get(index)) is not None
+                ],
+            )
+            for firing in firings
+        ]
