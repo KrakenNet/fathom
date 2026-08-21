@@ -78,7 +78,7 @@ mcp = [
     # Upper bound is real, not defensive: mcp 2.0 removed `mcp.server.fastmcp`,
     # which `fathom.integrations.mcp_server` imports. The floor is the fix for
     # GHSA-vj7q-gjh5-988w / GHSA-jpw9-pfvf-9f58 / GHSA-hvrp-rf83-w775.
-    "mcp>=1.28.1,<2",
+    "mcp>=1.28.1,<3",
 ]
 attestation = [
     "pyjwt[crypto]>=2.8,<3",
@@ -98,7 +98,7 @@ google-adk = [
 ]
 cli = [
     "typer[all]>=0.12,<1",
-    "rich>=13,<15",
+    "rich>=13,<16",
 ]
 metrics = [
     "prometheus_client>=0.20,<1",
@@ -109,7 +109,7 @@ grpc = [
     "grpcio-tools>=1.60,<2",
 ]
 fleet = [
-    "redis[hiredis]>=5,<8",
+    "redis[hiredis]>=5,<9",
 ]
 fleet-pg = [
     "asyncpg>=0.29,<1",
