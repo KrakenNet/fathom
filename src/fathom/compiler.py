@@ -48,12 +48,27 @@ _ARG_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:@/+?$-]+$")
 _QUOTED_ARG_RE = re.compile(r'^"(?:[^"\\]|\\.)*"$')
 
 
-class Compiler:
-    """Compiles Fathom YAML definitions into CLIPS construct strings."""
+#: Prefix for the pattern-address variables that carry match evidence.
+#: Hyphenated so it cannot collide with a generated slot variable
+#: (``?s_<index>_<slot>``) or a cross-reference variable
+#: (``?<alias>-<slot>``); CLIPS rejects a leading underscore outright.
+_EVIDENCE_VAR = "fathom-ev-"
 
-    def __init__(self) -> None:
+
+class Compiler:
+    """Compiles Fathom YAML definitions into CLIPS construct strings.
+
+    Args:
+        match_evidence: Emit the constructs that record which facts fired
+            each rule. Off by default: it binds a pattern address to every
+            CE and asserts an extra fact per firing, so the generated CLIPS
+            is byte-identical to the old output while it stays off.
+    """
+
+    def __init__(self, match_evidence: bool = False) -> None:
         # Track the first hierarchy loaded for backward-compat unscoped shims
         self._first_hierarchy_name: str | None = None
+        self._match_evidence = match_evidence
 
     @staticmethod
     def _escape_clips_string(value: str) -> str:
@@ -203,6 +218,11 @@ class Compiler:
         all_test_ces: list[str] = []
         for pattern_index, pattern in enumerate(defn.when):
             lhs, test_ces = self._compile_fact_pattern(pattern, aliases, pattern_index, templates)
+            if self._match_evidence:
+                # Bind the pattern address so the RHS can name the fact that
+                # actually matched; clipspy exposes no accessor for an
+                # activation's basis, so the evidence has to be compiled in.
+                lhs = f"?{_EVIDENCE_VAR}{pattern_index} <- {lhs}"
             lines.append(f"    {lhs}")
             all_test_ces.extend(test_ces)
 
@@ -216,6 +236,13 @@ class Compiler:
         # RHS: action assertion
         rhs = self._compile_action(defn.then, full_name)
         lines.append(rhs)
+
+        # Evidence is emitted for every firing rule, including the
+        # assert-only ones that never produce a ``__fathom_decision``.
+        if self._match_evidence:
+            indices = " ".join(f"(fact-index ?{_EVIDENCE_VAR}{i})" for i in range(len(defn.when)))
+            escaped = self._escape_clips_string(full_name)
+            lines.append(f'    (assert (__fathom_evidence (rule "{escaped}") (facts {indices})))')
 
         lines.append(")")
         return "\n".join(lines)
