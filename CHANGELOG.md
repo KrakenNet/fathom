@@ -11,6 +11,18 @@ commit list on its
 gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
+## [Unreleased]
+
+### Added
+- `Engine(match_evidence=True)` records which facts, with which slot values,
+  fired each rule. `EvaluationResult.match_evidence` and
+  `AuditRecord.match_evidence` hold one entry per firing, each naming the
+  fact behind every condition element on the rule's left-hand side —
+  including for assert-only rules that never produce a decision. clipspy
+  exposes no accessor for an activation's basis, so the evidence is compiled
+  in: the flag is off by default and the generated CLIPS is byte-identical
+  to before while it stays off.
+
 ## [0.10.0] - 2026-08-20
 
 ### Added

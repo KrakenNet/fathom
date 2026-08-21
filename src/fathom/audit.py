@@ -118,6 +118,7 @@ class AuditLog:
             duration_us=result.duration_us,
             metadata=result.metadata,
             asserted_facts=asserted_facts,
+            match_evidence=result.match_evidence or None,
             attestation_token=result.attestation_token,
         )
         self._sink.write(audit)

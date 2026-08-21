@@ -10,7 +10,7 @@ sources:
   - src/fathom/integrations/auth.py
   - src/fathom/metrics.py
   - src/fathom/cli.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
 
 # Configuration
@@ -96,7 +96,7 @@ security model.
 ## What is not configurable by environment
 
 - **Rule paths and engine options** — `Engine(...)` arguments: audit sink,
-  attestation service, session id, evaluation `run_limit`.
+  attestation service, session id, evaluation `run_limit`, `match_evidence`.
 - **Ports and worker counts** — `serve(port=…, max_workers=…)` for gRPC, and
   the ASGI server's own flags for REST (`uvicorn --port`).
 - **Per-rule behaviour** — salience, module focus, and log level are properties

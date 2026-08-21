@@ -3474,6 +3474,7 @@ class AuditRecord(BaseModel):
     duration_us: int
     metadata: dict[str, str] = Field(default_factory=dict)
     asserted_facts: list[AssertedFact] | None = None
+    match_evidence: list[MatchEvidence] | None = None
     attestation_token: str | None = None
 ```
 
@@ -3500,6 +3501,9 @@ Field by field:
   decision's rule.
 - **`asserted_facts`** — populated only when at least one loaded rule
   declares an RHS `asserts` block (see below).
+- **`match_evidence`** — which facts, with which slot values, made each
+  rule fire. `None` unless the engine was built with `match_evidence=True`
+  (see below).
 - **`attestation_token`** — the JWT signed for this same evaluation, copied
   onto the record so an exported line can be checked without the caller's
   copy of the token. `None` on an engine constructed without an
@@ -3619,6 +3623,54 @@ Two things worth flagging:
   step 4 and copied onto `AuditRecord.attestation_token` in step 6. The
   caller gets the same token on the result to forward separately if it
   wants to.
+
+## Match evidence: which facts fired the rule
+
+`rules_fired` names the rules; it doesn't say what they matched. Over a
+working memory of a hundred facts that leaves a deny unexplainable after the
+fact — you know *deny-uncleared* fired, not which agent tripped it.
+
+`Engine(match_evidence=True)` records the basis of every firing:
+
+```python
+engine = Engine.from_rules("policy/", match_evidence=True)
+engine.assert_fact("agent", {"id": "alpha", "clearance": "secret"})
+engine.assert_fact("agent", {"id": "bravo", "clearance": "none"})
+
+result = engine.evaluate()
+for firing in result.match_evidence:
+    print(firing.rule)                    # "governance::deny-uncleared"
+    for fact in firing.facts:
+        print(fact.template, fact.slots)  # agent {'id': 'bravo', 'clearance': 'none'}
+```
+
+One `MatchEvidence` entry per firing — a rule that fires twice on different
+facts appears twice — and one `AssertedFact` per condition element on the
+rule's left-hand side, in the order the conditions were written. Rules with
+no `then.action` are covered too, so an assert-only rule that quietly seeded
+a fact still explains itself.
+
+The same list is copied onto the `AuditRecord`, so evidence survives to the
+sink and through JSON serialization.
+
+### Why it is opt-in
+
+clipspy exposes no accessor for the facts behind an activation, so the
+evidence has to be compiled in: with the flag on, every condition element
+gains a pattern-address binding and every rule gains an extra `assert` on
+its right-hand side. That is a change to the generated CLIPS, not a Python
+wrapper around it.
+
+Leaving the flag off is therefore free rather than merely cheap — the
+compiler emits byte-identical CLIPS to what it emitted before the feature
+existed, the `__fathom_evidence` template is never built, and the evaluator
+returns an empty list without touching working memory. `scripts/benchmark.py`
+holds single-rule evaluation to the same `<100µs` target with the feature in
+the tree.
+
+Turn it on when you need to explain decisions after the fact — compliance
+review, incident forensics, debugging a rule that fires on the wrong join.
+Leave it off for steady-state enforcement.
 
 ## Attestation as signed proof
 
@@ -4116,7 +4168,7 @@ security model.
 ## What is not configurable by environment
 
 - **Rule paths and engine options** — `Engine(...)` arguments: audit sink,
-  attestation service, session id, evaluation `run_limit`.
+  attestation service, session id, evaluation `run_limit`, `match_evidence`.
 - **Ports and worker counts** — `serve(port=…, max_workers=…)` for gRPC, and
   the ASGI server's own flags for REST (`uvicorn --port`).
 - **Per-rule behaviour** — salience, module focus, and log level are properties
