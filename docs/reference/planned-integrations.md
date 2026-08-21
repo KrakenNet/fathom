@@ -15,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
 
 # Planned Integrations
@@ -159,7 +159,9 @@ on the previous call's working memory.
 The guard is **allowlist-only**: it permits the call when — and only when —
 the decision is exactly `allow`. Every other outcome (`deny`, `escalate`,
 `route`, `scope`, a missing decision, or any value a future release adds)
-raises `PolicyViolation`, or returns an error dict for ADK. A denylist of
+raises `PolicyViolation` — one class, defined in `fathom.integrations` and
+re-exported by every adapter, so one `except` covers all four — or returns
+an error dict for ADK. A denylist of
 known-bad decisions would fail open on anything it had not heard of.
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
 `fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
