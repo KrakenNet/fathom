@@ -1043,6 +1043,23 @@ class Compiler:
         )
 
     @staticmethod
+    def _literal(arg: str, op: str, slot_type: SlotType | None) -> str:
+        """Return *arg* as a CLIPS literal fit for a slot of *slot_type*.
+
+        A STRING slot only ever holds a quoted CLIPS string, and CLIPS holds a
+        symbol and a string to be unequal -- so an unquoted literal against one
+        decides every fact the wrong way. Only ``equals`` used to quote, which
+        left ``not_equals`` and ``in`` silently inverted (both hide inside a
+        ``:(...)`` predicate CLIPS does not type-check) and ``not_in`` failing
+        the build. Quoting is the guard here: escaping is what keeps a literal
+        from breaking out, so the token check that guards symbol slots does not
+        apply.
+        """
+        if slot_type is SlotType.STRING and not _QUOTED_ARG_RE.match(arg):
+            return f'"{Compiler._escape_clips_string(arg)}"'
+        return Compiler._validate_operator_arg(arg, op)
+
+    @staticmethod
     def _inject_bind_into_pattern(slot: str, pattern: str, bind: str) -> str:
         """Inject a CLIPS bind variable into a compiled slot pattern.
 
@@ -1145,16 +1162,11 @@ class Compiler:
             # Empty arg means match empty string ""
             if not arg:
                 return f'({slot} "")'
-            # A string slot only accepts a quoted CLIPS literal; quote and
-            # escape the argument unless the author already quoted it.
-            if slot_type is SlotType.STRING and not _QUOTED_ARG_RE.match(arg):
-                return f'({slot} "{self._escape_clips_string(arg)}")'
-            # Simple symbol literal: direct pattern match
-            return f"({slot} {self._validate_operator_arg(arg, op)})"
+            return f"({slot} {self._literal(arg, op, slot_type)})"
         elif op == "not_equals":
             if cross_ref is not None:
                 return f"({slot} {slot_var}&:(neq {slot_var} {cross_ref}))"
-            arg = self._validate_operator_arg(arg, op)
+            arg = self._literal(arg, op, slot_type)
             return f"({slot} {slot_var}&:(neq {slot_var} {arg}))"
         elif op == "greater_than":
             if cross_ref is not None:
@@ -1167,11 +1179,11 @@ class Compiler:
             arg = self._validate_operator_arg(arg, op)
             return f"({slot} {slot_var}&:(< {slot_var} {arg}))"
         elif op == "in":
-            items = [self._validate_operator_arg(i, op) for i in self._parse_list_arg(arg)]
+            items = [self._literal(i, op, slot_type) for i in self._parse_list_arg(arg)]
             or_clauses = " ".join(f"(eq {slot_var} {item})" for item in items)
             return f"({slot} {slot_var}&:(or {or_clauses}))"
         elif op == "not_in":
-            items = [self._validate_operator_arg(i, op) for i in self._parse_list_arg(arg)]
+            items = [self._literal(i, op, slot_type) for i in self._parse_list_arg(arg)]
             negations = "".join(f"&~{item}" for item in items)
             return f"({slot} {slot_var}{negations})"
         elif op == "contains":
