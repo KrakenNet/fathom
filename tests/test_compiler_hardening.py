@@ -497,6 +497,83 @@ class TestLiteralEmission:
         result = compiler.compile_rule(rule, "governance", templates)
         assert "(user (level secret))" in result
 
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("not_equals(alice@example.com)", '&:(neq ?s_0_id "alice@example.com")'),
+            ("in([alice@example.com, bob@example.com])", '(eq ?s_0_id "alice@example.com")'),
+            ("not_in([alice@example.com, bob@example.com])", '&~"alice@example.com"'),
+        ],
+    )
+    def test_negation_and_set_ops_quote_literals_for_string_slot(
+        self, compiler: Compiler, expression: str, expected: str
+    ) -> None:
+        """Every operator that emits a literal must quote it, not just ``equals``.
+
+        CLIPS holds a symbol and a string to be unequal, and neither a
+        ``:(...)`` predicate nor a ``~`` constraint is type-checked -- so an
+        unquoted literal against a STRING slot compiles clean and then decides
+        every fact the wrong way, silently.
+        """
+        templates = {
+            "user": TemplateDefinition(
+                name="user",
+                slots=[SlotDefinition(name="id", type=SlotType.STRING)],
+            )
+        }
+        rule = RuleDefinition(
+            name="id-check",
+            when=[
+                FactPattern(
+                    template="user",
+                    conditions=[ConditionEntry(slot="id", expression=expression)],
+                )
+            ],
+            then=ThenBlock(action="allow", reason="ok"),
+        )
+        assert expected in compiler.compile_rule(rule, "governance", templates)
+
+    @pytest.mark.parametrize(
+        ("expression", "matching", "other"),
+        [
+            ("not_equals(admin)", "guest", "admin"),
+            ("in([admin, root])", "admin", "guest"),
+            ("not_in([admin, root])", "guest", "admin"),
+        ],
+    )
+    def test_string_slot_operators_decide_the_right_way(
+        self, tmp_path: Path, expression: str, matching: str, other: str
+    ) -> None:
+        """The behaviour the quoting exists for: fires on one value, not the other."""
+        pack = _write_pack(
+            tmp_path,
+            rules_yaml=textwrap.dedent(f"""\
+                ruleset: governance
+                module: governance
+                rules:
+                  - name: id-check
+                    when:
+                      - template: user
+                        conditions:
+                          - slot: id
+                            expression: "{expression}"
+                    then:
+                      action: deny
+                      reason: "matched"
+            """),
+            templates_yaml=textwrap.dedent("""\
+                templates:
+                  - name: user
+                    slots:
+                      - name: id
+                        type: string
+            """),
+        )
+        engine = Engine.from_rules(str(pack))
+
+        assert engine.evaluate_once([("user", {"id": matching})]).reason == "matched"
+        assert engine.evaluate_once([("user", {"id": other})]).reason != "matched"
+
     def test_log_level_reaches_the_decision_fact(self, compiler: Compiler) -> None:
         rule = RuleDefinition(
             name="quiet",
