@@ -47,12 +47,12 @@ import rego.v1
 default allow := false
 
 allow if {
-	input.user.role == "admin"
-	input.action != "delete"
+    input.user.role == "admin"
+    input.action != "delete"
 }
 
 deny if {
-	input.user.suspended == true
+    input.user.suspended == true
 }
 ```
 
