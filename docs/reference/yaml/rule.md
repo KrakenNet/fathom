@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Rule
