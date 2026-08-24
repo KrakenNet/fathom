@@ -1,0 +1,5 @@
+modules:
+  - name: schema_denoising
+    description: "Frequency-tau schema promotion and fact alignment"
+focus_order:
+  - schema_denoising

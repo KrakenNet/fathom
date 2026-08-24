@@ -4675,7 +4675,7 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 | Set            | `in`, `not_in`                                                                                              |
 | String         | `contains`, `matches`                                                                                       |
 | Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
-| Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`          |
+| Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`, `schema_frequency_exceeds` |
 
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
@@ -5035,7 +5035,8 @@ family of rank/below/meets-or-exceeds/within-scope deffunctions driven
 by a `HierarchyDefinition`) and `raw` (the author-supplied CLIPS
 source is emitted verbatim). Temporal operators (`changed_within`,
 `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`,
-`sequence_detected`) are served by Engine-registered Python externals
+`sequence_detected`, `schema_frequency_exceeds`) are served by
+Engine-registered Python externals
 under the reserved `fathom-` prefix, **not** by `FunctionDefinition`.
 For conceptual context see
 [Five Primitives](../../concepts/five-primitives.md); for exposing
@@ -5101,9 +5102,10 @@ Compilation failures:
 ### Temporal operators (no `FunctionDefinition` needed)
 
 Temporal operators (`changed_within`, `count_exceeds`, `rate_exceeds`,
-`last_n`, `distinct_count`, `sequence_detected`) are served by
-Engine-registered Python externals under the reserved `fathom-`
-prefix, not by compiled CLIPS deffunctions. Use them directly in rule
+`last_n`, `distinct_count`, `sequence_detected`,
+`schema_frequency_exceeds`) are served by Engine-registered Python
+externals under the reserved `fathom-` prefix, not by compiled CLIPS
+deffunctions. Use them directly in rule
 conditions; **no `FunctionDefinition` declaration is required or
 accepted** — `type: temporal` was removed in 0.4.0 (raises a Pydantic
 validation error if encountered in YAML). See
@@ -5626,6 +5628,26 @@ CMMC Level 2 Cybersecurity Maturity Model Certification rule pack.
 | `au-l2-audit-records` | 100 | `escalate` | Audit record incomplete: outcome must be recorded for CUI events (AU.L2-3.3.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
 | `au-l2-traceability` | 50 | `deny` | Audit traceability failed: subject identity required for all CUI actions (AU.L2-3.3.2) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
 | `ir-l2-incident-handling` | 200 | `escalate` | Bulk CUI access detected: more than 20 reads in 600s, incident handling evaluation required (IR.L2-3.6.1) | `src/fathom/rule_packs/cmmc/rules/cmmc_rules.yaml` |
+
+
+## reference/rule-packs/schema-denoising.md
+
+# Rule Pack: `schema-denoising`
+
+Schema-denoising rule pack: frequency-tau promotion over an extraction stream.
+
+**Pack version:** `1.0`  
+**Rule count:** 3  
+**Modules:** `schema_denoising`  
+**Templates:** `aligned_fact`, `candidate_schema`, `extracted_fact`, `stable_schema`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `observe-candidate-schema` | 100 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
+| `promote-stable-schema` | 90 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
+| `align-fact-to-stable-schema` | 80 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
 
 
 ## reference/planned-integrations.md

@@ -22,6 +22,22 @@ gaps between 0.3.1 and 0.5.0 are explained under
   exposes no accessor for an activation's basis, so the evidence is compiled
   in: the flag is off by default and the generated CLIPS is byte-identical
   to before while it stays off.
+- **`schema_frequency_exceeds` temporal operator and the `schema-denoising`
+  rule pack.** A relation type extracted from an upstream stream is promoted
+  `candidate_schema` -> `stable_schema` only once at least tau facts carry it,
+  and only facts under a promoted relation become `aligned_fact`. Downstream
+  rules match `aligned_fact`, so one-off extraction noise never reaches them.
+  Detection is pure forward chaining — the host asserts and calls `evaluate()`.
+  The operator computes the same `count >= threshold` predicate as `last_n`
+  and registers under its own CLIPS name so a compiled rule reads back as the
+  operator its author wrote.
+- **A `$alias.field` value argument on the counting temporal operators**
+  (`count_exceeds`, `rate_exceeds`, `last_n`, `schema_frequency_exceeds`).
+  The value being counted can now be the one the matched fact carries instead
+  of a literal, which is what lets a single promotion rule serve an open set
+  of relations rather than one rule per relation. Only a reference to the slot
+  the condition already binds is in scope; anything else is refused at compile
+  time with the slot named, rather than reaching CLIPS as an unbound variable.
 ### Removed
 
 - **The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)

@@ -23,6 +23,7 @@ PACK_ID = {
     "hipaa": "hipaa",
     "cmmc": "cmmc",
     "ssvc": "ssvc",
+    "schema_denoising": "schema-denoising",
 }
 
 

@@ -19,7 +19,8 @@ family of rank/below/meets-or-exceeds/within-scope deffunctions driven
 by a `HierarchyDefinition`) and `raw` (the author-supplied CLIPS
 source is emitted verbatim). Temporal operators (`changed_within`,
 `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`,
-`sequence_detected`) are served by Engine-registered Python externals
+`sequence_detected`, `schema_frequency_exceeds`) are served by
+Engine-registered Python externals
 under the reserved `fathom-` prefix, **not** by `FunctionDefinition`.
 For conceptual context see
 [Five Primitives](../../concepts/five-primitives.md); for exposing
@@ -85,9 +86,10 @@ Compilation failures:
 ### Temporal operators (no `FunctionDefinition` needed)
 
 Temporal operators (`changed_within`, `count_exceeds`, `rate_exceeds`,
-`last_n`, `distinct_count`, `sequence_detected`) are served by
-Engine-registered Python externals under the reserved `fathom-`
-prefix, not by compiled CLIPS deffunctions. Use them directly in rule
+`last_n`, `distinct_count`, `sequence_detected`,
+`schema_frequency_exceeds`) are served by Engine-registered Python
+externals under the reserved `fathom-` prefix, not by compiled CLIPS
+deffunctions. Use them directly in rule
 conditions; **no `FunctionDefinition` declaration is required or
 accepted** — `type: temporal` was removed in 0.4.0 (raises a Pydantic
 validation error if encountered in YAML). See

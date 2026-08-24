@@ -172,6 +172,37 @@
     "version": "1.0"
   },
   {
+    "id": "schema-denoising",
+    "modules": [
+      "schema_denoising"
+    ],
+    "rules": [
+      {
+        "action": "",
+        "name": "observe-candidate-schema",
+        "salience": 100
+      },
+      {
+        "action": "",
+        "name": "promote-stable-schema",
+        "salience": 90
+      },
+      {
+        "action": "",
+        "name": "align-fact-to-stable-schema",
+        "salience": 80
+      }
+    ],
+    "source": "src/fathom/rule_packs/schema_denoising",
+    "templates": [
+      "aligned_fact",
+      "candidate_schema",
+      "extracted_fact",
+      "stable_schema"
+    ],
+    "version": "1.0"
+  },
+  {
     "id": "ssvc",
     "modules": [
       "ssvc_cisa",

@@ -1,0 +1,49 @@
+templates:
+  # What an external extractor emits, one fact per triple. Fathom does not
+  # extract; it decides which of these are trustworthy enough to act on.
+  - name: extracted_fact
+    slots:
+      - name: head
+        type: string
+        required: true
+      - name: relation
+        type: symbol
+        required: true
+      - name: tail
+        type: string
+        required: true
+      - name: source
+        type: string
+        default: ""
+
+  # A relation type that has been seen at least once but has not yet cleared
+  # the support threshold. Derived by `observe-candidate-schema`; the host
+  # never asserts these directly.
+  - name: candidate_schema
+    slots:
+      - name: relation
+        type: symbol
+        required: true
+
+  # A relation type whose extraction frequency reached tau. Promotion is
+  # one-way within a session: working memory only grows during evaluation.
+  - name: stable_schema
+    slots:
+      - name: relation
+        type: symbol
+        required: true
+
+  # An extracted fact whose relation is stable. This is the template
+  # downstream rules should match -- matching `extracted_fact` directly
+  # re-admits the noise the pack exists to filter out.
+  - name: aligned_fact
+    slots:
+      - name: head
+        type: string
+        required: true
+      - name: relation
+        type: symbol
+        required: true
+      - name: tail
+        type: string
+        required: true

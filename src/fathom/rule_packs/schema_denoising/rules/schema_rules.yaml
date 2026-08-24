@@ -1,0 +1,74 @@
+module: schema_denoising
+ruleset: schema-denoising
+version: "1.0"
+# Salience orders the three stages of one pass: observe every relation, then
+# promote the ones with enough support, then admit the facts those relations
+# carry. Each stage must have finished before the next can match, and CLIPS
+# fires the whole agenda at one salience before dropping to the next.
+#
+# tau lives in `promote-stable-schema` as a literal `3`. That is the one
+# number a deployment is expected to change: copy the rule, edit the literal,
+# and the threshold stays a compile-time constant rather than runtime input.
+rules:
+  # Stage 1 -- every relation the extractor produced becomes a candidate.
+  # CLIPS suppresses duplicate facts, so N extractions of the same relation
+  # leave exactly one candidate_schema behind.
+  - name: observe-candidate-schema
+    salience: 100
+    when:
+      - template: extracted_fact
+        alias: $f
+        conditions:
+          - slot: relation
+            bind: "?f-relation"
+    then:
+      assert:
+        - template: candidate_schema
+          slots:
+            relation: "?f-relation"
+
+  # Stage 2 -- promote a candidate once tau extractions support it. The
+  # `$c.relation` argument is what makes this one rule rather than one rule
+  # per relation: it counts the extracted_fact facts carrying whatever
+  # relation this candidate names.
+  - name: promote-stable-schema
+    salience: 90
+    when:
+      - template: candidate_schema
+        alias: $c
+        conditions:
+          - slot: relation
+            expression: "schema_frequency_exceeds(extracted_fact, relation, $c.relation, 3)"
+    then:
+      assert:
+        - template: stable_schema
+          slots:
+            relation: "?c-relation"
+
+  # Stage 3 -- admit the facts whose relation cleared tau. A cross-fact join
+  # on `relation`; facts under an unpromoted relation simply never produce an
+  # aligned_fact, which is the denoising.
+  - name: align-fact-to-stable-schema
+    salience: 80
+    when:
+      - template: stable_schema
+        alias: $s
+        conditions:
+          - slot: relation
+            bind: "?s-relation"
+      - template: extracted_fact
+        alias: $f
+        conditions:
+          - slot: relation
+            expression: "equals($s.relation)"
+          - slot: head
+            bind: "?f-head"
+          - slot: tail
+            bind: "?f-tail"
+    then:
+      assert:
+        - template: aligned_fact
+          slots:
+            head: "?f-head"
+            relation: "?s-relation"
+            tail: "?f-tail"

@@ -534,6 +534,12 @@ class Engine:
             return count >= int(n)
 
         env.define_function(fathom_last_n, "fathom-last-n")
+        # fathom-schema-frequency-exceeds(template, slot, value, tau) — the same
+        # count >= threshold predicate under the name the denoising contract uses.
+        # A relation type is promoted candidate -> stable once its extraction
+        # frequency reaches tau; registering the alias keeps the compiled CLIPS
+        # readable as the operator the rule author actually wrote.
+        env.define_function(fathom_last_n, "fathom-schema-frequency-exceeds")
 
         # fathom-distinct-count(template, group_slot, count_slot, threshold)
         # — true if unique values of count_slot > threshold

@@ -142,6 +142,7 @@ nav:
           - NIST 800-53: reference/rule-packs/nist-800-53.md
           - HIPAA: reference/rule-packs/hipaa.md
           - CMMC: reference/rule-packs/cmmc.md
+          - Schema Denoising: reference/rule-packs/schema-denoising.md
       - Planned Integrations: reference/planned-integrations.md
 
 markdown_extensions:
