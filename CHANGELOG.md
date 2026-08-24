@@ -38,6 +38,17 @@ gaps between 0.3.1 and 0.5.0 are explained under
   of relations rather than one rule per relation. Only a reference to the slot
   the condition already binds is in scope; anything else is refused at compile
   time with the slot named, rather than reaching CLIPS as an unbound variable.
+- **`conflict-detection` rule pack.** Reports contradictions between claims as
+  `conflict` facts, in three kinds: `mutual_exclusion` (two tails a
+  declaration says cannot both hold of one head), `temporal` (two different
+  tails for one head and relation, observed inside the same window -- far
+  apart the same pair is a legitimate change), and `granularity` (two claims
+  that disagree only about how coarse they are). Detection only: no rule
+  renders a decision, because what to do about a contradiction is a policy
+  question. Each conflict is reported once rather than once per ordering of
+  the pair. Detection is forward-chaining and host-evaluated -- a `subscribe`
+  listener fires synchronously inside `assert_fact`, which runs no inference,
+  so asserting from one would re-enter the fact manager mid-assert.
 ### Removed
 
 - **The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)

@@ -143,6 +143,7 @@ nav:
           - HIPAA: reference/rule-packs/hipaa.md
           - CMMC: reference/rule-packs/cmmc.md
           - Schema Denoising: reference/rule-packs/schema-denoising.md
+          - Conflict Detection: reference/rule-packs/conflict-detection.md
       - Planned Integrations: reference/planned-integrations.md
 
 markdown_extensions:

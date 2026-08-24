@@ -24,6 +24,7 @@ PACK_ID = {
     "cmmc": "cmmc",
     "ssvc": "ssvc",
     "schema_denoising": "schema-denoising",
+    "conflict_detection": "conflict-detection",
 }
 
 

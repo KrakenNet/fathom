@@ -1624,7 +1624,7 @@ full of YAML. After `pip install`, any process with Fathom installed can call
 
 ### Packs shipped with Fathom
 
-Fathom currently ships six first-party rule packs, registered under the same
+Fathom currently ships seven first-party rule packs, registered under the same
 entry-point group in its own `pyproject.toml`:
 
 - `owasp-agentic`
@@ -1633,12 +1633,18 @@ entry-point group in its own `pyproject.toml`:
 - `hipaa`
 - `cmmc`
 - `schema-denoising`
+- `conflict-detection`
 
-The first five render decisions. `schema-denoising` does not: its rules only
-assert facts, filtering an upstream extraction stream down to the relation
-types that appear often enough to trust. Load it alongside a decision pack and
-have that pack's rules match `aligned_fact`. See
-[Rule Pack: `schema-denoising`](../reference/rule-packs/schema-denoising.md).
+The first five render decisions. The last two do not: their rules only assert
+facts, and the host reads those facts or writes its own rules over them.
+
+- [`schema-denoising`](../reference/rule-packs/schema-denoising.md) filters an
+  upstream extraction stream down to the relation types that appear often
+  enough to trust, leaving `aligned_fact` facts behind.
+- [`conflict-detection`](../reference/rule-packs/conflict-detection.md) reports
+  contradictions between claims as `conflict` facts. It does not resolve them:
+  what to do about a contradiction is a policy question, so it belongs in your
+  rules rather than in the pack.
 
 ### Pack dependencies
 
@@ -5655,6 +5661,26 @@ Schema-denoising rule pack: frequency-tau promotion over an extraction stream.
 | `observe-candidate-schema` | 100 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
 | `promote-stable-schema` | 90 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
 | `align-fact-to-stable-schema` | 80 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
+
+
+## reference/rule-packs/conflict-detection.md
+
+# Rule Pack: `conflict-detection`
+
+Conflict-detection rule pack: contradictions in the fact layer, as facts.
+
+**Pack version:** `1.0`  
+**Rule count:** 3  
+**Modules:** `conflict_detection`  
+**Templates:** `claim`, `conflict`, `mutual_exclusion`, `subsumes`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `detect-mutual-exclusion` | 100 | `` |  | `src/fathom/rule_packs/conflict_detection/rules/conflict_rules.yaml` |
+| `detect-temporal-conflict` | 90 | `` |  | `src/fathom/rule_packs/conflict_detection/rules/conflict_rules.yaml` |
+| `detect-granularity-conflict` | 80 | `` |  | `src/fathom/rule_packs/conflict_detection/rules/conflict_rules.yaml` |
 
 
 ## reference/planned-integrations.md

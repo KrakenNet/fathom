@@ -1,0 +1,74 @@
+templates:
+  # One assertion about the world, from whatever produced it. The host
+  # asserts these; a host also running `schema-denoising` asserts the
+  # `aligned_fact` survivors as claims.
+  - name: claim
+    slots:
+      - name: head
+        type: string
+        required: true
+      - name: relation
+        type: symbol
+        required: true
+      - name: tail
+        type: string
+        required: true
+      # Unix seconds. Left at 0 the claim is treated as old, so it never
+      # pairs into a temporal conflict -- absence of a timestamp must not
+      # manufacture a contradiction.
+      - name: observed_at
+        type: float
+        default: 0.0
+      - name: source
+        type: string
+        default: ""
+
+  # "For this relation, these two tails cannot both hold of one head."
+  # Pairwise rather than a list: Fathom templates have no multislot, and a
+  # pair is what the detection rule reads anyway.
+  - name: mutual_exclusion
+    slots:
+      - name: relation
+        type: symbol
+        required: true
+      - name: tail_a
+        type: string
+        required: true
+      - name: tail_b
+        type: string
+        required: true
+
+  # "For this relation, `broader` contains `narrower`." Two claims that
+  # differ only in how coarse they are disagree about granularity, not about
+  # the facts -- resolving them means picking a level, not discarding one.
+  - name: subsumes
+    slots:
+      - name: relation
+        type: symbol
+        required: true
+      - name: broader
+        type: string
+        required: true
+      - name: narrower
+        type: string
+        required: true
+
+  # What detection produces. `kind` is a string, not a symbol, because the
+  # RHS of a rule emits an unquoted literal as a quoted CLIPS string.
+  - name: conflict
+    slots:
+      - name: kind
+        type: string
+        required: true
+      - name: head
+        type: string
+        required: true
+      - name: relation
+        type: symbol
+        required: true
+      - name: tail_a
+        type: string
+        required: true
+      - name: tail_b
+        type: string
+        required: true
