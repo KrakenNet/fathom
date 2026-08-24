@@ -1,0 +1,216 @@
+{
+  "package": {
+    "path": [
+      {
+        "type": "var",
+        "value": "data"
+      },
+      {
+        "type": "string",
+        "value": "authz"
+      },
+      {
+        "type": "string",
+        "value": "mixed"
+      }
+    ]
+  },
+  "imports": [
+    {
+      "path": {
+        "type": "ref",
+        "value": [
+          {
+            "type": "var",
+            "value": "rego"
+          },
+          {
+            "type": "string",
+            "value": "v1"
+          }
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "tenant"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "value": "acme"
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "role"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "value": "auditor"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "method"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "value": "GET"
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "negated": true,
+          "terms": {
+            "type": "ref",
+            "value": [
+              {
+                "type": "var",
+                "value": "input"
+              },
+              {
+                "type": "string",
+                "value": "authenticated"
+              }
+            ]
+          }
+        }
+      ],
+      "head": {
+        "name": "deny",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "deny"
+          }
+        ]
+      }
+    }
+  ],
+  "comments": [
+    {
+      "Text": "IEEgcmVhbGlzdGljIHBvbGljeTogbW9zdGx5IGluc2lkZSB0aGUgY29udmVydGlibGUgc3Vic2V0LCB3aXRoIG9uZSBydWxl",
+      "Location": {
+        "file": "tests/fixtures/rego/mixed.rego",
+        "row": 1,
+        "col": 1
+      }
+    },
+    {
+      "Text": "IHRoYXQgaXMgbm90LiBUaGUgY29udmVydGVyIGhhcyB0byBrZWVwIHRoZSBmaXJzdCBhbmQgcmVwb3J0IHRoZSBzZWNvbmQu",
+      "Location": {
+        "file": "tests/fixtures/rego/mixed.rego",
+        "row": 2,
+        "col": 1
+      }
+    }
+  ]
+}

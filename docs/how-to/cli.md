@@ -4,7 +4,7 @@ summary: One-line purpose + worked example for every fathom CLI command.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-20
+last_verified: 2026-08-24
 sources:
   - src/fathom/cli.py
 ---
@@ -191,6 +191,21 @@ fathom> evaluate
 fathom> quit
 ```
 
+## convert rego
+
+Translate the stateless subset of an OPA Rego policy into a Fathom pack.
+Requires the `opa` binary, which does the parsing.
+
+```shell
+fathom convert rego authz.rego --out ./converted
+```
+
+Anything outside the convertible subset is reported on stderr with the
+rule and the reason rather than approximated. The command exits non-zero
+when nothing converted; `--strict` also fails when anything was skipped.
+See [Converting a Rego policy](convert-rego.md) for the full mapping and
+the list of refusals.
+
 ## Full reference
 
 For the complete flag matrix, exit codes, and error behaviour of each
@@ -203,4 +218,5 @@ command, see the generated reference pages:
 - [test](../reference/cli/test.md)
 - [bench](../reference/cli/bench.md)
 - [verify-chain](../reference/cli/verify-chain.md)
+- [convert rego](../reference/cli/convert-rego.md)
 - [repl](../reference/cli/repl.md)

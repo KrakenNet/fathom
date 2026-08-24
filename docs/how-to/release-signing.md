@@ -4,7 +4,7 @@ summary: Install minisign, verify a Fathom wheel or sdist, and understand the cu
 audience: [app-developers, operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-20
+last_verified: 2026-08-24
 sources:
   - scripts/sign_release.sh
   - src/fathom/cli.py

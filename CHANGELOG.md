@@ -14,6 +14,17 @@ gaps between 0.3.1 and 0.5.0 are explained under
 ## [Unreleased]
 
 ### Added
+- **`fathom convert rego` — Rego to Fathom conversion.** Translates the
+  stateless subset of an OPA policy (`allow`/`deny` rules comparing `input`
+  fields against literals, plus set membership and the string built-ins) into
+  a loadable Fathom pack. Parsing is delegated to `opa parse`, not
+  reimplemented. Everything outside the subset — negation, `>=`/`<=`,
+  reference-against-reference comparisons, `data` lookups, bare truthiness —
+  is reported with the rule and the reason instead of approximated, and a rule
+  with one unconvertible condition is dropped whole rather than shipped
+  matching more broadly than the policy it came from. `--strict` fails the
+  command when anything was skipped. `fathom.rego` exposes the same conversion
+  as a library (`parse_rego`, `convert_ast`, `convert_file`).
 - `Engine(match_evidence=True)` records which facts, with which slot values,
   fired each rule. `EvaluationResult.match_evidence` and
   `AuditRecord.match_evidence` hold one entry per firing, each naming the

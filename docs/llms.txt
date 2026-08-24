@@ -16,6 +16,7 @@ Deterministic reasoning runtime for AI agents
 - [Using the CLI](https://fathom.krakn.ai/latest/how-to/cli/) — One-line purpose + worked example for every fathom CLI command.
 - [Registering a Python function](https://fathom.krakn.ai/latest/how-to/register-function/) — Expose a Python callable to CLIPS rules via Engine.register_function and call it with a raw-CLIPS test clause.
 - [Loading a rule pack](https://fathom.krakn.ai/latest/how-to/load-rule-pack/) — Load rules from a directory or a distributed Python package via Engine.from_rules, Engine.load_pack_dir and Engine.load_pack.
+- [Converting a Rego policy](https://fathom.krakn.ai/latest/how-to/convert-rego/) — Translate the stateless subset of an OPA Rego policy into Fathom YAML with fathom convert rego, and read what it refused to translate.
 - [Embedding via SDK](https://fathom.krakn.ai/latest/how-to/embed-sdk/) — Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTTP clients to the REST server).
 - [Hot-reloading rulesets in a running server](https://fathom.krakn.ai/latest/how-to/hot-reload/) — Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed default and dev escape, rotate the runtime pubkey, and confirm the live ruleset with `fathom status`.
 - [Verifying release signatures](https://fathom.krakn.ai/latest/how-to/release-signing/) — Install minisign, verify a Fathom wheel or sdist, and understand the custody + rotation policy for the release key.

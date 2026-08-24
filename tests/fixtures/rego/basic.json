@@ -1,0 +1,198 @@
+{
+  "package": {
+    "path": [
+      {
+        "type": "var",
+        "value": "data"
+      },
+      {
+        "type": "string",
+        "value": "authz"
+      },
+      {
+        "type": "string",
+        "value": "basic"
+      }
+    ]
+  },
+  "imports": [
+    {
+      "path": {
+        "type": "ref",
+        "value": [
+          {
+            "type": "var",
+            "value": "rego"
+          },
+          {
+            "type": "string",
+            "value": "v1"
+          }
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": {
+            "type": "boolean",
+            "value": true
+          }
+        }
+      ],
+      "default": true,
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": false
+        },
+        "assign": true,
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "user"
+                },
+                {
+                  "type": "string",
+                  "value": "role"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "value": "admin"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "neq"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "action"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "value": "delete"
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "user"
+                },
+                {
+                  "type": "string",
+                  "value": "suspended"
+                }
+              ]
+            },
+            {
+              "type": "boolean",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "deny",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "deny"
+          }
+        ]
+      }
+    }
+  ]
+}

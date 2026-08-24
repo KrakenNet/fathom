@@ -106,6 +106,7 @@ nav:
       - Using the CLI: how-to/cli.md
       - Registering a Python function: how-to/register-function.md
       - Loading a rule pack: how-to/load-rule-pack.md
+      - Converting a Rego policy: how-to/convert-rego.md
       - Embedding via SDK: how-to/embed-sdk.md
       - Hot-reloading rulesets: how-to/hot-reload.md
       - Verifying a signed release: how-to/release-signing.md
