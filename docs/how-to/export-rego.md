@@ -48,8 +48,8 @@ default deny := false
 # authz.basic.allow (converted from Rego)
 # fathom rule: allow-1
 allow if {
-	input.user_role == "admin"
-	input.action != "delete"
+    input.user_role == "admin"
+    input.action != "delete"
 }
 ```
 
