@@ -206,6 +206,18 @@ when nothing converted; `--strict` also fails when anything was skipped.
 See [Converting a Rego policy](convert-rego.md) for the full mapping and
 the list of refusals.
 
+## convert to-rego
+
+Export the stateless subset of a Fathom ruleset as Rego.
+
+```shell
+fathom convert to-rego ./my-ruleset -o policy.rego
+```
+
+Rules that join across facts, assert facts, or use a temporal or
+classification operator have no Rego form and are reported on stderr
+rather than written out. See [Exporting rules as Rego](export-rego.md).
+
 ## Full reference
 
 For the complete flag matrix, exit codes, and error behaviour of each
@@ -219,4 +231,5 @@ command, see the generated reference pages:
 - [bench](../reference/cli/bench.md)
 - [verify-chain](../reference/cli/verify-chain.md)
 - [convert rego](../reference/cli/convert-rego.md)
+- [convert to-rego](../reference/cli/convert-to-rego.md)
 - [repl](../reference/cli/repl.md)

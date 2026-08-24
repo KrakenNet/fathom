@@ -26,16 +26,22 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from fathom.compiler import Compiler
 from fathom.errors import CompilationError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 __all__ = [
     "ConversionResult",
+    "ExportResult",
     "OPA_DOWNLOAD_URL",
     "Skipped",
     "convert_ast",
     "convert_file",
+    "export_engine",
     "flatten_input",
     "parse_rego",
 ]
@@ -371,7 +377,7 @@ def _condition(expr: dict[str, Any], rule_name: str) -> tuple[list[str], str, ob
             return path, "in", members
         return Skipped(rule_name, "in", "the collection is not a set or array of scalars")
 
-    if op in ("startswith", "endswith", "contains", "re_match") and len(args) == 2:
+    if op in _STRING_BUILTINS and len(args) == 2:
         return _string_builtin(op, args, rule_name)
 
     if op in ("gte", "lte"):
@@ -387,16 +393,22 @@ def _condition(expr: dict[str, Any], rule_name: str) -> tuple[list[str], str, ob
     return Skipped(rule_name, f"{op or 'expression'}(...)", "unsupported built-in")
 
 
+#: String built-ins with an exact Fathom operator. `regex.match` is the
+#: current name and `re_match` the deprecated alias for the same function;
+#: both appear in real policies, so both are read.
+_STRING_BUILTINS = ("startswith", "endswith", "contains", "re_match", "regex.match")
+
+
 def _string_builtin(
     op: str, args: list[dict[str, Any]], rule_name: str
 ) -> tuple[list[str], str, object] | Skipped:
-    """startswith / endswith / contains / re_match against a literal."""
-    if op == "re_match":
-        # re_match(pattern, value) -- pattern first, unlike the others.
+    """startswith / endswith / contains / regex.match against a literal."""
+    if op in ("re_match", "regex.match"):
+        # The pattern comes first here, unlike the others.
         pattern, path = _literal(args[0]), _ref_path(args[1])
         if path and isinstance(pattern, str):
             return path, "matches", pattern
-        return Skipped(rule_name, "re_match", "pattern or subject is not literal")
+        return Skipped(rule_name, op, "pattern or subject is not literal")
 
     path, needle = _ref_path(args[0]), _literal(args[1])
     if path is None or not isinstance(needle, str):
@@ -569,3 +581,280 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
 def convert_file(source: str, *, filename: str = "policy.rego") -> ConversionResult:
     """Parse *source* with OPA and convert it. See :func:`convert_ast`."""
     return convert_ast(parse_rego(source, filename=filename))
+
+
+# ---------------------------------------------------------------------------
+# Export: Fathom -> Rego
+# ---------------------------------------------------------------------------
+#
+# The other direction, under the same rule: refuse rather than guess. Most of
+# what makes Fathom worth using -- facts that persist, cross-fact joins, the
+# temporal and classification operators -- has no Rego counterpart at all, so
+# the exportable subset is narrow by nature. A rule that leaves it is reported,
+# never flattened into a Rego rule that means something else.
+
+#: Fathom operators with an exact Rego form. Everything else -- the temporal
+#: and classification families -- is refused, because Rego evaluates one input
+#: document and has nowhere to put a question about history or a hierarchy.
+_REGO_COMPARISONS = {
+    "equals": "==",
+    "not_equals": "!=",
+    "greater_than": ">",
+    "less_than": "<",
+}
+
+
+@dataclass
+class ExportResult:
+    """One ruleset's worth of Rego, including what did not make it."""
+
+    package: str = ""
+    source: str = ""
+    skipped: list[Skipped] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    rule_count: int = 0
+
+    @property
+    def exported_anything(self) -> bool:
+        return self.rule_count > 0
+
+
+def _rego_literal(raw: str, slot_type: str) -> str:
+    """Render a Fathom condition argument as a Rego term.
+
+    The declared slot type decides, not the shape of the text: `equals(5)` on
+    a `string` slot is the string "5" in Fathom and has to stay one here.
+    A `symbol` slot holding `true` or `false` is the exception -- that is what
+    :func:`flatten_input` turns a Rego boolean into, so it goes back.
+    """
+    if slot_type == "symbol" and raw in ("true", "false"):
+        return raw
+    if slot_type in ("integer", "float"):
+        return raw
+    return json.dumps(raw)
+
+
+def _rego_set(raw: str, slot_type: str) -> str:
+    """`[a, b]` -> `{"a", "b"}`."""
+    members = [m.strip() for m in raw.strip("[]").split(",") if m.strip()]
+    return "{" + ", ".join(_rego_literal(m, slot_type) for m in members) + "}"
+
+
+def _rego_condition(reference: str, op: str, arg: str, slot_type: str) -> str | None:
+    """One Fathom condition as a Rego body expression, or None if it has none."""
+    if op in _REGO_COMPARISONS:
+        return f"{reference} {_REGO_COMPARISONS[op]} {_rego_literal(arg, slot_type)}"
+    if op == "in":
+        return f"{reference} in {_rego_set(arg, slot_type)}"
+    if op == "not_in":
+        return f"not {reference} in {_rego_set(arg, slot_type)}"
+    if op == "contains":
+        return f"contains({reference}, {json.dumps(arg)})"
+    if op == "matches":
+        return f"regex.match({json.dumps(arg)}, {reference})"
+    return None
+
+
+def _why_not_exportable(op: str) -> str:
+    """Name the family an operator belongs to, not just that it is unsupported."""
+    if op in Compiler._TEMPORAL_OPS:
+        return (
+            f"`{op}` asks a question about history, and Rego evaluates one "
+            "input document with no memory of the last one"
+        )
+    if op in Compiler._CLASSIFICATION_OPS:
+        return (
+            f"`{op}` resolves against a classification hierarchy, which is "
+            "engine state Rego has no counterpart for"
+        )
+    return f"`{op}` has no Rego equivalent"
+
+
+def _export_rule(
+    rule: Any,
+    templates: dict[str, Any],
+    reference: Callable[[str, str], str],
+) -> tuple[str, list[str]] | Skipped:
+    """One Fathom rule as (document_name, body_lines), or why not."""
+    name = rule.name
+    if rule.then.asserts:
+        return Skipped(
+            name,
+            "then.assert",
+            "the rule asserts new facts; Rego derives documents from one input "
+            "and cannot add to working memory",
+        )
+    if rule.then.action is None:
+        return Skipped(
+            name,
+            "assert-only rule",
+            "the rule produces no decision, only inference, which is the part "
+            "of Fathom Rego does not have",
+        )
+    if rule.then.scope is not None:
+        return Skipped(
+            name,
+            "then.scope",
+            "the decision carries a scope value; a Rego document is a boolean "
+            "here and has nowhere to put it",
+        )
+    if len(rule.when) != 1:
+        return Skipped(
+            name,
+            f"{len(rule.when)} fact patterns",
+            "the rule joins across facts, and Rego has one input document to join against",
+        )
+
+    pattern = rule.when[0]
+    template = templates.get(pattern.template)
+    if template is None:
+        return Skipped(name, pattern.template, "the template is not declared by this ruleset")
+    slot_types = {slot.name: str(slot.type) for slot in template.slots}
+
+    body: list[str] = []
+    for condition in pattern.conditions:
+        if condition.test is not None:
+            return Skipped(name, "test:", "a raw CLIPS conditional element cannot be translated")
+        if condition.bind is not None:
+            return Skipped(
+                name,
+                "bind:",
+                "the condition binds a variable for another condition to use, "
+                "which is a join and so has no single-document form",
+            )
+        if not condition.expression:
+            return Skipped(name, condition.slot, "the condition has no expression")
+        op, arg = Compiler._parse_operator(condition.expression)
+        # `$alias.field`, not any `$` -- a `matches(...)` regex ends with one.
+        if Compiler._resolve_cross_refs(arg) is not None:
+            return Skipped(
+                name,
+                condition.expression,
+                "the condition references another fact pattern; Rego has one input document",
+            )
+        rendered = _rego_condition(
+            reference(pattern.template, condition.slot),
+            op,
+            arg,
+            slot_types.get(condition.slot, "string"),
+        )
+        if rendered is None:
+            return Skipped(name, condition.expression, _why_not_exportable(op))
+        body.append(rendered)
+
+    if not body:
+        return Skipped(name, "no conditions", "a rule with an empty body is unconditionally true")
+    return str(rule.then.action), body
+
+
+def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
+    """Export the stateless subset of a loaded :class:`~fathom.engine.Engine`.
+
+    Args:
+        engine: An Engine with rules already loaded.
+        package: Rego package name. Defaults to the module the rules declare.
+
+    Returns:
+        An :class:`ExportResult` holding the Rego source, the rules that were
+        refused with the reason for each, and notes about what the export
+        changes even where it succeeded.
+    """
+    registry = dict(engine.rule_registry)
+    rules = list(registry.values())
+    templates = dict(engine.template_registry)
+    result = ExportResult(package=package or _default_package(registry))
+
+    # Rego's `input` is the document root. When the only template in play is
+    # the one `fathom convert rego` synthesises, slots sit at the root and a
+    # policy round-trips to the shape it started in. Otherwise the template
+    # name has to stay: two rules over different templates can never match the
+    # same fact, and collapsing them onto one root would say they can.
+    used = {rule.when[0].template for rule in rules if len(rule.when) == 1}
+    flat = used == {"input"}
+
+    def reference(template: str, slot: str) -> str:
+        return f"input.{slot}" if flat else f"input.{template}.{slot}"
+
+    documents: dict[str, list[tuple[Any, list[str]]]] = {}
+    for rule in rules:
+        exported = _export_rule(rule, templates, reference)
+        if isinstance(exported, Skipped):
+            result.skipped.append(exported)
+            continue
+        document, body = exported
+        documents.setdefault(document, []).append((rule, body))
+        result.rule_count += 1
+
+    result.notes.extend(_export_notes(rules, documents))
+    result.source = _render_rego(result.package, documents, flat)
+    return result
+
+
+def _default_package(registry: dict[str, Any]) -> str:
+    """Package name from the module the rules live in.
+
+    The registry is keyed `module::name`, which is the only place the module
+    survives -- a RuleDefinition does not carry it. Rules from more than one
+    module share a package here; Rego has no equivalent of focus order, so
+    splitting them into separate packages would suggest an isolation the
+    export does not preserve.
+    """
+    modules = {key.split("::", 1)[0] for key in registry if "::" in key}
+    if len(modules) == 1:
+        return modules.pop()
+    return "fathom.exported"
+
+
+def _export_notes(rules: list[Any], documents: dict[str, list[Any]]) -> list[str]:
+    """What the export changes even where every rule converted."""
+    notes: list[str] = []
+    if len(documents) > 1:
+        notes.append(
+            "This policy defines "
+            + ", ".join(f"`{d}`" for d in sorted(documents))
+            + ". Fathom picks one decision per evaluation; Rego evaluates every "
+            "document independently, so the caller decides precedence — "
+            "conventionally deny wins."
+        )
+    if len({rule.salience for rule in rules}) > 1:
+        notes.append(
+            "Salience is not exported. Rego has no rule ordering, so a policy "
+            "that relies on one rule firing before another does not mean the "
+            "same thing here."
+        )
+    return notes
+
+
+def _render_rego(package: str, documents: dict[str, list[Any]], flat: bool) -> str:
+    """Assemble the Rego source."""
+    if not documents:
+        return ""
+    lines = [
+        "# Generated by `fathom convert to-rego`.",
+        "#",
+        "# The stateless subset only: rules that match one fact against literals.",
+        "# Anything the exporter refused was reported on stderr, not written here.",
+        "",
+        f"package {package}",
+        "",
+        "import rego.v1",
+        "",
+    ]
+    if not flat:
+        lines[3:3] = [
+            "# Slots are addressed as `input.<template>.<slot>` because this ruleset",
+            "# matches more than one fact template and they must stay distinguishable.",
+        ]
+    for document in sorted(documents):
+        lines.append(f"default {document} := false")
+    lines.append("")
+    for document in sorted(documents):
+        for rule, body in documents[document]:
+            if rule.then.reason:
+                lines.append(f"# {rule.then.reason}")
+            lines.append(f"# fathom rule: {rule.name}")
+            lines.append(f"{document} if {{")
+            lines.extend(f"\t{expression}" for expression in body)
+            lines.append("}")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"

@@ -18,6 +18,7 @@ Deterministic reasoning runtime for AI agents
 - [Loading a rule pack](https://fathom.krakn.ai/latest/how-to/load-rule-pack/) — Load rules from a directory or a distributed Python package via Engine.from_rules, Engine.load_pack_dir and Engine.load_pack.
 - [Converting a Rego policy](https://fathom.krakn.ai/latest/how-to/convert-rego/) — Translate the stateless subset of an OPA Rego policy into Fathom YAML with fathom convert rego, and read what it refused to translate.
 - [Serving an OPA client](https://fathom.krakn.ai/latest/how-to/opa-data-api/) — Answer OPA Data API requests from Fathom, so an existing OPA caller keeps working against a converted policy.
+- [Exporting rules as Rego](https://fathom.krakn.ai/latest/how-to/export-rego/) — Export the stateless subset of a Fathom ruleset to Rego with fathom convert to-rego, and read what it refused to export.
 - [Embedding via SDK](https://fathom.krakn.ai/latest/how-to/embed-sdk/) — Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTTP clients to the REST server).
 - [Hot-reloading rulesets in a running server](https://fathom.krakn.ai/latest/how-to/hot-reload/) — Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed default and dev escape, rotate the runtime pubkey, and confirm the live ruleset with `fathom status`.
 - [Verifying release signatures](https://fathom.krakn.ai/latest/how-to/release-signing/) — Install minisign, verify a Fathom wheel or sdist, and understand the custody + rotation policy for the release key.

@@ -21,8 +21,8 @@ import yaml
 
 from fathom.compiler import Compiler
 from fathom.engine import Engine
-from fathom.errors import CompilationError
-from fathom.rego import ConversionResult, convert_ast, parse_rego
+from fathom.errors import CompilationError, ValidationError
+from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
 from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import validate_document
@@ -950,6 +950,93 @@ def _report_conversion(result: ConversionResult) -> None:
         _print_warning(f"[fathom.cli] convert note: {note}")
     for skipped in result.skipped:
         _print_warning(f"[fathom.cli] convert skipped: {skipped}")
+
+
+def _report_export(result: Any) -> None:
+    """Report an export, grouping skips by reason.
+
+    A ruleset built on cross-fact joins refuses every rule for the same
+    reason; printing that reason 144 times buries the two rules refused for a
+    different one.
+    """
+    for note in result.notes:
+        _print_warning(f"[fathom.cli] export note: {note}")
+    grouped: dict[str, list[str]] = {}
+    for skipped in result.skipped:
+        grouped.setdefault(skipped.reason, []).append(skipped.rule)
+    for reason, names in grouped.items():
+        shown = ", ".join(names[:3]) + (f", +{len(names) - 3} more" if len(names) > 3 else "")
+        _print_warning(f"[fathom.cli] export skipped {len(names)} rule(s) ({shown}): {reason}")
+
+
+@convert_app.command("to-rego")
+def convert_to_rego(
+    ruleset: Path = typer.Argument(  # noqa: B008
+        ...,
+        help="Path to a Fathom ruleset directory.",
+        exists=True,
+        file_okay=False,
+    ),
+    out_file: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--out",
+        "-o",
+        help="File to write the Rego to. Without it, the policy is printed.",
+    ),
+    package: str | None = typer.Option(
+        None,
+        "--package",
+        "-p",
+        help="Rego package name. Defaults to the module the rules declare.",
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Exit nonzero if any rule was skipped, not only if none exported.",
+    ),
+) -> None:
+    """Export the stateless subset of a Fathom ruleset as Rego.
+
+    Only rules that match one fact against literals have a Rego form. Rules
+    that join across facts, assert new facts, or use a temporal or
+    classification operator are reported and left out -- those are the parts
+    of Fathom that Rego has no counterpart for, and writing them out as
+    something Rego accepts would mean writing a different policy.
+    """
+    try:
+        engine = Engine.from_rules(str(ruleset))
+    except CompilationError as exc:
+        _print_error(f"[fathom.cli] export failed: {_compilation_error_text(exc)}")
+        raise typer.Exit(code=_EXIT_MALFORMED) from exc
+    except (OSError, ValidationError) as exc:
+        _print_error(f"[fathom.cli] export failed: cannot load {ruleset}: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+
+    result = export_engine(engine, package=package)
+    _report_export(result)
+
+    if not result.exported_anything:
+        _print_error(
+            "[fathom.cli] export failed: no rule in this ruleset is in the exportable subset"
+        )
+        raise typer.Exit(code=_EXIT_ERROR)
+
+    if out_file is None:
+        typer.echo(result.source)
+    else:
+        try:
+            out_file.write_text(result.source, encoding="utf-8")
+        except OSError as exc:
+            _print_error(f"[fathom.cli] export failed: cannot write to {out_file}: {exc}")
+            raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+        _print_success(f"wrote {out_file}")
+
+    _print_success(
+        f"exported {result.rule_count} rule(s) to package {result.package}; "
+        f"{len(result.skipped)} rule(s) skipped"
+    )
+    if strict and result.skipped:
+        raise typer.Exit(code=_EXIT_ERROR)
 
 
 @convert_app.command("rego")

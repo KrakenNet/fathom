@@ -14,6 +14,16 @@ gaps between 0.3.1 and 0.5.0 are explained under
 ## [Unreleased]
 
 ### Added
+- **`fathom convert to-rego` — Fathom to Rego export.** Writes the stateless
+  subset of a ruleset out as Rego: rules matching one fact against literals,
+  with the action as the document name and the reason as a comment. Literals
+  are rendered from the declared slot type, and a `symbol` slot holding
+  `true`/`false` goes back to a Rego boolean, so a policy imported with
+  `fathom convert rego` exports back to the shape it started in. Rules that
+  join across facts, assert facts, or use a temporal or classification
+  operator are refused with the reason and left out; repeated reasons are
+  grouped rather than printed once per rule. Losses that are not refusals —
+  salience, and allow/deny precedence — are reported as notes.
 - **OPA-compatible Data API on the REST server.** `POST /v1/data/<path>` (and
   the `GET` form with `input` as a query parameter) answers OPA's decision
   endpoint, so an existing OPA caller works against a converted policy without
