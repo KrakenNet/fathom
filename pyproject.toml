@@ -88,6 +88,11 @@ langchain = [
     "langchain-core>=0.2,<2",
 ]
 crewai = [
+    # Pulls chromadb, which carries GHSA-f4j7-r4q5-qw2c (pre-auth code
+    # injection in the ChromaDB *server*). No floor can fix it: crewai pins
+    # `chromadb~=1.1.0` and every published chromadb release is inside the
+    # advisory range. Fathom imports the chromadb client through crewai but
+    # never starts `chromadb.server`, which is the vulnerable component.
     "crewai>=0.80,<2",
 ]
 openai-agents = [

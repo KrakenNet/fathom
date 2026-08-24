@@ -97,6 +97,18 @@ advisory as soon as it is confirmed, with whatever mitigation exists.
   Report those upstream; if Fathom's use makes an upstream issue exploitable
   when it otherwise would not be, that is in scope and worth saying.
 
+## Known advisories in optional dependencies
+
+An advisory against a transitive dependency stays listed here while it has no
+upstream fix, so a scan of a Fathom install can be reconciled without guessing.
+
+- **GHSA-f4j7-r4q5-qw2c** (`chromadb`, all published versions) — pre-auth code
+  injection in the ChromaDB *server*. Reached only through the `crewai` extra,
+  which pins `chromadb~=1.1.0`; no chromadb release is outside the advisory
+  range, so there is nothing to upgrade to. Fathom imports the chromadb client
+  and never starts `chromadb.server`. The core install (`pip install
+  fathom-rules`) and the published Docker image do not contain chromadb at all.
+
 ## Hardening the deployment
 
 Configuration that materially changes the attack surface — token scopes, the
