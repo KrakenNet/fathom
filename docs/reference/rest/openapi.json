@@ -243,6 +243,37 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "OPADataRequest": {
+        "description": "OPA's Data API request body: `{\"input\": {...}}`.",
+        "properties": {
+          "input": {
+            "additionalProperties": true,
+            "title": "Input",
+            "type": "object"
+          }
+        },
+        "title": "OPADataRequest",
+        "type": "object"
+      },
+      "OPAErrorResponse": {
+        "description": "OPA's error envelope. Declared so the OpenAPI document says so.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "OPAErrorResponse",
+        "type": "object"
+      },
       "QueryFactsRequest": {
         "description": "REST API request body for POST /v1/query.",
         "properties": {
@@ -524,6 +555,218 @@
           }
         },
         "summary": "Compile Yaml"
+      }
+    },
+    "/v1/data/{path}": {
+      "get": {
+        "description": "The GET form of the Data API, with `input` as a JSON query parameter.\n\nOPA supports it and shell-based checks use it. Note that query strings are\nlogged by intermediaries, so anything sensitive belongs in the POST body.",
+        "operationId": "opa_data_get_v1_data__path__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "input",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Input"
+            }
+          },
+          {
+            "in": "query",
+            "name": "template",
+            "required": false,
+            "schema": {
+              "default": "input",
+              "title": "Template",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OPAErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OPAErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed"
+          }
+        },
+        "summary": "Opa Data Get"
+      },
+      "post": {
+        "description": "Evaluate a ruleset through OPA's Data API.\n\n`POST /v1/data/authz/basic/allow` with `{\"input\": {...}}` answers\n`{\"result\": true}`; drop the trailing `allow`/`deny` to get the whole\ndecision object instead.\n\nDeclared ``def`` for the same reason as ``/v1/evaluate``: CLIPS evaluation\nis blocking CPU work and belongs in the threadpool, not on the event loop.",
+        "operationId": "opa_data_v1_data__path__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "template",
+            "required": false,
+            "schema": {
+              "default": "input",
+              "title": "Template",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OPADataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OPAErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OPAErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed"
+          }
+        },
+        "summary": "Opa Data"
       }
     },
     "/v1/evaluate": {

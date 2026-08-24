@@ -14,6 +14,16 @@ gaps between 0.3.1 and 0.5.0 are explained under
 ## [Unreleased]
 
 ### Added
+- **OPA-compatible Data API on the REST server.** `POST /v1/data/<path>` (and
+  the `GET` form with `input` as a query parameter) answers OPA's decision
+  endpoint, so an existing OPA caller works against a converted policy without
+  code changes. Leading path segments name the ruleset and the last segment
+  names the document: a trailing `allow`/`deny` returns the bare boolean, and
+  dropping it returns the whole decision including `reason` and `rule_trace`.
+  The `input` document is flattened into slots by the same code the converter
+  uses, so the two halves cannot drift. Errors use OPA's `{code, message}`
+  envelope. Unlike OPA's, the surface requires the same bearer token as every
+  other route.
 - **`fathom convert rego` — Rego to Fathom conversion.** Translates the
   stateless subset of an OPA policy (`allow`/`deny` rules comparing `input`
   fields against literals, plus set membership and the string built-ins) into

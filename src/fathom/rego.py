@@ -36,6 +36,7 @@ __all__ = [
     "Skipped",
     "convert_ast",
     "convert_file",
+    "flatten_input",
     "parse_rego",
 ]
 
@@ -237,6 +238,31 @@ def _slot_name(path: list[str]) -> str:
     `user_role` and know which Rego reference it came from.
     """
     return "_".join(path[1:])
+
+
+def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]:
+    """Flatten an OPA `input` document into Fathom slot values.
+
+    The inverse of what :func:`_slot_name` does at conversion time, and it has
+    to stay the inverse: a policy converted here is served facts built here,
+    so `{"user": {"role": "admin"}}` must produce `user_role` and nothing
+    else. Booleans become the symbols `true` / `false` because Fathom has no
+    boolean slot type -- the same substitution the converter warns about.
+
+    Values Fathom has no slot type for (lists, null, nested nulls) are left
+    out. No rule can match on them, so carrying them through would only make
+    the assert fail on a field nothing reads.
+    """
+    flat: dict[str, Any] = {}
+    for key, value in document.items():
+        name = f"{_prefix}{key}"
+        if isinstance(value, dict):
+            flat.update(flatten_input(value, f"{name}_"))
+        elif isinstance(value, bool):
+            flat[name] = "true" if value else "false"
+        elif isinstance(value, (str, int, float)):
+            flat[name] = value
+    return flat
 
 
 def _slot_type(value: object) -> str:
