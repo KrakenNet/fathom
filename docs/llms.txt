@@ -47,4 +47,5 @@ Deterministic reasoning runtime for AI agents
 - [nist-800-53](https://fathom.krakn.ai/latest/reference/rule-packs/nist-800-53/) — Rule pack — nist-800-53
 - [hipaa](https://fathom.krakn.ai/latest/reference/rule-packs/hipaa/) — Rule pack — hipaa
 - [cmmc](https://fathom.krakn.ai/latest/reference/rule-packs/cmmc/) — Rule pack — cmmc
+- [schema-denoising](https://fathom.krakn.ai/latest/reference/rule-packs/schema-denoising/) — Rule pack — schema-denoising
 - [Planned Integrations](https://fathom.krakn.ai/latest/reference/planned-integrations/) — Reference catalog of scaffolded, partial, and planned Fathom integrations — what exists in-tree, what is missing, and what the original v1 design promised.

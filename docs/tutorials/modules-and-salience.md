@@ -4,7 +4,7 @@ summary: Use modules and salience to build a fail-closed policy where deny alway
 audience: [app-developers, rule-authors]
 diataxis: tutorial
 status: stable
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py

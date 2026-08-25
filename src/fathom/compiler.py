@@ -1039,10 +1039,61 @@ class Compiler:
         alias, field = ref.split(".", 1)
         return f"?{alias}-{field}"
 
-    #: Operators whose argument is resolved as a cross-fact reference. The
-    #: others (``in``, ``not_in``, ``contains``, ``matches``, the temporal
-    #: set) treat a leading ``$`` as literal text, so a ``$`` inside a regex
-    #: is not mistaken for a join.
+    @staticmethod
+    def _emit_count_value(value: str, op: str, slot: str, alias_prefix: str) -> str:
+        """Render the ``value`` argument of a counting temporal operator.
+
+        A plain literal is quoted and escaped. A ``$alias.field`` reference
+        emits the CLIPS variable instead, so one rule can count the facts
+        carrying whatever value the matched fact holds -- which is what makes
+        a promotion rule generic over an open set of values rather than one
+        rule per value.
+
+        Only a self-reference works: the enclosing pattern binds exactly one
+        variable here, ``?{alias}-{slot}`` for the slot this condition is on,
+        so that is the only name in scope. Anything else would compile to a
+        CLIPS reference nothing defines, which is a build failure several
+        steps removed from the mistake -- so it is rejected here instead.
+
+        Args:
+            value: The raw ``value`` argument as written in the YAML.
+            op: The temporal operator name, for the error message.
+            slot: The slot the enclosing condition is attached to.
+            alias_prefix: The enclosing pattern's alias without its ``$``,
+                or ``p<index>`` when the pattern declares no alias.
+
+        Returns:
+            Either ``?alias-slot`` or a quoted CLIPS string literal.
+
+        Raises:
+            CompilationError: If *value* is a cross-reference to anything
+                other than this condition's own slot.
+        """
+        cross_ref = Compiler._resolve_cross_refs(value)
+        if cross_ref is None:
+            return f'"{Compiler._escape_clips_string(value)}"'
+        expected = f"?{alias_prefix}-{slot}"
+        if cross_ref != expected:
+            raise CompilationError(
+                "[fathom.compiler] compile rule failed: "
+                f"temporal operator {op!r} can only reference the slot its own "
+                f"condition binds; got {value!r} on slot {slot!r} of "
+                f"pattern ${alias_prefix}, expected '${alias_prefix}.{slot}'",
+                detail=(
+                    "Counting operators read one bound variable, the one the "
+                    "enclosing pattern binds for this slot. To count on a "
+                    "different slot, put the condition on that slot."
+                ),
+            )
+        return cross_ref
+
+    #: Operators whose argument is resolved as a cross-fact reference, and so
+    #: declares a join the enclosing rule must bind. ``in``, ``not_in``,
+    #: ``contains`` and ``matches`` treat a leading ``$`` as literal text, so a
+    #: ``$`` inside a regex is not mistaken for a join. The counting temporal
+    #: operators accept a ``$alias.field`` *value* too, but only a
+    #: self-reference to the slot the condition already binds
+    #: (see :meth:`_emit_count_value`) -- no join, nothing to declare.
     _CROSS_REF_OPS = frozenset({"equals", "not_equals", "greater_than", "less_than"})
 
     @classmethod
@@ -1135,6 +1186,7 @@ class Compiler:
         "last_n",
         "distinct_count",
         "sequence_detected",
+        "schema_frequency_exceeds",
     }
 
     # Minimum argument count for each temporal operator
@@ -1145,6 +1197,7 @@ class Compiler:
         "last_n": 4,
         "distinct_count": 4,
         "sequence_detected": 2,
+        "schema_frequency_exceeds": 4,
     }
 
     # Operators compiled directly into a slot constraint
@@ -1377,6 +1430,8 @@ class Compiler:
           ``(test (fathom-distinct-count "template" "group_slot" "count_slot" threshold))``
         - ``sequence_detected(events_json, window_seconds)`` →
           ``(test (fathom-sequence-detected "events_json" window_seconds))``
+        - ``schema_frequency_exceeds(template, slot, value, tau)`` →
+          ``(test (fathom-schema-frequency-exceeds "template" "slot" "value" tau))``
 
         Args:
             op: The temporal operator name.
@@ -1421,10 +1476,8 @@ class Compiler:
             threshold = Compiler._validate_operator_arg(threshold, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
-            value_e = Compiler._escape_clips_string(value)
-            test_ce = (
-                f'(test (fathom-count-exceeds "{tmpl_e}" "{slot_e}" "{value_e}" {threshold}))'
-            )
+            value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
+            test_ce = f'(test (fathom-count-exceeds "{tmpl_e}" "{slot_e}" {value_c} {threshold}))'
             return slot_binding, test_ce
 
         if op == "rate_exceeds":
@@ -1442,23 +1495,30 @@ class Compiler:
             window = Compiler._validate_operator_arg(window, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
-            value_e = Compiler._escape_clips_string(value)
+            value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
             ts_slot_e = Compiler._escape_clips_string(ts_slot)
             test_ce = (
-                f'(test (fathom-rate-exceeds "{tmpl_e}" "{slot_e}" "{value_e}"'
+                f'(test (fathom-rate-exceeds "{tmpl_e}" "{slot_e}" {value_c}'
                 f' {threshold} {window} "{ts_slot_e}"))'
             )
             return slot_binding, test_ce
 
-        if op == "last_n":
+        if op in ("last_n", "schema_frequency_exceeds"):
             # last_n(template, slot, value, n)
+            # schema_frequency_exceeds(template, slot, value, tau)
+            # Same predicate -- count >= threshold -- under two names, because
+            # the two read as different questions: "have I seen N of these" and
+            # "is this schema supported often enough to be trusted". Each keeps
+            # its own CLIPS function name so the compiled rule reads back as the
+            # operator the author wrote.
             # First 3 args are strings (quoted), last is numeric
+            fn = "fathom-last-n" if op == "last_n" else "fathom-schema-frequency-exceeds"
             tmpl, slot_arg, value, n = args[0], args[1], args[2], args[3]
             n = Compiler._validate_operator_arg(n, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
-            value_e = Compiler._escape_clips_string(value)
-            test_ce = f'(test (fathom-last-n "{tmpl_e}" "{slot_e}" "{value_e}" {n}))'
+            value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
+            test_ce = f'(test ({fn} "{tmpl_e}" "{slot_e}" {value_c} {n}))'
             return slot_binding, test_ce
 
         if op == "distinct_count":

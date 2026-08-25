@@ -16,7 +16,7 @@ Coverage:
 * every panel route 401s without the token, and the ``?token=`` grant on ``/``
   hands a browser the cookie that unlocks them;
 * the ``fathom_sid`` session cookie is minted on the first request;
-* ``/packs`` lists the five real on-disk rule packs;
+* ``/packs`` lists the real on-disk rule packs;
 * ``POST /eval`` (Playground) evaluates against the mounted REST app and
   renders a real decision plus its ``rule_trace``;
 * one scenario seed (``01-hello-allow-deny``) loads its ruleset and renders a
@@ -70,7 +70,9 @@ _PANEL_ROUTES: tuple[str, ...] = (
     "/rest",
 )
 
-#: The five real rule packs shipped under ``src/fathom/rule_packs/``.
+#: The compliance packs the /packs panel was specified against. Not an
+#: exhaustive list: packs are added over time and the panel reads the
+#: directory, so asserting an exact set here would only pin the count.
 _EXPECTED_PACKS: tuple[str, ...] = (
     "cmmc",
     "hipaa",
@@ -122,11 +124,15 @@ def test_session_cookie_minted(client: TestClient) -> None:
     assert client.cookies.get(SESSION_COOKIE)
 
 
-def test_packs_lists_five_real_packs(client: TestClient) -> None:
-    """``/packs`` surfaces exactly the five on-disk compliance packs (AC-7.2)."""
-    assert tuple(_list_rule_packs()) == _EXPECTED_PACKS
+def test_packs_lists_the_real_on_disk_packs(client: TestClient) -> None:
+    """``/packs`` renders what is on disk, not a hardcoded UI list (AC-7.2)."""
+    listed = tuple(_list_rule_packs())
+    assert set(_EXPECTED_PACKS) <= set(listed)
     body = client.get("/packs").text
-    for pack in _EXPECTED_PACKS:
+    # Every pack the loader found is rendered, including ones added after
+    # this test was written -- a panel that lists its own fixed set would
+    # pass an exact-match assertion and still be showing stale packs.
+    for pack in listed:
         assert pack in body
 
 

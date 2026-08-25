@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Rule
@@ -203,7 +203,7 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 | Set            | `in`, `not_in`                                                                                              |
 | String         | `contains`, `matches`                                                                                       |
 | Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
-| Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`          |
+| Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`, `schema_frequency_exceeds` |
 
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a

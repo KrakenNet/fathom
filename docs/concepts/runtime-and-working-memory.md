@@ -4,7 +4,7 @@ summary: How the Fathom engine runs — sessions, the evaluation loop, module fo
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 sources:
   - src/fathom/engine.py
   - src/fathom/evaluator.py

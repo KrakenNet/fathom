@@ -4,7 +4,7 @@ summary: Load rules from a directory or a distributed Python package via Engine.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 sources:
   - src/fathom/engine.py
   - src/fathom/packs.py
@@ -142,7 +142,7 @@ full of YAML. After `pip install`, any process with Fathom installed can call
 
 ### Packs shipped with Fathom
 
-Fathom currently ships five first-party rule packs, registered under the same
+Fathom currently ships six first-party rule packs, registered under the same
 entry-point group in its own `pyproject.toml`:
 
 - `owasp-agentic`
@@ -150,6 +150,13 @@ entry-point group in its own `pyproject.toml`:
 - `nist-800-53`
 - `hipaa`
 - `cmmc`
+- `schema-denoising`
+
+The first five render decisions. `schema-denoising` does not: its rules only
+assert facts, filtering an upstream extraction stream down to the relation
+types that appear often enough to trust. Load it alongside a decision pack and
+have that pack's rules match `aligned_fact`. See
+[Rule Pack: `schema-denoising`](../reference/rule-packs/schema-denoising.md).
 
 ### Pack dependencies
 
