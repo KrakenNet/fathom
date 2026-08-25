@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import logging
 import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 if TYPE_CHECKING:
@@ -61,6 +62,7 @@ from fathom.models import (
     RulesetDefinition,
     TemplateDefinition,
 )
+from fathom.rego import flatten_input
 
 logger = logging.getLogger(__name__)
 
@@ -868,6 +870,197 @@ async def status(request: Request) -> dict[str, str | None]:
         "version": _fathom_version,
         "loaded_at": loaded_at,
     }
+
+
+# ---------------------------------------------------------------------------
+# OPA-compatible Data API
+# ---------------------------------------------------------------------------
+#
+# `POST /v1/data/<path>` is OPA's decision endpoint, and an existing OPA
+# client -- a sidecar caller, a Kubernetes admission webhook, an SDK -- speaks
+# it already. Serving it here means a policy converted with
+# `fathom convert rego` can be pointed at Fathom without touching the callers.
+#
+# The mapping mirrors OPA's own: `data.<package>.<rule>` addresses a document,
+# so leading segments name the ruleset directory and the last segment names
+# the document. A `<rule>` of `allow` or `deny` answers with the bare boolean
+# OPA would return; anything else is read as a package and answers with the
+# whole decision object.
+#
+# Deliberately NOT OPA-compatible: this surface requires the same bearer token
+# as every other route. OPA's data API is unauthenticated by default; adopting
+# that here would put an authentication hole next to the endpoints that do not
+# have one.
+
+#: Documents that answer with a bare boolean. A ruleset directory named
+#: `allow` or `deny` is shadowed by this and has to be addressed as a package
+#: -- an acceptable trade for matching OPA's addressing, and the reason the
+#: names are listed here rather than sniffed.
+_OPA_DECISION_DOCUMENTS = ("allow", "deny")
+
+#: Template the OPA `input` document is asserted as. Matches the default
+#: `fathom convert rego` emits, so a converted policy works unconfigured.
+_OPA_DEFAULT_TEMPLATE = "input"
+
+
+class OPADataRequest(BaseModel):
+    """OPA's Data API request body: `{"input": {...}}`."""
+
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class OPAErrorResponse(BaseModel):
+    """OPA's error envelope. Declared so the OpenAPI document says so."""
+
+    code: str
+    message: str
+
+
+#: Errors these two routes can produce, in OPA's envelope rather than
+#: Fathom's. 401 is the exception: it comes from the shared auth dependency,
+#: which answers in Fathom's shape.
+_OPA_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": OPAErrorResponse, "description": "Invalid request"},
+    401: {"model": ErrorResponse, "description": "Missing or invalid token"},
+    500: {"model": OPAErrorResponse, "description": "Evaluation failed"},
+}
+
+
+def _opa_error(status: int, code: str, message: str) -> JSONResponse:
+    """OPA's error envelope, which is not Fathom's.
+
+    A client written against OPA parses `code`/`message`. Returning Fathom's
+    `{"error": ..., "detail": ...}` here would mean the endpoint speaks OPA on
+    the happy path and something else the moment anything goes wrong, which is
+    the half-compatibility that costs more than no compatibility.
+    """
+    return JSONResponse(status_code=status, content={"code": code, "message": message})
+
+
+def _opa_facts(engine: Engine, template: str, document: dict[str, Any]) -> dict[str, Any]:
+    """Build the fact for *document*, keeping only slots the template declares.
+
+    OPA's `input` is an arbitrary document and a Fathom template is a fixed
+    set of typed slots. Fields no slot declares are dropped rather than
+    asserted: no rule can match on them, so passing them through would fail
+    the assert on a field nothing reads.
+    """
+    definition = engine.template_registry[template]
+    declared = {slot.name for slot in definition.slots}
+    return {k: v for k, v in flatten_input(document).items() if k in declared}
+
+
+def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONResponse:
+    """Shared body of the GET and POST forms of the Data API."""
+    segments = [segment for segment in path.split("/") if segment]
+    if not segments:
+        return _opa_error(
+            400,
+            "invalid_parameter",
+            "the whole data document is not addressable; name a ruleset, "
+            "as in /v1/data/<ruleset>/allow",
+        )
+
+    document_name = segments[-1]
+    if document_name in _OPA_DECISION_DOCUMENTS:
+        ruleset_path = "/".join(segments[:-1])
+    else:
+        document_name = ""
+        ruleset_path = "/".join(segments)
+
+    try:
+        resolved = _resolve_user_ruleset(ruleset_path)
+    except HTTPException as exc:
+        return _opa_error(exc.status_code, "invalid_parameter", str(exc.detail))
+
+    attestation = getattr(app.state, "attestation", None)
+    try:
+        engine = Engine.from_rules(resolved, attestation_service=attestation)
+    except (CompilationError, FathomValidationError, OSError) as exc:
+        return _opa_error(400, "invalid_parameter", f"ruleset {ruleset_path!r}: {exc}")
+
+    if template not in engine.template_registry:
+        return _opa_error(
+            400,
+            "invalid_parameter",
+            f"template {template!r} is not declared by this ruleset; "
+            f"pass ?template= naming one of {sorted(engine.template_registry)}",
+        )
+
+    try:
+        result = engine.evaluate_once(facts=[(template, _opa_facts(engine, template, document))])
+    except (EvaluationError, FathomValidationError) as exc:
+        return _opa_error(500, "internal_error", str(exc))
+
+    if document_name:
+        # Always defined, never OPA's `{}` undefined response: a Fathom engine
+        # has a default decision (`deny`), so some decision always comes back.
+        # That is the same shape a Rego policy with `default allow := false`
+        # produces, which is what `fathom convert rego` tells you to write.
+        return JSONResponse(content={"result": result.decision == document_name})
+
+    return JSONResponse(
+        content={
+            "result": {
+                "allow": result.decision == "allow",
+                "deny": result.decision == "deny",
+                "decision": result.decision,
+                "reason": result.reason,
+                "rule_trace": result.rule_trace,
+            }
+        }
+    )
+
+
+@app.post(
+    "/v1/data/{path:path}",
+    responses=_OPA_ERROR_RESPONSES,
+    dependencies=[Depends(_require_auth)],
+)
+def opa_data(
+    path: str,
+    request: OPADataRequest,
+    template: str = _OPA_DEFAULT_TEMPLATE,
+) -> JSONResponse:
+    """Evaluate a ruleset through OPA's Data API.
+
+    `POST /v1/data/authz/basic/allow` with `{"input": {...}}` answers
+    `{"result": true}`; drop the trailing `allow`/`deny` to get the whole
+    decision object instead.
+
+    Declared ``def`` for the same reason as ``/v1/evaluate``: CLIPS evaluation
+    is blocking CPU work and belongs in the threadpool, not on the event loop.
+    """
+    return _opa_evaluate(path, request.input, template)
+
+
+@app.get(
+    "/v1/data/{path:path}",
+    responses=_OPA_ERROR_RESPONSES,
+    dependencies=[Depends(_require_auth)],
+)
+def opa_data_get(
+    path: str,
+    # Named `input` on the wire because that is what OPA's Data API calls it;
+    # the Python name differs only to avoid shadowing the builtin.
+    input_json: str | None = Query(default=None, alias="input"),
+    template: str = _OPA_DEFAULT_TEMPLATE,
+) -> JSONResponse:
+    """The GET form of the Data API, with `input` as a JSON query parameter.
+
+    OPA supports it and shell-based checks use it. Note that query strings are
+    logged by intermediaries, so anything sensitive belongs in the POST body.
+    """
+    if input_json is None:
+        document: dict[str, Any] = {}
+    else:
+        try:
+            document = json.loads(input_json)
+        except json.JSONDecodeError as exc:
+            return _opa_error(400, "invalid_parameter", f"input is not valid JSON: {exc}")
+        if not isinstance(document, dict):
+            return _opa_error(400, "invalid_parameter", "input must be a JSON object")
+    return _opa_evaluate(path, document, template)
 
 
 _RULESET_PUBKEY_ERROR = (

@@ -814,6 +814,9 @@ constructs. `clear_facts()` and `reset()` only affect data, not compiled constru
 - [Using the CLI](cli.md)
 - [Registering a Python function](register-function.md)
 - [Loading a rule pack](load-rule-pack.md)
+- [Converting a Rego policy](convert-rego.md)
+- [Serving an OPA client](opa-data-api.md)
+- [Exporting rules as Rego](export-rego.md)
 - [Embedding via SDK](embed-sdk.md)
 - [Hot-reloading rulesets in a running server](hot-reload.md)
 - [Verifying a signed release](release-signing.md)
@@ -1377,6 +1380,33 @@ fathom> evaluate
 fathom> quit
 ```
 
+## convert rego
+
+Translate the stateless subset of an OPA Rego policy into a Fathom pack.
+Requires the `opa` binary, which does the parsing.
+
+```shell
+fathom convert rego authz.rego --out ./converted
+```
+
+Anything outside the convertible subset is reported on stderr with the
+rule and the reason rather than approximated. The command exits non-zero
+when nothing converted; `--strict` also fails when anything was skipped.
+See [Converting a Rego policy](convert-rego.md) for the full mapping and
+the list of refusals.
+
+## convert to-rego
+
+Export the stateless subset of a Fathom ruleset as Rego.
+
+```shell
+fathom convert to-rego ./my-ruleset -o policy.rego
+```
+
+Rules that join across facts, assert facts, or use a temporal or
+classification operator have no Rego form and are reported on stderr
+rather than written out. See [Exporting rules as Rego](export-rego.md).
+
 ## Full reference
 
 For the complete flag matrix, exit codes, and error behaviour of each
@@ -1389,6 +1419,8 @@ command, see the generated reference pages:
 - [test](../reference/cli/test.md)
 - [bench](../reference/cli/bench.md)
 - [verify-chain](../reference/cli/verify-chain.md)
+- [convert rego](../reference/cli/convert-rego.md)
+- [convert to-rego](../reference/cli/convert-to-rego.md)
 - [repl](../reference/cli/repl.md)
 
 
@@ -1624,7 +1656,7 @@ full of YAML. After `pip install`, any process with Fathom installed can call
 
 ### Packs shipped with Fathom
 
-Fathom currently ships six first-party rule packs, registered under the same
+Fathom currently ships seven first-party rule packs, registered under the same
 entry-point group in its own `pyproject.toml`:
 
 - `owasp-agentic`
@@ -1633,12 +1665,18 @@ entry-point group in its own `pyproject.toml`:
 - `hipaa`
 - `cmmc`
 - `schema-denoising`
+- `conflict-detection`
 
-The first five render decisions. `schema-denoising` does not: its rules only
-assert facts, filtering an upstream extraction stream down to the relation
-types that appear often enough to trust. Load it alongside a decision pack and
-have that pack's rules match `aligned_fact`. See
-[Rule Pack: `schema-denoising`](../reference/rule-packs/schema-denoising.md).
+The first five render decisions. The last two do not: their rules only assert
+facts, and the host reads those facts or writes its own rules over them.
+
+- [`schema-denoising`](../reference/rule-packs/schema-denoising.md) filters an
+  upstream extraction stream down to the relation types that appear often
+  enough to trust, leaving `aligned_fact` facts behind.
+- [`conflict-detection`](../reference/rule-packs/conflict-detection.md) reports
+  contradictions between claims as `conflict` facts. It does not resolve them:
+  what to do about a contradiction is a policy question, so it belongs in your
+  rules rather than in the pack.
 
 ### Pack dependencies
 
@@ -1721,6 +1759,392 @@ for application-specific overlays.
 - [YAML schema reference](../reference/yaml/index.md) — the top-level keys
   (`templates`, `modules`, `functions`, `rules`) that the key-inspection
   fallback looks for.
+
+
+## how-to/convert-rego.md
+
+# Converting a Rego policy
+
+`fathom convert rego` translates an [OPA](https://www.openpolicyagent.org/)
+Rego policy into a Fathom ruleset. It is a migration aid, not a compatibility
+layer: it converts the part of Rego that has an exact Fathom equivalent and
+**reports everything else instead of approximating it**.
+
+That refusal is the design. A policy converter that mistranslates is worse
+than one that declines, because the output looks finished — nobody re-reads a
+generated `allow` rule that silently dropped one of its three conditions.
+
+## Prerequisites
+
+Parsing is delegated to the real OPA binary rather than reimplemented, so
+`opa` must be on your `PATH`:
+
+```shell
+opa version
+```
+
+If it is missing, the command fails with a message naming
+[where to get it](https://www.openpolicyagent.org/docs/latest/#running-opa).
+Only the parse step needs it; the conversion itself is pure Python, and
+nothing at Fathom runtime depends on OPA.
+
+## Convert a policy
+
+Given `authz.rego`:
+
+```rego
+package authz.basic
+
+import rego.v1
+
+default allow := false
+
+allow if {
+    input.user.role == "admin"
+    input.action != "delete"
+}
+
+deny if {
+    input.user.suspended == true
+}
+```
+
+Print the YAML:
+
+```shell
+fathom convert rego authz.rego
+```
+
+Or write a loadable pack directory:
+
+```shell
+fathom convert rego authz.rego --out ./converted
+```
+
+`--out` writes `templates/`, `modules/` and `rules/`, which is the layout
+[`Engine.from_rules`](load-rule-pack.md) expects:
+
+```python
+from fathom.engine import Engine
+
+engine = Engine.from_rules("./converted")
+result = engine.evaluate_once(
+    [("input", {"user_role": "admin", "action": "read", "user_suspended": "false"})]
+)
+assert result.decision == "allow"
+```
+
+## What the mapping looks like
+
+Rego evaluates one `input` document; Fathom matches typed facts. So the
+converter synthesises **one template** holding the `input` fields the policy
+actually reads, with nested paths flattened into slot names —
+`input.user.role` becomes the slot `user_role`. Rename the template with
+`--template`.
+
+Rego ORs the bodies that share a rule name; Fathom ORs separate rules. Each
+body therefore becomes its own rule, named `<decision>-<index>`: the policy
+above converts to `allow-1` and `deny-2`.
+
+Slot types are inferred from the literals each field is compared against, and
+widen to `string` when one field is compared against literals of different
+types.
+
+## The convertible subset
+
+| Rego | Fathom condition |
+|---|---|
+| `input.x == "v"` | `equals(v)` |
+| `input.x != "v"` | `not_equals(v)` |
+| `input.n > 5`, `5 < input.n` | `greater_than(5)` |
+| `input.n < 5`, `5 > input.n` | `less_than(5)` |
+| `input.x in {"a", "b"}` | `in([a, b])` |
+| `startswith(input.p, "/pub")` | `matches(^/pub)` |
+| `endswith(input.p, ".key")` | `matches(\.key$)` |
+| `contains(input.q, "DROP")` | `contains(DROP)` |
+| `re_match("^t-[0-9]+$", input.id)` | `matches(^t-[0-9]+$)` |
+
+`startswith` and `endswith` become anchored regexes with the literal escaped,
+so a `.` in the needle stays a literal dot.
+
+## What it refuses, and why
+
+Each refusal is printed to stderr naming the rule and the construct.
+
+| Construct | Why not |
+|---|---|
+| `not input.x` | Fathom fact patterns have no negation; a rule cannot match on the absence of a value. |
+| `input.n >= 3`, `<= 3` | Fathom has no inclusive comparison. Rewriting `>= n` as `> n-1` is right for integers and wrong for everything else, so it is not done for you. |
+| `input.a == input.b` | Both operands are references. A Fathom condition compares one slot against a literal. |
+| `data.roles[_] == input.user` | `data` is a second document Fathom has no counterpart for. |
+| `count(input.tags) > 2` | The operand is a function call or a computed reference, not a field. |
+| `input.enabled` | A bare truthiness check. Compare the value explicitly. |
+| Rules not named `allow` / `deny` | Only those two head names have an unambiguous Fathom decision. |
+| Any other built-in | Unsupported; reported by name. |
+
+### A rule with one unconvertible condition is dropped whole
+
+This is the case that matters. Half of an `allow` rule matches **more
+broadly** than the whole one, so keeping the convertible conditions would
+quietly widen the policy. The whole rule is dropped and the reason says so.
+Slots that only that rule read are dropped with it, so every slot in the
+generated template is one a converted rule actually uses.
+
+## Reading the output
+
+The command exits non-zero when *nothing* converted. Use `--strict` to also
+fail when anything at all was skipped — the right setting for a pipeline that
+wants all-or-nothing, versus the default best-effort behaviour.
+
+Two things are reported as notes rather than refusals:
+
+- **`default allow := false`.** Fathom's default decision is set on the
+  engine, not in the ruleset, so the declaration is not converted.
+- **Booleans.** Fathom has no boolean slot type, so Rego's `true` / `false`
+  become the symbols `true` / `false`. Assert them as the **strings**
+  `"true"` / `"false"`; a Python `True` is rejected by slot validation rather
+  than silently failing to match.
+
+## What conversion cannot carry over
+
+The subset is stateless by construction: one `input` fact, compared against
+literals. Everything Fathom adds on top of that — facts that persist across
+evaluations, cross-fact joins, temporal operators, classification hierarchies
+— has no Rego source to convert *from*. Those are written by hand after the
+conversion, against the template the converter generated. See
+[Writing rules](writing-rules.md).
+
+
+## how-to/opa-data-api.md
+
+# Serving an OPA client
+
+The Fathom REST server answers OPA's Data API at `POST /v1/data/<path>`. An
+existing OPA caller — a sidecar client, an admission webhook, one of the OPA
+SDKs — already speaks it, so a policy moved across with
+[`fathom convert rego`](convert-rego.md) can be served without touching the
+code that calls it.
+
+## Address a decision
+
+OPA addresses a document as `data.<package>.<rule>`. The same split applies
+here: the leading segments name the ruleset directory under
+`FATHOM_RULESET_ROOT`, and the last segment names the document.
+
+```shell
+curl -sS http://localhost:8000/v1/data/authz/basic/allow \
+  -H "Authorization: Bearer $FATHOM_API_TOKEN" \
+  -d '{"input": {"user": {"role": "admin"}, "action": "read"}}'
+```
+
+```json
+{"result": true}
+```
+
+A trailing `allow` or `deny` answers with the bare boolean OPA would return.
+The `GET` form works too, with `input` as a URL-encoded JSON query parameter —
+convenient from a shell, though query strings are logged by intermediaries, so
+anything sensitive belongs in the POST body.
+
+## Address a package
+
+Drop the trailing document name and the response carries the whole decision
+instead of one boolean:
+
+```shell
+curl -sS http://localhost:8000/v1/data/authz/basic \
+  -H "Authorization: Bearer $FATHOM_API_TOKEN" \
+  -d '{"input": {"user": {"role": "admin"}, "action": "read"}}'
+```
+
+```json
+{
+  "result": {
+    "allow": true,
+    "deny": false,
+    "decision": "allow",
+    "reason": "authz.basic.allow (converted from Rego)",
+    "rule_trace": ["authz_basic::allow-1"]
+  }
+}
+```
+
+`reason` and `rule_trace` have no place in OPA's boolean answer. This is where
+to read them.
+
+## How `input` becomes facts
+
+OPA sends one arbitrary `input` document; Fathom matches typed facts. The
+document is asserted as a single fact, flattened the same way the converter
+flattens references — `input.user.role` becomes the slot `user_role` — so a
+converted policy works with no configuration.
+
+Three consequences worth knowing:
+
+- **Booleans become the symbols `true` / `false`**, because Fathom has no
+  boolean slot type. This is the same substitution `fathom convert rego`
+  warns about, and the two halves are the same code.
+- **Fields no slot declares are dropped**, not rejected. An OPA caller sends
+  its whole input document; a field no rule reads must not fail the request.
+- **Lists and nulls are dropped**, since Fathom has no slot type for them.
+
+Assert into a different template with `?template=`; an unknown name is a 400
+listing the templates the ruleset does declare.
+
+## Where this differs from OPA
+
+| | OPA | Fathom |
+|---|---|---|
+| Authentication | Open by default | Bearer token, as on every other route |
+| Undefined document | `{}` with 200 | Always defined — the engine has a default decision (`deny`) |
+| Error envelope | `{"code", "message"}` | Same, on these two routes only |
+| `POST /v1/data` (no path) | Whole data document | 400 — name a ruleset |
+
+The authentication difference is deliberate. Serving one unauthenticated
+endpoint beside a server whose other routes all require a token is an
+authentication hole, not a compatibility feature.
+
+The undefined-document difference matters if your Rego relied on `allow`
+being undefined rather than `false`. Fathom's engine always returns a
+decision, which is the shape a policy with `default allow := false` produces —
+and that default is what the converter tells you to write.
+
+Errors on these two routes use OPA's `{"code", "message"}` envelope rather
+than Fathom's `{"error", "detail"}`, so a client that parses OPA's errors
+keeps working. The one exception is `401`, which comes from the shared auth
+dependency and answers in Fathom's shape.
+
+## What this does not give you
+
+The Data API is a request/response surface: one input document, one decision.
+Facts that persist across evaluations, cross-fact joins and the temporal
+operators — the reasons to be on Fathom rather than OPA — are reached through
+[`POST /v1/evaluate`](../reference/rest/index.md), which takes a list of typed
+facts and can hold a session. Migrating the callers is a second step, after
+the policy is running.
+
+
+## how-to/export-rego.md
+
+# Exporting rules as Rego
+
+`fathom convert to-rego` writes the stateless subset of a Fathom ruleset out as
+[Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) — for
+handing a policy to a team that runs OPA, diffing it against an existing Rego
+policy, or shipping one decision into an OPA deployment you do not control.
+
+Rego is the smaller language here, so expect refusals. Most of what makes a
+Fathom ruleset worth writing — facts that persist across evaluations, joins
+across facts, the temporal and classification operators — has no Rego form at
+all. Those rules are reported, not flattened into Rego that parses and means
+something narrower.
+
+## Export a ruleset
+
+```shell
+fathom convert to-rego ./my-ruleset
+fathom convert to-rego ./my-ruleset -o policy.rego --package authz.basic
+```
+
+Without `--package`, the package name is the module the rules declare.
+
+```rego
+# Generated by `fathom convert to-rego`.
+#
+# The stateless subset only: rules that match one fact against literals.
+# Anything the exporter refused was reported on stderr, not written here.
+
+package authz.basic
+
+import rego.v1
+
+default allow := false
+default deny := false
+
+# authz.basic.allow (converted from Rego)
+# fathom rule: allow-1
+allow if {
+    input.user_role == "admin"
+    input.action != "delete"
+}
+```
+
+The rule's `then.reason` becomes a comment. Rego's answer is a bare boolean
+with nowhere to put a reason, and dropping it loses the one thing that
+explains the rule.
+
+## What exports
+
+A rule exports when it matches **one** fact against literals and produces a
+decision. The action becomes the Rego document name, so a Fathom `allow` rule
+becomes `allow if { ... }` with a `default allow := false` beside it.
+
+| Fathom condition | Rego |
+|---|---|
+| `equals(v)` / `not_equals(v)` | `== "v"` / `!= "v"` |
+| `greater_than(n)` / `less_than(n)` | `> n` / `< n` |
+| `in([a, b])` | `in {"a", "b"}` |
+| `not_in([a, b])` | `not ... in {"a", "b"}` |
+| `contains(v)` | `contains(input.x, "v")` |
+| `matches(p)` | `regex.match("p", input.x)` |
+
+Literals are rendered from the **declared slot type**, not from how the text
+looks: `equals(5)` on a `string` slot is the string `"5"`, and on an `integer`
+slot it is `5`. A `symbol` slot holding `true` or `false` becomes a Rego
+boolean, which is the inverse of what
+[the importer](convert-rego.md) does on the way in.
+
+## How slots are addressed
+
+Rego has one `input` document, and Fathom facts are typed. So the template
+name stays in the path: a rule over template `request` reads
+`input.request.role`. Two rules over different templates can never match the
+same fact, and collapsing them onto one document root would say they can.
+
+The exception is a ruleset whose only template is named `input` — the shape
+`fathom convert rego` produces. There the slots sit at the document root
+(`input.user_role`), so a policy imported from Rego exports back to the shape
+it started in.
+
+## What it refuses
+
+Each refusal names the rule and the reason, on stderr. Refusals that share a
+reason are grouped, so a ruleset built on cross-fact joins reports that once
+with a count rather than once per rule.
+
+| Rule | Why not |
+|---|---|
+| More than one fact pattern | The rule joins across facts; Rego has one input document to join against. |
+| `then.assert` | The rule adds to working memory. Rego derives documents from one input and cannot. |
+| No `then.action` | Pure inference — the part of Fathom Rego does not have. |
+| `then.scope` | The decision carries a scope value; a Rego document is a boolean here. |
+| A temporal operator | `changed_within`, `count_exceeds` and the rest ask about history, and Rego has no memory of the last input. |
+| A classification operator | `below`, `meets_or_exceeds` and the rest resolve against a hierarchy, which is engine state. |
+| `bind:` or `test:` | A bind is a join; a raw CLIPS conditional element has no translation. |
+| A `$alias.field` reference | A cross-fact reference. |
+
+A refused rule is left out entirely. `--strict` exits non-zero when anything
+was refused; without it the command exits non-zero only when *nothing*
+exported.
+
+## What the export changes even when it succeeds
+
+Two differences are reported as notes rather than refusals, because the rules
+themselves convert cleanly:
+
+- **Precedence.** Fathom picks one decision per evaluation. Rego evaluates
+  `allow` and `deny` independently, so a policy defining both leaves the
+  precedence to the caller — conventionally, deny wins.
+- **Salience.** Rego has no rule ordering. A ruleset that relies on one rule
+  firing before another does not mean the same thing once exported.
+
+## Round-tripping
+
+A Rego policy taken through [`fathom convert rego`](convert-rego.md) and back
+out through `to-rego` lands on the same rules. The package name does not
+survive on its own — Fathom module names cannot hold dots, so `authz.basic`
+becomes the module `authz_basic` — so pass `--package authz.basic` to restore
+it.
 
 
 ## how-to/embed-sdk.md
@@ -5292,7 +5716,7 @@ bypasses it — see each subsection.
 }
 ```
 
-The endpoint (`src/fathom/integrations/rest.py` lines 363–384) requires
+The endpoint (`src/fathom/integrations/rest.py` lines 547–564) requires
 an existing session created via `POST /v1/evaluate`; an unknown
 `session_id` returns **404 session not found**. Companion endpoints
 `POST /v1/query` and `DELETE /v1/facts` accept `session_id`,
@@ -5301,13 +5725,13 @@ the SDK.
 
 ### SDK — `Engine.assert_fact` / `Engine.assert_facts`
 
-Single (`src/fathom/engine.py` line 1179):
+Single (`src/fathom/engine.py` line 1309):
 
 ```python
 engine.assert_fact("access-request", {"subject": "alice", "action": "read"})
 ```
 
-Atomic batch (`src/fathom/engine.py` line 1235) — every fact is
+Atomic batch (`src/fathom/engine.py` line 1365) — every fact is
 validated first; if any fails, **none** are asserted:
 
 ```python
@@ -5500,6 +5924,8 @@ it explicitly.
 |---|---|
 | [`fathom bench`](bench.md) | |
 | [`fathom compile`](compile.md) | |
+| [`fathom convert rego`](convert-rego.md) | |
+| [`fathom convert to-rego`](convert-to-rego.md) | |
 | [`fathom info`](info.md) | |
 | [`fathom repl`](repl.md) | |
 | [`fathom status`](status.md) | |
@@ -5655,6 +6081,26 @@ Schema-denoising rule pack: frequency-tau promotion over an extraction stream.
 | `observe-candidate-schema` | 100 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
 | `promote-stable-schema` | 90 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
 | `align-fact-to-stable-schema` | 80 | `` |  | `src/fathom/rule_packs/schema_denoising/rules/schema_rules.yaml` |
+
+
+## reference/rule-packs/conflict-detection.md
+
+# Rule Pack: `conflict-detection`
+
+Conflict-detection rule pack: contradictions in the fact layer, as facts.
+
+**Pack version:** `1.0`  
+**Rule count:** 3  
+**Modules:** `conflict_detection`  
+**Templates:** `claim`, `conflict`, `mutual_exclusion`, `subsumes`
+
+## Rules
+
+| Name | Salience | Action | Reason | Source |
+|---|---|---|---|---|
+| `detect-mutual-exclusion` | 100 | `` |  | `src/fathom/rule_packs/conflict_detection/rules/conflict_rules.yaml` |
+| `detect-temporal-conflict` | 90 | `` |  | `src/fathom/rule_packs/conflict_detection/rules/conflict_rules.yaml` |
+| `detect-granularity-conflict` | 80 | `` |  | `src/fathom/rule_packs/conflict_detection/rules/conflict_rules.yaml` |
 
 
 ## reference/planned-integrations.md

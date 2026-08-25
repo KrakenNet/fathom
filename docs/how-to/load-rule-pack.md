@@ -4,7 +4,7 @@ summary: Load rules from a directory or a distributed Python package via Engine.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 sources:
   - src/fathom/engine.py
   - src/fathom/packs.py
@@ -142,7 +142,7 @@ full of YAML. After `pip install`, any process with Fathom installed can call
 
 ### Packs shipped with Fathom
 
-Fathom currently ships six first-party rule packs, registered under the same
+Fathom currently ships seven first-party rule packs, registered under the same
 entry-point group in its own `pyproject.toml`:
 
 - `owasp-agentic`
@@ -151,12 +151,18 @@ entry-point group in its own `pyproject.toml`:
 - `hipaa`
 - `cmmc`
 - `schema-denoising`
+- `conflict-detection`
 
-The first five render decisions. `schema-denoising` does not: its rules only
-assert facts, filtering an upstream extraction stream down to the relation
-types that appear often enough to trust. Load it alongside a decision pack and
-have that pack's rules match `aligned_fact`. See
-[Rule Pack: `schema-denoising`](../reference/rule-packs/schema-denoising.md).
+The first five render decisions. The last two do not: their rules only assert
+facts, and the host reads those facts or writes its own rules over them.
+
+- [`schema-denoising`](../reference/rule-packs/schema-denoising.md) filters an
+  upstream extraction stream down to the relation types that appear often
+  enough to trust, leaving `aligned_fact` facts behind.
+- [`conflict-detection`](../reference/rule-packs/conflict-detection.md) reports
+  contradictions between claims as `conflict` facts. It does not resolve them:
+  what to do about a contradiction is a policy question, so it belongs in your
+  rules rather than in the pack.
 
 ### Pack dependencies
 

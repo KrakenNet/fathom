@@ -14,6 +14,37 @@ gaps between 0.3.1 and 0.5.0 are explained under
 ## [Unreleased]
 
 ### Added
+- **`fathom convert to-rego` — Fathom to Rego export.** Writes the stateless
+  subset of a ruleset out as Rego: rules matching one fact against literals,
+  with the action as the document name and the reason as a comment. Literals
+  are rendered from the declared slot type, and a `symbol` slot holding
+  `true`/`false` goes back to a Rego boolean, so a policy imported with
+  `fathom convert rego` exports back to the shape it started in. Rules that
+  join across facts, assert facts, or use a temporal or classification
+  operator are refused with the reason and left out; repeated reasons are
+  grouped rather than printed once per rule. Losses that are not refusals —
+  salience, and allow/deny precedence — are reported as notes.
+- **OPA-compatible Data API on the REST server.** `POST /v1/data/<path>` (and
+  the `GET` form with `input` as a query parameter) answers OPA's decision
+  endpoint, so an existing OPA caller works against a converted policy without
+  code changes. Leading path segments name the ruleset and the last segment
+  names the document: a trailing `allow`/`deny` returns the bare boolean, and
+  dropping it returns the whole decision including `reason` and `rule_trace`.
+  The `input` document is flattened into slots by the same code the converter
+  uses, so the two halves cannot drift. Errors use OPA's `{code, message}`
+  envelope. Unlike OPA's, the surface requires the same bearer token as every
+  other route.
+- **`fathom convert rego` — Rego to Fathom conversion.** Translates the
+  stateless subset of an OPA policy (`allow`/`deny` rules comparing `input`
+  fields against literals, plus set membership and the string built-ins) into
+  a loadable Fathom pack. Parsing is delegated to `opa parse`, not
+  reimplemented. Everything outside the subset — negation, `>=`/`<=`,
+  reference-against-reference comparisons, `data` lookups, bare truthiness —
+  is reported with the rule and the reason instead of approximated, and a rule
+  with one unconvertible condition is dropped whole rather than shipped
+  matching more broadly than the policy it came from. `--strict` fails the
+  command when anything was skipped. `fathom.rego` exposes the same conversion
+  as a library (`parse_rego`, `convert_ast`, `convert_file`).
 - `Engine(match_evidence=True)` records which facts, with which slot values,
   fired each rule. `EvaluationResult.match_evidence` and
   `AuditRecord.match_evidence` hold one entry per firing, each naming the
@@ -38,6 +69,17 @@ gaps between 0.3.1 and 0.5.0 are explained under
   of relations rather than one rule per relation. Only a reference to the slot
   the condition already binds is in scope; anything else is refused at compile
   time with the slot named, rather than reaching CLIPS as an unbound variable.
+- **`conflict-detection` rule pack.** Reports contradictions between claims as
+  `conflict` facts, in three kinds: `mutual_exclusion` (two tails a
+  declaration says cannot both hold of one head), `temporal` (two different
+  tails for one head and relation, observed inside the same window -- far
+  apart the same pair is a legitimate change), and `granularity` (two claims
+  that disagree only about how coarse they are). Detection only: no rule
+  renders a decision, because what to do about a contradiction is a policy
+  question. Each conflict is reported once rather than once per ordering of
+  the pair. Detection is forward-chaining and host-evaluated -- a `subscribe`
+  listener fires synchronously inside `assert_fact`, which runs no inference,
+  so asserting from one would re-enter the fact manager mid-assert.
 ### Removed
 
 - **The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)

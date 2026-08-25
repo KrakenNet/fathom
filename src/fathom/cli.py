@@ -21,7 +21,8 @@ import yaml
 
 from fathom.compiler import Compiler
 from fathom.engine import Engine
-from fathom.errors import CompilationError
+from fathom.errors import CompilationError, ValidationError
+from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
 from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import validate_document
@@ -905,6 +906,222 @@ def repl(
     except Exception as exc:
         _print_error(f"[fathom.cli] repl failed: {exc}")
         raise typer.Exit(code=_EXIT_ERROR) from exc
+
+
+# ===========================================================================
+# convert -- move a policy between Fathom and another engine
+# ===========================================================================
+
+convert_app = typer.Typer(
+    name="convert",
+    help="Convert policies between Fathom YAML and other engines.",
+    no_args_is_help=True,
+)
+app.add_typer(convert_app)
+
+
+def _write_pack(out_dir: Path, result: ConversionResult) -> list[Path]:
+    """Write a ConversionResult as a loadable Fathom pack directory."""
+    written: list[Path] = []
+    payloads = {
+        "templates": {"templates": result.templates},
+        "modules": {"modules": result.modules, "focus_order": [result.module]},
+        "rules": {
+            "module": result.module,
+            "ruleset": result.module,
+            "rules": result.rules,
+        },
+    }
+    for kind, payload in payloads.items():
+        target_dir = out_dir / kind
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{result.module}.yaml"
+        target.write_text(
+            yaml.safe_dump(payload, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+        written.append(target)
+    return written
+
+
+def _report_conversion(result: ConversionResult) -> None:
+    """Print notes and skips to stderr, loudly enough that they are not missed."""
+    for note in result.notes:
+        _print_warning(f"[fathom.cli] convert note: {note}")
+    for skipped in result.skipped:
+        _print_warning(f"[fathom.cli] convert skipped: {skipped}")
+
+
+def _report_export(result: Any) -> None:
+    """Report an export, grouping skips by reason.
+
+    A ruleset built on cross-fact joins refuses every rule for the same
+    reason; printing that reason 144 times buries the two rules refused for a
+    different one.
+    """
+    for note in result.notes:
+        _print_warning(f"[fathom.cli] export note: {note}")
+    grouped: dict[str, list[str]] = {}
+    for skipped in result.skipped:
+        grouped.setdefault(skipped.reason, []).append(skipped.rule)
+    for reason, names in grouped.items():
+        shown = ", ".join(names[:3]) + (f", +{len(names) - 3} more" if len(names) > 3 else "")
+        _print_warning(f"[fathom.cli] export skipped {len(names)} rule(s) ({shown}): {reason}")
+
+
+@convert_app.command("to-rego")
+def convert_to_rego(
+    ruleset: Path = typer.Argument(  # noqa: B008
+        ...,
+        help="Path to a Fathom ruleset directory.",
+        exists=True,
+        file_okay=False,
+    ),
+    out_file: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--out",
+        "-o",
+        help="File to write the Rego to. Without it, the policy is printed.",
+    ),
+    package: str | None = typer.Option(
+        None,
+        "--package",
+        "-p",
+        help="Rego package name. Defaults to the module the rules declare.",
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Exit nonzero if any rule was skipped, not only if none exported.",
+    ),
+) -> None:
+    """Export the stateless subset of a Fathom ruleset as Rego.
+
+    Only rules that match one fact against literals have a Rego form. Rules
+    that join across facts, assert new facts, or use a temporal or
+    classification operator are reported and left out -- those are the parts
+    of Fathom that Rego has no counterpart for, and writing them out as
+    something Rego accepts would mean writing a different policy.
+    """
+    try:
+        engine = Engine.from_rules(str(ruleset))
+    except CompilationError as exc:
+        _print_error(f"[fathom.cli] export failed: {_compilation_error_text(exc)}")
+        raise typer.Exit(code=_EXIT_MALFORMED) from exc
+    except (OSError, ValidationError) as exc:
+        _print_error(f"[fathom.cli] export failed: cannot load {ruleset}: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+
+    result = export_engine(engine, package=package)
+    _report_export(result)
+
+    if not result.exported_anything:
+        _print_error(
+            "[fathom.cli] export failed: no rule in this ruleset is in the exportable subset"
+        )
+        raise typer.Exit(code=_EXIT_ERROR)
+
+    if out_file is None:
+        typer.echo(result.source)
+    else:
+        try:
+            out_file.write_text(result.source, encoding="utf-8")
+        except OSError as exc:
+            _print_error(f"[fathom.cli] export failed: cannot write to {out_file}: {exc}")
+            raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+        _print_success(f"wrote {out_file}")
+
+    _print_success(
+        f"exported {result.rule_count} rule(s) to package {result.package}; "
+        f"{len(result.skipped)} rule(s) skipped"
+    )
+    if strict and result.skipped:
+        raise typer.Exit(code=_EXIT_ERROR)
+
+
+@convert_app.command("rego")
+def convert_rego(
+    policy: Path = typer.Argument(  # noqa: B008
+        ...,
+        help="Path to a .rego policy file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    out_dir: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--out",
+        "-o",
+        help="Directory to write templates/, modules/ and rules/ into. "
+        "Without it, the YAML is printed.",
+    ),
+    template: str = typer.Option(
+        "input",
+        "--template",
+        "-t",
+        help="Name for the synthesised template holding Rego's `input` document.",
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Exit nonzero if any construct was skipped, not only if none converted.",
+    ),
+) -> None:
+    """Convert a Rego policy into Fathom YAML.
+
+    Translates the stateless subset -- `allow`/`deny` rules whose bodies
+    compare `input` fields against literals. Anything outside it is reported
+    and left out rather than approximated, so what is written is faithful and
+    what is missing is listed. Requires the `opa` binary, which does the
+    parsing.
+    """
+    try:
+        source = policy.read_text(encoding="utf-8")
+        result = convert_ast(parse_rego(source, filename=policy.name), template=template)
+    except CompilationError as exc:
+        _print_error(f"[fathom.cli] convert failed: {_compilation_error_text(exc)}")
+        raise typer.Exit(code=_EXIT_MALFORMED) from exc
+    except OSError as exc:
+        _print_error(f"[fathom.cli] convert failed: cannot read {policy}: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+
+    _report_conversion(result)
+
+    if not result.converted_anything:
+        _print_error(
+            "[fathom.cli] convert failed: nothing in this policy is in the convertible subset"
+        )
+        raise typer.Exit(code=_EXIT_ERROR)
+
+    if out_dir is None:
+        typer.echo(
+            yaml.safe_dump(
+                {
+                    "templates": result.templates,
+                    "modules": result.modules,
+                    "focus_order": [result.module],
+                    "module": result.module,
+                    "ruleset": result.module,
+                    "rules": result.rules,
+                },
+                sort_keys=False,
+                default_flow_style=False,
+            )
+        )
+    else:
+        try:
+            written = _write_pack(out_dir, result)
+        except OSError as exc:
+            _print_error(f"[fathom.cli] convert failed: cannot write to {out_dir}: {exc}")
+            raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+        for path in written:
+            _print_success(f"wrote {path}")
+
+    _print_success(
+        f"converted {len(result.rules)} rule(s) from {result.package}; "
+        f"{len(result.skipped)} construct(s) skipped"
+    )
+    if strict and result.skipped:
+        raise typer.Exit(code=_EXIT_ERROR)
 
 
 if __name__ == "__main__":

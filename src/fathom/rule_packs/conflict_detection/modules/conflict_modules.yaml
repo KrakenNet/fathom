@@ -1,0 +1,5 @@
+modules:
+  - name: conflict_detection
+    description: "Mutual-exclusion, temporal and granularity conflict detection"
+focus_order:
+  - conflict_detection

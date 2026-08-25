@@ -13,6 +13,8 @@ last_verified: 2026-04-15
 |---|---|
 | [`fathom bench`](bench.md) | |
 | [`fathom compile`](compile.md) | |
+| [`fathom convert rego`](convert-rego.md) | |
+| [`fathom convert to-rego`](convert-to-rego.md) | |
 | [`fathom info`](info.md) | |
 | [`fathom repl`](repl.md) | |
 | [`fathom status`](status.md) | |

@@ -191,6 +191,7 @@ nist-800-53 = "fathom.rule_packs.nist_800_53"
 hipaa = "fathom.rule_packs.hipaa"
 cmmc = "fathom.rule_packs.cmmc"
 schema-denoising = "fathom.rule_packs.schema_denoising"
+conflict-detection = "fathom.rule_packs.conflict_detection"
 
 [tool.ruff]
 target-version = "py312"

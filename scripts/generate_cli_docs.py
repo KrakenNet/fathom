@@ -70,7 +70,8 @@ def _help_for(command_name: str | None) -> str:
     typer.rich_utils._get_rich_console = _pinned_console
 
     runner = CliRunner()
-    args = [command_name, "--help"] if command_name else ["--help"]
+    # command_name may name a sub-command, e.g. "convert rego".
+    args = command_name.split() + ["--help"] if command_name else ["--help"]
     result = runner.invoke(app, args)
     if result.exit_code != 0:
         raise RuntimeError(
@@ -78,6 +79,11 @@ def _help_for(command_name: str | None) -> str:
             f"(exit {result.exit_code}): {result.output}"
         )
     return _ANSI_ESCAPE.sub("", result.output)
+
+
+def _slug(command_name: str) -> str:
+    """Page filename for a command; sub-commands hyphenate, e.g. convert-rego."""
+    return command_name.replace(" ", "-")
 
 
 def _page(command_name: str, help_text: str) -> str:
@@ -119,7 +125,7 @@ def _index(commands: list[str]) -> str:
         "|---|---|",
     ]
     for cmd in commands:
-        lines.append(f"| [`fathom {cmd}`]({cmd}.md) | |")
+        lines.append(f"| [`fathom {cmd}`]({_slug(cmd)}.md) | |")
     lines.append("")
     return "\n".join(lines)
 
@@ -138,9 +144,28 @@ def main(out_dir: Path) -> int:
     )
     commands = [c for c in commands if c]
 
+    # Sub-typers, such as `fathom convert`, hold their own commands. Document
+    # the leaves -- `fathom convert` alone is just a help screen listing them.
+    for group in app.registered_groups:
+        # add_typer() without an explicit name leaves TyperInfo.name a
+        # DefaultPlaceholder; the real name lives on the sub-app's own info.
+        if group.typer_instance is None:
+            continue
+        group_name = group.typer_instance.info.name or ""
+        if not isinstance(group_name, str) or not group_name:
+            continue
+        commands += [
+            f"{group_name} {cmd.name or (cmd.callback.__name__ if cmd.callback else '')}"
+            for cmd in group.typer_instance.registered_commands
+            if cmd.name or cmd.callback
+        ]
+    commands = sorted(commands)
+
     for name in commands:
         help_text = _help_for(name)
-        (out_dir / f"{name}.md").write_text(_page(name, help_text), encoding="utf-8", newline="\n")
+        (out_dir / f"{_slug(name)}.md").write_text(
+            _page(name, help_text), encoding="utf-8", newline="\n"
+        )
 
     (out_dir / "index.md").write_text(_index(commands), encoding="utf-8", newline="\n")
     print(f"wrote CLI reference for {len(commands)} command(s) under {out_dir}")

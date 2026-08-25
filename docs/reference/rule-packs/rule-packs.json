@@ -43,6 +43,37 @@
     "version": "1.0"
   },
   {
+    "id": "conflict-detection",
+    "modules": [
+      "conflict_detection"
+    ],
+    "rules": [
+      {
+        "action": "",
+        "name": "detect-mutual-exclusion",
+        "salience": 100
+      },
+      {
+        "action": "",
+        "name": "detect-temporal-conflict",
+        "salience": 90
+      },
+      {
+        "action": "",
+        "name": "detect-granularity-conflict",
+        "salience": 80
+      }
+    ],
+    "source": "src/fathom/rule_packs/conflict_detection",
+    "templates": [
+      "claim",
+      "conflict",
+      "mutual_exclusion",
+      "subsumes"
+    ],
+    "version": "1.0"
+  },
+  {
     "id": "hipaa",
     "modules": [
       "hipaa"

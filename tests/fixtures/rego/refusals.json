@@ -1,0 +1,405 @@
+{
+  "package": {
+    "path": [
+      {
+        "type": "var",
+        "value": "data"
+      },
+      {
+        "type": "string",
+        "value": "authz"
+      },
+      {
+        "type": "string",
+        "value": "refusals"
+      }
+    ]
+  },
+  "imports": [
+    {
+      "path": {
+        "type": "ref",
+        "value": [
+          {
+            "type": "var",
+            "value": "rego"
+          },
+          {
+            "type": "string",
+            "value": "v1"
+          }
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "body": [
+        {
+          "index": 0,
+          "negated": true,
+          "terms": {
+            "type": "ref",
+            "value": [
+              {
+                "type": "var",
+                "value": "input"
+              },
+              {
+                "type": "string",
+                "value": "authenticated"
+              }
+            ]
+          }
+        }
+      ],
+      "head": {
+        "name": "deny",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "deny"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "gte"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "clearance"
+                }
+              ]
+            },
+            {
+              "type": "number",
+              "value": 3
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "lte"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "level"
+                }
+              ]
+            },
+            {
+              "type": "number",
+              "value": 2
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "a"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "b"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "data"
+                },
+                {
+                  "type": "string",
+                  "value": "roles"
+                },
+                {
+                  "type": "string",
+                  "value": "admin"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": {
+            "type": "ref",
+            "value": [
+              {
+                "type": "var",
+                "value": "input"
+              },
+              {
+                "type": "string",
+                "value": "flag"
+              }
+            ]
+          }
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": {
+            "type": "boolean",
+            "value": true
+          }
+        }
+      ],
+      "head": {
+        "name": "score",
+        "value": {
+          "type": "number",
+          "value": 42
+        },
+        "assign": true,
+        "ref": [
+          {
+            "type": "var",
+            "value": "score"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "gt"
+                }
+              ]
+            },
+            {
+              "type": "call",
+              "value": [
+                {
+                  "type": "ref",
+                  "value": [
+                    {
+                      "type": "var",
+                      "value": "count"
+                    }
+                  ]
+                },
+                {
+                  "type": "ref",
+                  "value": [
+                    {
+                      "type": "var",
+                      "value": "input"
+                    },
+                    {
+                      "type": "string",
+                      "value": "tags"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "number",
+              "value": 2
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    }
+  ]
+}
