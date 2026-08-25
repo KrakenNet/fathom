@@ -4,7 +4,7 @@ summary: Export the stateless subset of a Fathom ruleset to Rego with fathom con
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 sources:
   - src/fathom/rego.py
   - src/fathom/cli.py
