@@ -5716,7 +5716,7 @@ bypasses it — see each subsection.
 }
 ```
 
-The endpoint (`src/fathom/integrations/rest.py` lines 363–384) requires
+The endpoint (`src/fathom/integrations/rest.py` lines 547–564) requires
 an existing session created via `POST /v1/evaluate`; an unknown
 `session_id` returns **404 session not found**. Companion endpoints
 `POST /v1/query` and `DELETE /v1/facts` accept `session_id`,
@@ -5725,13 +5725,13 @@ the SDK.
 
 ### SDK — `Engine.assert_fact` / `Engine.assert_facts`
 
-Single (`src/fathom/engine.py` line 1179):
+Single (`src/fathom/engine.py` line 1309):
 
 ```python
 engine.assert_fact("access-request", {"subject": "alice", "action": "read"})
 ```
 
-Atomic batch (`src/fathom/engine.py` line 1235) — every fact is
+Atomic batch (`src/fathom/engine.py` line 1365) — every fact is
 validated first; if any fails, **none** are asserted:
 
 ```python
