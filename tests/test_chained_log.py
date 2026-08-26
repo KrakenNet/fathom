@@ -485,6 +485,23 @@ class TestCli:
         result = runner.invoke(app, ["verify-chain", str(log_path), "--pubkey", str(pub)])
         assert result.exit_code == 1
 
+    def test_verify_chain_unreadable_pubkey_exits_2(self, tmp_path: Path) -> None:
+        """A file that is not a PEM is a key file that cannot be read.
+
+        `cryptography` raises ValueError, which nothing caught: the command
+        printed a raw traceback and exited 1 — the code that means "the chain
+        failed verification", for a run that never verified anything.
+        """
+        log_path, _, _ = self._setup(tmp_path)
+        bad = tmp_path / "not-a-key.pem"
+        bad.write_text("this is not a PEM\n")
+
+        result = runner.invoke(app, ["verify-chain", str(log_path), "--pubkey", str(bad)])
+
+        assert result.exit_code == 2
+        assert "Traceback" not in result.output
+        assert "cannot read public key" in result.output
+
     def test_verify_chain_missing_log_exits_2(self, tmp_path: Path) -> None:
         _, pub, _ = self._setup(tmp_path)
         result = runner.invoke(

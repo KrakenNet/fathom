@@ -689,6 +689,15 @@ class Engine:
             for file in files:
                 definitions = self._compiler.parse_template_file(file)
                 for defn in definitions:
+                    # Two packs may define the same template identically --
+                    # `packs.py` allows exactly that and only rejects
+                    # *incompatible* redefinitions. Rebuilding it anyway hit
+                    # CLIPS' "cannot redefine deftemplate while it is in use",
+                    # so the pair the collision check waved through failed to
+                    # load with the raw diagnostic that check exists to
+                    # replace.
+                    if self._template_registry.get(defn.name) == defn:
+                        continue
                     clips_str = self._compiler.compile_template(defn)
                     self._safe_build(clips_str, context=f"template:{defn.name}")
                     self._template_registry[defn.name] = defn

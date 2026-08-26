@@ -20,7 +20,7 @@ import httpx
 import yaml
 
 from fathom.compiler import Compiler
-from fathom.engine import Engine
+from fathom.engine import _DECISION_SEQ_GLOBAL, _DECISION_TEMPLATE, Engine
 from fathom.errors import CompilationError, ValidationError
 from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
@@ -248,11 +248,16 @@ def _compile_yaml_file(
     file_path: Path,
     compiler: Compiler,
     templates: dict[str, TemplateDefinition] | None = None,
-) -> list[str]:
-    """Compile a single YAML file into CLIPS construct strings.
+) -> dict[str, list[str]]:
+    """Compile a single YAML file into CLIPS construct strings, by kind.
 
     Auto-detects the document type (templates, modules, rules, functions)
     from top-level YAML keys and compiles accordingly.
+
+    Keyed by kind rather than returned flat because CLIPS resolves
+    references at build time: a defrule naming a deftemplate that has not
+    been built yet is an error, and file order is not build order. The
+    caller reassembles the whole run in dependency order.
 
     Args:
         file_path: YAML file to compile.
@@ -261,9 +266,10 @@ def _compile_yaml_file(
             :meth:`Engine.from_rules` builds for the same ruleset.
 
     Returns:
-        List of CLIPS construct strings.
+        Mapping of kind (``templates``/``modules``/``focus``/``functions``/
+        ``rules``) to the CLIPS construct strings compiled from this file.
     """
-    constructs: list[str] = []
+    constructs: dict[str, list[str]] = {}
 
     content = file_path.read_text(encoding="utf-8")
     data = yaml.safe_load(content)
@@ -271,25 +277,24 @@ def _compile_yaml_file(
         return constructs
 
     if "templates" in data:
-        for tmpl_defn in compiler.parse_template_file(file_path):
-            constructs.append(compiler.compile_template(tmpl_defn))
+        constructs["templates"] = [
+            compiler.compile_template(tmpl_defn)
+            for tmpl_defn in compiler.parse_template_file(file_path)
+        ]
     elif "modules" in data:
         mod_definitions, focus_order = compiler.parse_module_file(file_path)
-        for mod_defn in mod_definitions:
-            constructs.append(compiler.compile_module(mod_defn))
+        constructs["modules"] = [compiler.compile_module(m) for m in mod_definitions]
         if focus_order:
-            constructs.append(compiler.compile_focus_stack(focus_order))
+            constructs["focus"] = [compiler.compile_focus_stack(focus_order)]
     elif "functions" in data:
-        for func_defn in compiler.parse_function_file(file_path):
-            result = compiler.compile_function(func_defn)
-            if result:
-                constructs.append(result)
+        compiled = [compiler.compile_function(f) for f in compiler.parse_function_file(file_path)]
+        constructs["functions"] = [c for c in compiled if c]
     elif "rules" in data or "ruleset" in data:
         ruleset = compiler.parse_rule_file(file_path)
-        for rule_defn in ruleset.rules:
-            constructs.append(
-                compiler.compile_rule(rule_defn, ruleset.module, templates),
-            )
+        constructs["rules"] = [
+            compiler.compile_rule(rule_defn, ruleset.module, templates)
+            for rule_defn in ruleset.rules
+        ]
 
     return constructs
 
@@ -321,6 +326,39 @@ def _pretty_format(clips_str: str) -> str:
     return "\n".join(lines)
 
 
+def _assemble(by_kind: dict[str, list[str]]) -> list[str]:
+    """Order one compile run so the emitted CLIPS actually loads.
+
+    ``fathom compile`` printed constructs in file order, which is the order
+    ``sorted()`` walks a pack directory -- ``modules/`` then ``rules/`` then
+    ``templates/``. CLIPS resolves references when a construct is built, so
+    that stream failed on its first defrule and, before that, on its first
+    defmodule: ``(import MAIN ?ALL)`` is an error until MAIN exports, and
+    every rule's RHS names ``__fathom_decision`` and
+    ``?*fathom-decision-seq*``, which only the engine was building.
+
+    So the output opens with the same preamble :class:`Engine` builds and
+    then follows the engine's own build order. It still needs Fathom's
+    external functions (``fathom-matches`` and friends) registered on the
+    environment, exactly as the engine registers them before compiling any
+    rule -- those are Python callbacks and cannot be expressed in CLIPS text.
+
+    The declared focus order is emitted as a trailing comment: ``(focus ...)``
+    is a command the evaluator issues per evaluation, not a construct, and a
+    loader rejects it.
+    """
+    ordered = [_DECISION_SEQ_GLOBAL, _DECISION_TEMPLATE]
+    if by_kind.get("modules"):
+        ordered.append("(defmodule MAIN (export ?ALL))")
+    for kind in ("templates", "modules", "functions", "rules"):
+        ordered.extend(by_kind.get(kind, []))
+    ordered.extend(
+        f"; focus order (issued per evaluation, not a construct): {f}"
+        for f in by_kind.get("focus", [])
+    )
+    return ordered
+
+
 @app.command()
 def compile(  # noqa: A001
     path: Path = typer.Argument(  # noqa: B008
@@ -343,7 +381,7 @@ def compile(  # noqa: A001
             raise typer.Exit(code=_EXIT_NOT_FOUND)
 
         compiler = Compiler()
-        all_constructs: list[str] = []
+        by_kind: dict[str, list[str]] = {}
         # Two passes: gather slot types first so rule literals are emitted
         # exactly as Engine.from_rules would emit them for this ruleset.
         templates = _collect_template_registry(
@@ -352,17 +390,17 @@ def compile(  # noqa: A001
 
         for yaml_file in yaml_files:
             try:
-                constructs = _compile_yaml_file(yaml_file, compiler, templates)
-                all_constructs.extend(constructs)
+                for kind, constructs in _compile_yaml_file(yaml_file, compiler, templates).items():
+                    by_kind.setdefault(kind, []).extend(constructs)
             except CompilationError as exc:
                 _print_error(f"[fathom.cli] compile failed: {_compilation_error_text(exc)}")
                 raise typer.Exit(code=_EXIT_ERROR) from exc
 
-        if not all_constructs:
+        if not any(by_kind.values()):
             _print_warning("[fathom.cli] compile failed: no compilable constructs found")
             raise typer.Exit(code=_EXIT_ERROR)
 
-        output = "\n".join(all_constructs)
+        output = "\n".join(_assemble(by_kind))
         if fmt == _CompileFormat.pretty:
             output = _pretty_format(output)
         typer.echo(output)
@@ -418,8 +456,20 @@ def info(
     for name, rule_def in sorted(engine.rule_registry.items()):
         typer.echo(f"  {name}  salience={rule_def.salience}")
 
-    # Functions (keep env access — no public API for CLIPS function enumeration)
-    clips_functions = [fn for fn in engine._env.functions() if not str(fn.name).startswith("(")]
+    # Functions (keep env access — no public API for CLIPS function enumeration).
+    #
+    # CLIPS enumerates deffunctions in the *current* module, and building a
+    # pack's last defmodule leaves that module current -- so this reported
+    # "Functions (0)" for every pack, hiding the twelve fathom-* operators the
+    # engine registers into MAIN. Switch to MAIN to list them, then restore
+    # the module the engine left focused.
+    env = engine._env
+    previous_module = env.current_module
+    env.current_module = env.find_module("MAIN")
+    try:
+        clips_functions = [fn for fn in env.functions() if not str(fn.name).startswith("(")]
+    finally:
+        env.current_module = previous_module
     typer.echo(f"\nFunctions ({len(clips_functions)}):")
     for fn in clips_functions:
         typer.echo(f"  {fn.name}")
@@ -714,6 +764,13 @@ def verify_chain_cmd(
     except AttestationError as exc:
         _print_error(f"[fathom.cli] verify-chain failed: {exc}")
         raise typer.Exit(code=_EXIT_MALFORMED) from exc
+    except ValueError as exc:
+        # cryptography raises ValueError on a PEM it cannot parse, which
+        # escaped as a traceback and exit 1. The docs promise 2 when the key
+        # file cannot be read, and a file that is not a key cannot be read as
+        # one.
+        _print_error(f"[fathom.cli] verify-chain failed: cannot read public key {pubkey}: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
 
     if json_output:
         typer.echo(json.dumps(asdict(result), indent=2))
