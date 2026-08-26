@@ -9,7 +9,7 @@ sources:
   - src/fathom/compiler.py
   - src/fathom/evaluator.py
   - src/fathom/engine.py
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 ---
 
 # Module
@@ -37,9 +37,10 @@ construction and re-checked (for emptiness) by `compile_module`.
 
 `compile_module` (in `src/fathom/compiler.py`) emits a single-line
 `defmodule` form. Every non-`MAIN` module imports `?ALL` from `MAIN` so
-that templates declared in `MAIN` — including the built-in
-`__fathom_decision` decision template — are visible to rules in the
-module.
+that constructs declared in `MAIN` are visible to rules in the module —
+the built-in `__fathom_decision` decision template, and the
+`?*fathom-decision-seq*` defglobal each rule increments before asserting
+into it.
 
 ### YAML input
 
@@ -155,8 +156,8 @@ not reorder anything.
 called, via `(defmodule MAIN (export ?ALL))` (see `src/fathom/engine.py`).
 Authors do not declare `MAIN` in YAML. All `deftemplate` constructs —
 including the built-in `__fathom_decision` template that Fathom
-installs at engine startup — live in `MAIN`, and every non-`MAIN`
-module imports from it. Rules are scoped to a module by the `module:`
+installs at engine startup, alongside the `?*fathom-decision-seq*`
+defglobal — live in `MAIN`, and every non-`MAIN` module imports from it. Rules are scoped to a module by the `module:`
 key on the enclosing `RulesetDefinition`; see [Rule](./rule.md) for the
 rule emission.
 

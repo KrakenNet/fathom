@@ -257,7 +257,7 @@ modules/modules.yaml           single 'governance' module
 rules/access-control.yaml      the deny rule
 ```
 
-The agent's `secret` clearance is below the request's `top-secret` classification, so the deny rule fires. If the agent's clearance instead met or exceeded the classification, no deny rule would match and the engine would fall through to its fail-closed default (`decision = "deny"`, `reason = "default decision (no rules fired)"`). To grant access you would add an explicit allow rule with higher salience -- see [example 03](https://github.com/KrakenNet/fathom/tree/main/examples/03-classification-blp) for the full read/write Bell-LaPadula pattern.
+The agent's `secret` clearance is below the request's `top-secret` classification, so the deny rule fires. If the agent's clearance instead met or exceeded the classification, no deny rule would match and the engine would fall through to its fail-closed default (`decision = "deny"`, `reason = "default decision (no rule rendered a decision)"`). To grant access you would add an explicit allow rule with higher salience -- see [example 03](https://github.com/KrakenNet/fathom/tree/main/examples/03-classification-blp) for the full read/write Bell-LaPadula pattern.
 
 The result object contains five fields:
 
@@ -769,9 +769,11 @@ result = engine.evaluate()  # No facts → default decision ("deny")
 ### `engine.reset()`
 
 Calls the underlying `clips.Environment.reset()`, which clears **all** facts
-(including internal ones) and re-asserts `(initial-fact)`. The `__fathom_decision`
-template is rebuilt automatically. Deftemplates, defmodules, and defrules survive
-the reset — only facts are cleared.
+(including internal ones) and re-asserts `(initial-fact)`. Deftemplates,
+defmodules, defrules and defglobals survive the reset — only facts are
+cleared, and nothing is rebuilt. (`__fathom_decision` in particular cannot be
+rebuilt: every compiled rule asserts it, which makes the template permanently
+"in use", and CLIPS refuses to redefine one a loaded rule references.)
 
 Use this for a full session reset that mirrors starting a new CLIPS environment
 while keeping compiled constructs.
@@ -1252,6 +1254,29 @@ directory. Without that context a `string` slot's literal is emitted bare —
 CLIPS rejects that form with `[CSTRNCHK1]`, so the printed constructs would be
 ones the engine never builds and that do not load.
 
+The output is ordered to load, not to mirror the directory walk. It opens with
+the same preamble the engine builds — the `?*fathom-decision-seq*` global and
+the `__fathom_decision` deftemplate every rule's RHS asserts into, plus
+`(defmodule MAIN (export ?ALL))` when the pack declares modules — and then
+follows with deftemplates, defmodules, deffunctions and defrules in that
+order, because CLIPS resolves a reference when the construct naming it is
+built.
+
+One thing the text cannot carry: the `fathom-*` operators (`fathom-matches`,
+`fathom-count-exceeds`, and the rest) are Python callbacks the engine
+registers on the environment before it compiles any rule. A bare `clips`
+process has no such functions, so loading the output there fails on the first
+rule that uses an operator. Feed it to an environment prepared the way the
+engine prepares one.
+
+A pack that depends on another (`cmmc` on `nist-800-53`, say) compiles to
+constructs that reference templates and modules the other pack owns; compile
+both together, as `Engine.from_rules` loads them.
+
+The declared focus order is printed as a trailing comment. `(focus …)` is a
+command the evaluator issues per evaluation, not a construct, and a loader
+rejects it.
+
 ## info
 
 Load a rule pack and print a summary of everything the engine sees:
@@ -1265,6 +1290,12 @@ fathom info examples/03-classification-blp
 
 Use `info` as a sanity check after editing a pack — if a template or
 rule is missing from the listing, it did not compile into the engine.
+
+The function listing covers the `fathom-*` operators the engine registers plus
+any `deffunction` the pack declares. It is read from the `MAIN` module: CLIPS
+enumerates deffunctions in whichever module is current, and building a pack's
+last `defmodule` leaves that one current, which is why this section used to report
+`Functions (0)` for every pack.
 
 ## test
 
@@ -1344,7 +1375,8 @@ checks detect truncation, which a self-contained log cannot reveal:
 
 Pass `--json` to emit the verification result as JSON. The command
 exits 0 when the chain is valid, 1 when verification fails, and 2 when
-the log or key file cannot be read.
+the log or key file cannot be read — a file that is not a parseable PEM
+counts as a key that cannot be read, and reports that rather than raising.
 
 ## repl
 
@@ -1848,7 +1880,21 @@ above converts to `allow-1` and `deny-2`.
 
 Slot types are inferred from the literals each field is compared against, and
 widen to `string` when one field is compared against literals of different
-types.
+types. Rego has a single `number` type, so **every number becomes a `float`
+slot** — inferring `integer` from a policy that happens to compare against a
+whole number would produce a template that rejects the very input the policy
+was written for. `flatten_input` feeds those slots floats to match.
+
+### `deny` outranks `allow`
+
+Rego keeps `allow` and `deny` in separate documents and leaves the
+precedence to whoever queries them. Fathom renders one decision, last write
+wins, so a converted policy has to pick: **converted `deny` rules carry
+`salience: -10`**, which makes them fire last and beat a matching `allow`.
+Without it the answer for an input matching both came down to the order the
+rules happened to be written in — a suspended admin was allowed in one file
+and denied in the other. A note names the choice; change the salience if
+your caller resolved it the other way.
 
 ## The convertible subset
 
@@ -1880,6 +1926,8 @@ Each refusal is printed to stderr naming the rule and the construct.
 | `count(input.tags) > 2` | The operand is a function call or a computed reference, not a field. |
 | `input.enabled` | A bare truthiness check. Compare the value explicitly. |
 | Rules not named `allow` / `deny` | Only those two head names have an unambiguous Fathom decision. |
+| `allow if { ... } else = false { ... }` | An `else` branch is a second rule body with its own value. Write it as a separate Fathom rule whose salience orders it. |
+| `input.x in {1, "two"}` | The set mixes types and a Fathom slot holds one. Widening to `string` would leave the numbers unmatchable rather than merely imprecise. |
 | Any other built-in | Unsupported; reported by name. |
 
 ### A rule with one unconvertible condition is dropped whole
@@ -2093,6 +2141,11 @@ looks: `equals(5)` on a `string` slot is the string `"5"`, and on an `integer`
 slot it is `5`. A `symbol` slot holding `true` or `false` becomes a Rego
 boolean, which is the inverse of what
 [the importer](convert-rego.md) does on the way in.
+
+A Fathom argument that carries its own quotes — `equals("Paris, France")` —
+is unquoted before it is re-encoded, so the Rego string holds the value and
+not a pair of quote marks. Set members are split on top-level commas only,
+so a member holding one stays a single member.
 
 ## How slots are addressed
 
@@ -2471,6 +2524,30 @@ restart, via `POST /v1/rules/reload`. Each reload:
   `ruleset_reload_rejected` on failure) carrying the
   `ruleset_hash_before`/`ruleset_hash_after` pair.
 
+## A reload only reaches a server that mounts its engine
+
+`POST /v1/rules/reload` swaps the ruleset on the Engine at
+`app.state.engine`, and that Engine is what `POST /v1/evaluate` and the OPA
+Data API serve. On a server with no Engine mounted — the shipped
+`uvicorn fathom.integrations.rest:app` deployment — the reload endpoint
+answers `503 not_ready` and each request compiles the ruleset its `ruleset`
+path names, straight off disk. Both are coherent; what is not is mounting an
+Engine and expecting the per-request `ruleset` path to still select the
+policy. On a server with an Engine mounted, `ruleset` is resolved and jailed
+but does not choose the ruleset.
+
+To hot-reload, build the app yourself and mount the Engine:
+
+```python
+from fathom.attestation import AttestationService
+from fathom.engine import Engine
+from fathom.integrations.rest import build_app
+
+app = build_app()
+app.state.engine = Engine.from_rules("/var/lib/fathom/rulesets/prod")
+app.state.attestation = AttestationService.generate_keypair()
+```
+
 ## Warning: a reload discards all working memory
 
 The new ruleset is compiled into a **fresh** CLIPS environment, and that
@@ -2481,6 +2558,12 @@ cleared with them.
 
 A failed reload changes nothing: the old environment keeps serving, so working
 memory survives. Only a *successful* swap wipes it.
+
+Open sessions go with it. A session holds its own Engine, compiled when the
+session opened, so it would otherwise keep deciding on the pre-reload
+ruleset for as long as it stayed alive — an admin tightening policy would
+never reach it. A successful reload therefore drops every session; callers
+re-open and re-seed.
 
 Plan for this. `Engine.subscribe_reload` is the seam: it registers a
 zero-argument callback fired after each successful swap, outside the reload
@@ -3092,7 +3175,7 @@ shortest path to a working mental model of the engine.
 
 The rest of this page walks the five in the order the engine loads them
 (`templates → modules → functions → rules` — see
-`src/fathom/engine.py`, `Engine.from_rules`, lines 496–570) and closes with how
+`src/fathom/engine.py`, `Engine.from_rules`, lines 637–672) and closes with how
 they fit together at evaluate time.
 
 ## Templates
@@ -3126,7 +3209,7 @@ templates:
       - { name: created_at, type: integer }
 ```
 
-The compiler (`compile_template`, `src/fathom/compiler.py` around line 90)
+The compiler (`compile_template`, `src/fathom/compiler.py` around line 132)
 emits a single CLIPS construct scoped to the `MAIN` module:
 
 ```clips
@@ -3197,7 +3280,7 @@ The `then` block is a `ThenBlock` with an `action` (one of `allow`, `deny`,
 `assert:` in YAML) of `AssertSpec` entries for facts the rule should add to
 working memory when it fires.
 
-The compiler (`compile_rule`, `src/fathom/compiler.py` around line 137) emits
+The compiler (`compile_rule`, `src/fathom/compiler.py` around line 179) emits
 a rule qualified by the owning module:
 
 ```clips
@@ -3206,7 +3289,12 @@ a rule qualified by the owning module:
     (session (user_role ?role))
     (test (eq ?role guest))
     =>
-    (assert (__fathom_decision (action deny) (reason "guest role"))))
+    (bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))
+    (assert (__fathom_decision
+        (seq ?*fathom-decision-seq*)
+        (action deny)
+        (reason "guest role")
+        (rule "governance::deny-low-clearance"))))
 ```
 
 ### Salience
@@ -3226,7 +3314,7 @@ A **module** is a namespace for rules. The `ModuleDefinition` model
 `priority` integer — because a module's job at author time is just to exist
 and let rules declare their home.
 
-`compile_module` (`src/fathom/compiler.py` line 352) emits:
+`compile_module` (`src/fathom/compiler.py` line 576) emits:
 
 ```clips
 (defmodule governance (import MAIN ?ALL))
@@ -3259,7 +3347,7 @@ CEs or from slot expressions. The `FunctionDefinition` model
 - **`raw`** — an escape hatch: the `body` is emitted verbatim as CLIPS source,
   so you can write any `(deffunction …)` you want.
 
-`compile_function` (`src/fathom/compiler.py` line 359) emits one or more
+`compile_function` (`src/fathom/compiler.py` line 598) emits one or more
 `(deffunction <name> …)` constructs.
 
 A second path exists for host-language helpers: `Engine.register_function(name,
@@ -3377,8 +3465,8 @@ working memory:
 3. **Rule RHS.** A rule's `then.asserts` list — modeled as `AssertSpec` in
    `src/fathom/models.py` — compiles to additional `(assert ...)` forms on
    the rule's right-hand side. When the rule fires, those facts enter working
-   memory alongside the `__fathom_decision` fact that carries the rule's
-   action.
+   memory alongside the `__fathom_decision` fact that records the firing
+   and carries the rule's action, if it declared one.
 
 In all three paths, Python values cross into CLIPS through clipspy: strings
 become `STRING`, ints and floats become their CLIPS numeric counterparts,
@@ -3401,11 +3489,13 @@ snapshots.
 3. **Run to quiescence.** `self._env.run()` fires rules until no activations
    remain on any focused module.
 4. **Read the winning decision.** `_read_decision()` iterates the
-   `__fathom_decision` facts that rules emitted and picks a winner (next
-   section).
+   `__fathom_decision` facts that rules emitted, skips the ones whose
+   `action` is `none`, and picks a winner from the rest (next section).
 5. **Capture traces.** `_capture_trace()` walks the same decision facts in
    order and records every rule that fired plus the modules those rules
-   came from.
+   came from. Every compiled rule asserts one of these facts per firing,
+   assert-only rules included, so a forward-chaining step that seeded a
+   fact appears in the trace even though it decided nothing.
 6. **Clean up.** All `__fathom_decision` facts are retracted so the next
    `evaluate()` call starts with a clean decision slate. User facts are
    not touched.
@@ -3497,11 +3587,12 @@ what a safety-oriented policy usually wants.
 
 A few consequences follow:
 
-- **No rule fires ⇒ default decision.** The engine is constructed with
-  `default_decision="deny"`, so an empty `facts` list after `env.run()`
-  returns `("deny", "default decision (no rules fired)", {})`. The only
-  way to get `allow` out of a Fathom engine is to have a rule explicitly
-  assert one.
+- **No rule renders a decision ⇒ default decision.** The engine is
+  constructed with `default_decision="deny"`, so if nothing survives the
+  `action none` filter after `env.run()` the result is
+  `("deny", "default decision (no rule rendered a decision)", {})` — whether
+  no rule fired at all or only assert-only ones did. The only way to get
+  `allow` out of a Fathom engine is to have a rule explicitly assert one.
 - **One rule fires ⇒ that decision wins trivially.** No ordering concerns.
 - **Both fire ⇒ salience determines order, last-asserted wins.** The
   failure mode to avoid is giving deny rules *higher* salience than the
@@ -3668,7 +3759,11 @@ order when that key is absent (see [Module](../reference/yaml/module.md)).
     (session (user_role ?role))
     (test (eq ?role guest))
     =>
-    (assert (__fathom_decision (action deny) (reason "guest role") ...)))
+    (bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))
+    (assert (__fathom_decision
+        (seq ?*fathom-decision-seq*)
+        (action deny)
+        (reason "guest role") ...)))
 ```
 
 Emitted by `compile_rule(defn, module)`. A `(declare (salience N))` clause
@@ -3744,14 +3839,21 @@ This is why `AssertSpec.slots` is typed `dict[str, str]` even though the
 materialized fact can hold ints, symbols, and floats at runtime: at
 compile time the value *is* a fragment of CLIPS source.
 
-If `then.action` is set, `_compile_action` prepends an `__fathom_decision`
-assert before any user asserts. `action` is emitted as a SYMBOL
-(unquoted); `reason` becomes a quoted literal, or a `(str-cat …)`
-expression interpolating LHS binds when it contains `{variable}`
-placeholders. The engine reads `__fathom_decision` facts back at the end
-of `evaluate()` to determine the winning decision — see
-[Runtime & Working Memory](./runtime-and-working-memory.md). Assert-only
-rules (no `action`) skip the decision block entirely.
+Every rule's RHS opens by incrementing `?*fathom-decision-seq*` and
+asserting one `__fathom_decision` fact, before any user asserts. `action`
+is emitted as a SYMBOL (unquoted); `reason` becomes a quoted literal, or a
+`(str-cat …)` expression interpolating LHS binds when it contains
+`{variable}` placeholders. The engine reads `__fathom_decision` facts back
+at the end of `evaluate()` to determine the winning decision — see
+[Runtime & Working Memory](./runtime-and-working-memory.md).
+
+An assert-only rule (no `action`) asserts the fact too, carrying only its
+own name and the default `action none`. That records the firing for
+`rule_trace` and the signed audit record without making the rule a
+candidate for the decision; reading the trace off decision-bearing facts
+alone dropped every forward-chaining rule from it. The `seq` slot is what
+keeps a rule that fires twice from collapsing into one fact, since CLIPS
+silently discards a duplicate assert.
 
 ## Safety: why the validators matter
 
@@ -3926,9 +4028,16 @@ Field by field:
 - **`modules_traversed`** / **`rules_fired`** — copied from
   `EvaluationResult.module_trace` and `rule_trace`. The modules active
   during inference and the fully-qualified `module::rule` names in fire
-  order.
+  order. *Every* firing is listed, including rules whose `then` is only an
+  `assert` block: the forward-chaining step that derived the fact a later
+  rule decided on is the part of the chain an auditor most needs. A rule
+  that fires twice appears twice. Each compiled rule asserts one
+  `__fathom_decision` per firing to record this; an assert-only rule's
+  carries `action none`.
 - **`decision`** / **`reason`** — the `action` and `reason` read off the
-  last `__fathom_decision` fact. `None` if no rule asserted a decision.
+  last `__fathom_decision` fact. `None` if no rule asserted a decision, and
+  the engine's `default_decision` (with the reason `default decision (no
+  rule rendered a decision)`) when one is configured.
 - **`duration_us`** — microseconds spent in the inference loop.
 - **`metadata`** — arbitrary string key/value pairs propagated from the
   decision's rule.
@@ -4081,7 +4190,8 @@ One `MatchEvidence` entry per firing — a rule that fires twice on different
 facts appears twice — and one `AssertedFact` per condition element on the
 rule's left-hand side, in the order the conditions were written. Rules with
 no `then.action` are covered too, so an assert-only rule that quietly seeded
-a fact still explains itself.
+a fact still explains itself. `rules_fired` already names those firings; the
+evidence adds the facts behind each one.
 
 The same list is copied onto the `AuditRecord`, so evidence survives to the
 sink and through JSON serialization.
@@ -4778,7 +4888,7 @@ construction and re-checked (for emptiness) by `compile_template`.
 |------------------|-----------------------------------|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------|
 | `name`           | `str`                             | —       | yes      | Slot identifier. No regex validator is applied in the current model; the compiler emits it verbatim into `(slot <name> …)`.       |
 | `type`           | `SlotType`                        | —       | yes      | One of `string`, `symbol`, `float`, `integer`. See [SlotType](#slottype-enum).                                                    |
-| `required`       | `bool`                            | `False` | no       | If True, FactManager rejects asserts that omit this slot with a ValidationError (src/fathom/facts.py:274-283). Not emitted to CLIPS; the rule-RHS assert path bypasses this check because it doesn't run through FactManager._validate. |
+| `required`       | `bool`                            | `False` | no       | If True, FactManager rejects asserts that omit this slot with a ValidationError (src/fathom/facts.py:405-414). Not emitted to CLIPS; the rule-RHS assert path bypasses this check because it doesn't run through FactManager._validate. |
 | `allowed_values` | `list[str] \| None`               | `None`  | no       | Emitted only for `string` and `symbol` slots (see [`_CLIPS_ALLOWED_MAP`](#slottype-enum)). Silently ignored for numeric slots.    |
 | `default`        | `str \| float \| int \| None`     | `None`  | no       | Emitted as `(default <value>)`. String defaults are CLIPS-quoted and escaped; numeric defaults are emitted raw.                   |
 
@@ -4794,6 +4904,10 @@ types — to an allowed-values directive via `_CLIPS_ALLOWED_MAP`.
 | `symbol`   | `SYMBOL`           | `allowed-symbols`        |
 | `float`    | `FLOAT`            | *(none — silently dropped)* |
 | `integer`  | `INTEGER`          | *(none — silently dropped)* |
+
+A `float` slot accepts a Python `int` as well as a `float`; the value is
+widened before it reaches CLIPS, which types `1` as INTEGER and would
+otherwise reject it. An `integer` slot takes only `int`.
 
 Source: `src/fathom/compiler.py` lines 29–40.
 
@@ -4891,7 +5005,7 @@ compiled CLIPS `deftemplate`:
   compiler.
 - `SlotDefinition.required` — the flag itself is not emitted to CLIPS.
   Runtime enforcement happens in `FactManager._check_required`
-  (`src/fathom/facts.py:274-283`) on the SDK and REST paths, but it is
+  (`src/fathom/facts.py:405-414`) on the SDK and REST paths, but it is
   not checked on the rule-RHS assert path.
 - `SlotDefinition.allowed_values` on `float` or `integer` slots —
   silently dropped because these types have no entry in
@@ -5122,7 +5236,7 @@ For worked examples of each operator see
 
 | Field         | Type                      | Default             | Description                                                                                                                |
 |---------------|---------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
-| `action`      | `ActionType \| None`      | `None`              | One of `allow`, `deny`, `escalate`, `scope`, `route`. Emitted as an unquoted symbol on the `__fathom_decision` fact.        |
+| `action`      | `ActionType \| None`      | `None`              | One of `allow`, `deny`, `escalate`, `scope`, `route`. Emitted as an unquoted symbol on the `__fathom_decision` fact; `None` leaves the slot at its `none` default, which never wins a decision. |
 | `reason`      | `str`                     | `""`                | Free text. `{placeholder}` refs compile via `_compile_reason` to `(str-cat "…" ?placeholder "…")`; otherwise a quoted literal. |
 | `log`         | `LogLevel`                | `LogLevel.SUMMARY`  | One of `none`, `summary`, `full`. Emitted as the `log-level` slot on the decision fact.                                    |
 | `notify`      | `list[str]`               | `[]`                | Notification targets. Joined with `", "` and emitted as a single quoted string in the `notify` slot.                        |
@@ -5134,8 +5248,11 @@ For worked examples of each operator see
 ### `ThenBlock` validator
 
 `_require_action_or_asserts` enforces that at least one of `action` or a
-non-empty `assert` list is provided. Rules may assert-only (no
-`__fathom_decision` fact is emitted), decide-only, or do both.
+non-empty `assert` list is provided. Rules may assert-only, decide-only, or
+do both. An assert-only rule still emits a `__fathom_decision` with `action`
+left at its `none` default: that fact is what `rule_trace` and the audit
+record are read from, so the rule's firing stays visible without becoming a
+candidate for the decision.
 
 ## `AssertSpec` fields
 
@@ -5176,8 +5293,8 @@ the decision fact. Mechanics in
 `compile_rule` composes the rule in this fixed order: header,
 `(declare (salience N))` (only when non-zero), pattern CEs in `when`
 order, test CEs collected from every pattern, the `=>` arrow, the
-`__fathom_decision` assert (only when `action` is set), then user
-asserts in declared order. Indentation is four spaces.
+`?*fathom-decision-seq*` increment, the `__fathom_decision` assert, then
+user asserts in declared order. Indentation is four spaces.
 
 ### YAML input
 
@@ -5213,7 +5330,9 @@ asserts in declared order. Indentation is four spaces.
     (transfer (amount ?amt&?s_0_amount&:(> ?s_0_amount 100)) (currency ?ccy))
     (test (blocked-country ?amt))
     =>
+    (bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))
     (assert (__fathom_decision
+        (seq ?*fathom-decision-seq*)
         (action deny)
         (reason (str-cat "Transfer of " ?amt " " ?ccy " exceeds limit"))
         (rule "finance::deny_large_transfer")
@@ -5237,8 +5356,11 @@ Notes on the shape:
   `json.dumps(metadata, sort_keys=True)`.
 - The `__fathom_decision` assert precedes user asserts in document
   order (AC-1.3).
-- When `action` is `None`, the decision assert is skipped entirely and
-  only user asserts are emitted.
+- When `action` is `None` the assert shrinks to
+  `(assert (__fathom_decision (seq ?*fathom-decision-seq*) (rule "…")))`,
+  which records the firing for `rule_trace` without rendering a decision.
+- `seq` exists to defeat CLIPS duplicate-fact suppression, so a rule that
+  fires twice is traced twice instead of collapsing into one fact.
 
 ## Validators — what is rejected
 
@@ -5294,9 +5416,10 @@ construction and re-checked (for emptiness) by `compile_module`.
 
 `compile_module` (in `src/fathom/compiler.py`) emits a single-line
 `defmodule` form. Every non-`MAIN` module imports `?ALL` from `MAIN` so
-that templates declared in `MAIN` — including the built-in
-`__fathom_decision` decision template — are visible to rules in the
-module.
+that constructs declared in `MAIN` are visible to rules in the module —
+the built-in `__fathom_decision` decision template, and the
+`?*fathom-decision-seq*` defglobal each rule increments before asserting
+into it.
 
 ### YAML input
 
@@ -5412,8 +5535,8 @@ not reorder anything.
 called, via `(defmodule MAIN (export ?ALL))` (see `src/fathom/engine.py`).
 Authors do not declare `MAIN` in YAML. All `deftemplate` constructs —
 including the built-in `__fathom_decision` template that Fathom
-installs at engine startup — live in `MAIN`, and every non-`MAIN`
-module imports from it. Rules are scoped to a module by the `module:`
+installs at engine startup, alongside the `?*fathom-decision-seq*`
+defglobal — live in `MAIN`, and every non-`MAIN` module imports from it. Rules are scoped to a module by the `module:`
 key on the enclosing `RulesetDefinition`; see [Rule](./rule.md) for the
 rule emission.
 
@@ -5895,9 +6018,10 @@ it explicitly.
 
 ## What is not surfaced
 
-- **Internal decision facts.** Rules assert a `__fathom_decision` fact
-  to carry the outcome; the template is built by `Engine.__init__`
-  (engine.py lines 51–60, 198) and deliberately kept out of
+- **Internal decision facts.** Every compiled rule asserts a
+  `__fathom_decision` fact per firing, carrying the outcome when it
+  declared one; the template is built by `Engine.__init__` (engine.py
+  lines 89–104, 272–273) and deliberately kept out of
   `_template_registry`, so it never appears in `query`, `retract`, or
   the audit fact-snapshot.
 - **`initial-fact`.** Asserted by `env.reset()`; excluded by the same
@@ -6247,12 +6371,31 @@ on the previous call's working memory.
 The guard is **allowlist-only**: it permits the call when — and only when —
 the decision is exactly `allow`. Every other outcome (`deny`, `escalate`,
 `route`, `scope`, a missing decision, or any value a future release adds)
-raises `PolicyViolation` — one class, defined in `fathom.integrations` and
-re-exported by every adapter, so one `except` covers all four — or returns
-an error dict for ADK. A denylist of
-known-bad decisions would fail open on anything it had not heard of.
+blocks the call. A denylist of known-bad decisions would fail open on
+anything it had not heard of.
+
+*How* each adapter blocks is dictated by its framework, and only LangChain
+blocks by raising. CrewAI, the Agents SDK and ADK all wrap the handler call
+in `try/except`, log whatever it raises, and then run the tool anyway — so
+in those three a raised exception is a fail-open, and the block has to be a
+return value:
+
+| Adapter | Block signal | Carries the reason? |
+|---------|--------------|---------------------|
+| LangChain | raises `PolicyViolation` (needs `raise_error = True` on the handler, or LangChain swallows it) | yes |
+| CrewAI | hook returns `False` | no — CrewAI's own rejection message replaces it |
+| OpenAI Agents SDK | guardrail returns `ToolGuardrailFunctionOutput.raise_exception(output_info=violation)`, which the runner turns into `ToolInputGuardrailTripwireTriggered` | yes, on `output_info` |
+| Google ADK | callback returns `{"error": ...}` | yes |
+
+`PolicyViolation` is one class, defined in `fathom.integrations` and
+re-exported by every adapter, so one `except` covers every adapter that
+raises.
+
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
-`fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
+`fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`. The CrewAI and
+Agents SDK extras carry floors of `crewai>=1.5` and `openai-agents>=0.4` —
+the releases that introduced `crewai.hooks` and `agents.tool_guardrails`
+respectively. Earlier releases have no hook to attach to at all.
 
 ## Policy Studio — `packages/fathom-studio/`
 

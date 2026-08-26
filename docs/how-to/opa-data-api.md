@@ -4,7 +4,7 @@ summary: Answer OPA Data API requests from Fathom, so an existing OPA caller kee
 audience: [app-developers]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/rego.py

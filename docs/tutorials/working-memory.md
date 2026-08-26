@@ -4,7 +4,7 @@ summary: Assert facts incrementally across multiple evaluate() calls and learn h
 audience: [app-developers, rule-authors]
 diataxis: tutorial
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 sources:
   - src/fathom/engine.py
   - src/fathom/models.py
@@ -174,9 +174,11 @@ result = engine.evaluate()  # No facts → default decision ("deny")
 ### `engine.reset()`
 
 Calls the underlying `clips.Environment.reset()`, which clears **all** facts
-(including internal ones) and re-asserts `(initial-fact)`. The `__fathom_decision`
-template is rebuilt automatically. Deftemplates, defmodules, and defrules survive
-the reset — only facts are cleared.
+(including internal ones) and re-asserts `(initial-fact)`. Deftemplates,
+defmodules, defrules and defglobals survive the reset — only facts are
+cleared, and nothing is rebuilt. (`__fathom_decision` in particular cannot be
+rebuilt: every compiled rule asserts it, which makes the template permanently
+"in use", and CLIPS refuses to redefine one a loaded rule references.)
 
 Use this for a full session reset that mirrors starting a new CLIPS environment
 while keeping compiled constructs.

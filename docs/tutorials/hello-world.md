@@ -4,7 +4,7 @@ summary: Install Fathom, write a template and a rule in YAML, evaluate a fact, a
 audience: [app-developers, rule-authors]
 diataxis: tutorial
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 sources:
   - src/fathom/engine.py
   - src/fathom/compiler.py

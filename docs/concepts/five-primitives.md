@@ -4,7 +4,7 @@ summary: Templates, Facts, Rules, Modules, Functions — the author-level vocabu
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
@@ -23,7 +23,7 @@ shortest path to a working mental model of the engine.
 
 The rest of this page walks the five in the order the engine loads them
 (`templates → modules → functions → rules` — see
-`src/fathom/engine.py`, `Engine.from_rules`, lines 496–570) and closes with how
+`src/fathom/engine.py`, `Engine.from_rules`, lines 637–672) and closes with how
 they fit together at evaluate time.
 
 ## Templates
@@ -57,7 +57,7 @@ templates:
       - { name: created_at, type: integer }
 ```
 
-The compiler (`compile_template`, `src/fathom/compiler.py` around line 90)
+The compiler (`compile_template`, `src/fathom/compiler.py` around line 132)
 emits a single CLIPS construct scoped to the `MAIN` module:
 
 ```clips
@@ -128,7 +128,7 @@ The `then` block is a `ThenBlock` with an `action` (one of `allow`, `deny`,
 `assert:` in YAML) of `AssertSpec` entries for facts the rule should add to
 working memory when it fires.
 
-The compiler (`compile_rule`, `src/fathom/compiler.py` around line 137) emits
+The compiler (`compile_rule`, `src/fathom/compiler.py` around line 179) emits
 a rule qualified by the owning module:
 
 ```clips
@@ -137,7 +137,12 @@ a rule qualified by the owning module:
     (session (user_role ?role))
     (test (eq ?role guest))
     =>
-    (assert (__fathom_decision (action deny) (reason "guest role"))))
+    (bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))
+    (assert (__fathom_decision
+        (seq ?*fathom-decision-seq*)
+        (action deny)
+        (reason "guest role")
+        (rule "governance::deny-low-clearance"))))
 ```
 
 ### Salience
@@ -157,7 +162,7 @@ A **module** is a namespace for rules. The `ModuleDefinition` model
 `priority` integer — because a module's job at author time is just to exist
 and let rules declare their home.
 
-`compile_module` (`src/fathom/compiler.py` line 352) emits:
+`compile_module` (`src/fathom/compiler.py` line 576) emits:
 
 ```clips
 (defmodule governance (import MAIN ?ALL))
@@ -190,7 +195,7 @@ CEs or from slot expressions. The `FunctionDefinition` model
 - **`raw`** — an escape hatch: the `body` is emitted verbatim as CLIPS source,
   so you can write any `(deffunction …)` you want.
 
-`compile_function` (`src/fathom/compiler.py` line 359) emits one or more
+`compile_function` (`src/fathom/compiler.py` line 598) emits one or more
 `(deffunction <name> …)` constructs.
 
 A second path exists for host-language helpers: `Engine.register_function(name,

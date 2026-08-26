@@ -3,7 +3,7 @@ title: YAML Reference
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 ---
 
 # YAML Reference
