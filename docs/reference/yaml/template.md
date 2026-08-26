@@ -55,9 +55,10 @@ types — to an allowed-values directive via `_CLIPS_ALLOWED_MAP`.
 | `float`    | `FLOAT`            | *(none — silently dropped)* |
 | `integer`  | `INTEGER`          | *(none — silently dropped)* |
 
-A `float` slot accepts a Python `int` as well as a `float`; the value is
-widened before it reaches CLIPS, which types `1` as INTEGER and would
-otherwise reject it. An `integer` slot takes only `int`.
+A `float` slot accepts a Python `int` as well as a `float`; `FactManager`
+widens it before it reaches CLIPS, which types `1` as INTEGER and would
+otherwise reject it. `bool` is refused for both. An `integer` slot takes
+only `int`, or a `float` with no fractional part.
 
 Source: `src/fathom/compiler.py` lines 29–40.
 

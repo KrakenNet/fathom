@@ -774,14 +774,21 @@ class TestUnknownTemplate:
 class TestTypeCoercion:
     """Type coercion: int->float, float->int (if no fractional), any->str."""
 
-    def test_int_for_float_passes_validation_but_clips_rejects(self, coercion_engine):
-        """Int for float slot passes Python validation but CLIPS rejects the raw int.
+    def test_int_for_float_is_widened(self, coercion_engine):
+        """An int for a float slot is widened, not rejected.
 
-        _coerce_for_clips only handles symbol coercion; int->float is not coerced.
-        CLIPS itself rejects the int, so a ValidationError is raised at assertion time.
+        `_PYTHON_TYPE_MAP` accepts an int for a FLOAT slot, so validation passed
+        and the assert then failed inside CLIPS, which types a bare `5` as
+        INTEGER. The documented type table says the value is widened; two tests
+        here asserted the opposite, which is why the gap survived an audit.
+        JSON clients cannot express `5.0` at all -- JSON has one number type --
+        so this was every REST and TypeScript caller's whole-number float.
         """
-        with pytest.raises(ValidationError, match="CLIPS assertion failed"):
-            coercion_engine.assert_fact("coerce", {"f_val": 5})
+        coercion_engine.assert_fact("coerce", {"f_val": 5})
+
+        facts = coercion_engine.query("coerce")
+        assert facts[0]["f_val"] == 5.0
+        assert isinstance(facts[0]["f_val"], float)
 
     def test_float_coerced_to_int_no_fractional(self, coercion_engine):
         """Supplying 3.0 for integer slot should coerce to int 3."""
@@ -807,10 +814,17 @@ class TestTypeCoercion:
         assert facts[0]["s_val"] == "3.14"
 
     @pytest.mark.parametrize("int_val", [0, -1, 100, 2147483647])
-    def test_various_ints_for_float_rejected_by_clips(self, coercion_engine, int_val):
-        """CLIPS rejects raw int for float-typed slots (no int->float coercion)."""
-        with pytest.raises(ValidationError, match="CLIPS assertion failed"):
-            coercion_engine.assert_fact("coerce", {"f_val": int_val})
+    def test_various_ints_for_float_are_widened(self, coercion_engine, int_val):
+        coercion_engine.assert_fact("coerce", {"f_val": int_val})
+
+        facts = coercion_engine.query("coerce")
+        assert facts[0]["f_val"] == float(int_val)
+        assert isinstance(facts[0]["f_val"], float)
+
+    def test_bool_is_still_rejected_for_a_float_slot(self, coercion_engine):
+        """`bool` subclasses `int`; widening must not let it through."""
+        with pytest.raises(ValidationError, match="expects float"):
+            coercion_engine.assert_fact("coerce", {"f_val": True})
 
     @pytest.mark.parametrize("float_val", [0.0, -1.0, 100.0])
     def test_various_whole_floats_coerced_to_int(self, coercion_engine, float_val):

@@ -398,6 +398,18 @@ class FactManager:
                 and value == int(value)
             ):
                 result[key] = int(value)
+            elif (
+                slot.type == SlotType.FLOAT
+                and isinstance(value, int)
+                and not isinstance(value, bool)
+            ):
+                # `_PYTHON_TYPE_MAP` accepts an int for a FLOAT slot, but CLIPS
+                # types a bare `3` as INTEGER and rejects it against a FLOAT
+                # slot -- so the assert failed after validation had passed.
+                # JSON clients feel this hardest: JSON has no int/float split,
+                # so a whole-numbered float arrives as `3` and a caller cannot
+                # express `3.0` at all.
+                result[key] = float(value)
             elif slot.type == SlotType.STRING and not isinstance(value, str):
                 result[key] = str(value)
         return result
