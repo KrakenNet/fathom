@@ -1,5 +1,35 @@
 [
   {
+    "version": "0.11.0",
+    "date": "2026-08-26",
+    "added": [
+      "**`fathom convert to-rego` \u2014 Fathom to Rego export.** Writes the stateless",
+      "**OPA-compatible Data API on the REST server.** `POST /v1/data/<path>` (and",
+      "**`fathom convert rego` \u2014 Rego to Fathom conversion.** Translates the",
+      "`Engine(match_evidence=True)` records which facts, with which slot values,",
+      "**`schema_frequency_exceeds` temporal operator and the `schema-denoising`",
+      "**A `$alias.field` value argument on the counting temporal operators**",
+      "**`conflict-detection` rule pack.** Reports contradictions between claims as",
+      "**`Engine.load_pack_dir(path)` \u2014 load a rule pack from a directory.**"
+    ],
+    "changed": [
+      "**`PolicyViolation` is now one class**, defined in `fathom.integrations` and"
+    ],
+    "deprecated": [],
+    "removed": [
+      "**The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)",
+      "**The `fathom-editor` scaffold** (`packages/fathom-editor/`). Six React",
+      "**`MetricsCollector.inc_sessions_active` / `.dec_sessions_active`**, and"
+    ],
+    "fixed": [
+      "**Loading a second rule pack no longer unfocuses the first.**",
+      "**`not_equals`, `in` and `not_in` now quote their literals for a slot",
+      "**Cross-fact references (`equals($alias.field)`) now compile to a real",
+      "**`bind:` plus a predicate operator now produces a rule CLIPS will load.**"
+    ],
+    "security": []
+  },
+  {
     "version": "0.10.0",
     "date": "2026-08-20",
     "added": [

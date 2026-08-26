@@ -11,7 +11,7 @@ commit list on its
 gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
-## [Unreleased]
+## [0.11.0] - 2026-08-26
 
 ### Added
 - **`fathom convert to-rego` — Fathom to Rego export.** Writes the stateless
@@ -80,6 +80,22 @@ gaps between 0.3.1 and 0.5.0 are explained under
   the pair. Detection is forward-chaining and host-evaluated -- a `subscribe`
   listener fires synchronously inside `assert_fact`, which runs no inference,
   so asserting from one would re-enter the fact manager mid-assert.
+- **`Engine.load_pack_dir(path)` — load a rule pack from a directory.**
+  `RulePackLoader` already had the load ordering and the template-collision
+  check, but the only way in was `Engine.load_pack(name)`, which resolves
+  through the `fathom.packs` entry-point group; a directory could not reach
+  it, so every host holding packs as directories hand-rolled the four
+  `load_*` calls in the one order that works, with no warning when the order
+  was wrong. Unlike `from_rules`, this loads into an engine that already
+  exists, which is what a runtime-uploaded pack needs. Both layouts are
+  accepted — the `templates/` `modules/` `functions/` `rules/` convention and
+  a flat directory of `*.yaml` keyed by kind. Directory packs now get what
+  entry-point packs had: identity by resolved path so a repeat load is a
+  no-op, the collision check before anything is built, and an error rather
+  than an empty engine when the directory holds nothing recognised.
+  `PACK_DEPENDENCIES` stays unsupported for a directory pack — there is no
+  module to declare it on.
+
 ### Removed
 
 - **The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)
