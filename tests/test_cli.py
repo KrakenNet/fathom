@@ -798,6 +798,22 @@ class TestCompileOutputLoads:
         assert out.index("(deftemplate MAIN::agent") < out.index("(defmodule gov")
         assert out.index("(defmodule gov") < out.index("(defrule gov::r1")
 
+    def test_a_unit_that_cannot_stand_alone_is_refused(self, tmp_path: Path) -> None:
+        """A pack that declares a dependency must not print CLIPS that raises."""
+        pack = RealPath("src/fathom/rule_packs/cmmc")
+        result = runner.invoke(app, ["compile", str(pack), "--format", "raw"])
+
+        assert result.exit_code != 0, result.output
+        assert "not self-contained" in result.output
+
+    def test_a_single_file_is_a_fragment_and_is_not_held_to_loading(self, tmp_path: Path) -> None:
+        """Its module and templates live in siblings the file does not emit."""
+        pack = TestCompileMatchesTheEngine._pack(tmp_path / "pack")
+        result = runner.invoke(app, ["compile", str(pack / "rules" / "r.yaml"), "-f", "raw"])
+
+        assert result.exit_code == 0, result.output
+        assert "(defrule gov::r1" in result.output
+
     def test_focus_is_a_comment_not_a_construct(self, tmp_path: Path) -> None:
         """`(focus ...)` is a command the evaluator issues; a loader rejects it."""
         pack = TestCompileMatchesTheEngine._pack(tmp_path / "pack")

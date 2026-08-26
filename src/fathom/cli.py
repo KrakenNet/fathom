@@ -28,7 +28,7 @@ from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import validate_document
 
 if TYPE_CHECKING:
-    from fathom.models import TemplateDefinition
+    from fathom.models import HierarchyDefinition, TemplateDefinition
 
 try:
     import typer
@@ -287,7 +287,20 @@ def _compile_yaml_file(
         if focus_order:
             constructs["focus"] = [compiler.compile_focus_stack(focus_order)]
     elif "functions" in data:
-        compiled = [compiler.compile_function(f) for f in compiler.parse_function_file(file_path)]
+        # A classification function is only compilable with the hierarchy it
+        # references in hand -- `compile_function` raises without it. The
+        # engine resolves it off disk in `load_functions`; this did not, so
+        # `fathom compile` exited 1 on every pack with a classification
+        # function, including the shipped examples/03-classification-blp that
+        # `fathom validate` and `fathom info` both accept.
+        definitions = compiler.parse_function_file(file_path)
+        hierarchies: dict[str, HierarchyDefinition] = {}
+        for defn in definitions:
+            if defn.hierarchy_ref:
+                name = defn.hierarchy_ref.rsplit(".", 1)[0]
+                if name not in hierarchies:
+                    hierarchies[name] = Engine._resolve_hierarchy(defn.hierarchy_ref, file_path)
+        compiled = [compiler.compile_function(f, hierarchies or None) for f in definitions]
         constructs["functions"] = [c for c in compiled if c]
     elif "rules" in data or "ruleset" in data:
         ruleset = compiler.parse_rule_file(file_path)
@@ -324,6 +337,41 @@ def _pretty_format(clips_str: str) -> str:
     if current_line.strip():
         lines.append(current_line)
     return "\n".join(lines)
+
+
+def _clips_loads(output: str) -> bool:
+    """Whether *output* builds cleanly, in an env prepared as the Engine does.
+
+    ``--format raw`` promises CLIPS that loads, so this checks rather than
+    asserts. The usual cause of a failure is a compile unit that is not
+    self-contained: ``cmmc`` names templates and a module the
+    ``nist-800-53`` pack it depends on owns, so it compiled to constructs
+    referencing things nothing in the unit defines and the command exited 0
+    over CLIPS that raises on line 1.
+
+    Only a whole ruleset directory is held to this. A single YAML file is a
+    fragment by construction -- a rules file names the module and templates
+    its siblings define, which this command reads for slot types and does not
+    emit -- so its output is not expected to stand alone.
+
+    CLIPS writes its own diagnostics through a C-level router, so they reach
+    the terminal on their own and are more use than anything reformatted
+    here; the caller only adds the verdict.
+    """
+    import tempfile
+
+    import clips
+
+    env = clips.Environment()
+    Engine()._register_external_functions(env=env)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "compile-check.clp"
+        path.write_text(output, encoding="utf-8")
+        try:
+            env.load(str(path))
+        except Exception:  # noqa: BLE001 - any CLIPS complaint means "no"
+            return False
+    return True
 
 
 def _assemble(by_kind: dict[str, list[str]]) -> list[str]:
@@ -401,6 +449,14 @@ def compile(  # noqa: A001
             raise typer.Exit(code=_EXIT_ERROR)
 
         output = "\n".join(_assemble(by_kind))
+        if path.is_dir() and not _clips_loads(output):
+            _print_error(
+                "[fathom.cli] compile failed: the compiled constructs do not load "
+                "(CLIPS diagnostics above). The unit is not self-contained: either "
+                "it depends on another pack — compile the two directories together — "
+                "or it is part of one, and the whole ruleset directory is the unit."
+            )
+            raise typer.Exit(code=_EXIT_ERROR)
         if fmt == _CompileFormat.pretty:
             output = _pretty_format(output)
         typer.echo(output)

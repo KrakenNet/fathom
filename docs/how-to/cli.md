@@ -80,7 +80,13 @@ engine prepares one.
 
 A pack that depends on another (`cmmc` on `nist-800-53`, say) compiles to
 constructs that reference templates and modules the other pack owns; compile
-both together, as `Engine.from_rules` loads them.
+both together, as `Engine.from_rules` loads them. Pointed at a directory the
+command checks this for you — it builds what it is about to print into a
+prepared environment and exits 1, with the CLIPS diagnostics, rather than
+printing constructs that raise on line 1. A single YAML file is exempt: a
+rules file names the module and templates its siblings define, which the
+command reads for slot types and does not emit, so its output is a fragment
+by construction.
 
 The declared focus order is printed as a trailing comment. `(focus …)` is a
 command the evaluator issues per evaluation, not a construct, and a loader
