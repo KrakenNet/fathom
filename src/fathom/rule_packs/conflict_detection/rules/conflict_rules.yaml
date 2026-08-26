@@ -50,10 +50,16 @@ rules:
             tail_a: "?m-tail_a"
             tail_b: "?m-tail_b"
 
-  # Two different tails for one (head, relation), both observed inside the
-  # same window. Far apart in time the pair is a legitimate change -- someone
+  # Two different tails for one (head, relation), observed within an hour of
+  # each other. Far apart in time the pair is a legitimate change -- someone
   # moved, a status was updated -- and only closeness makes it a
-  # contradiction, which is why the window is the whole test.
+  # contradiction, which is why the gap is the whole test.
+  #
+  # The gap is between the two claims, not between each claim and now. Asking
+  # `changed_within(3600)` of both measured recency instead: two claims ten
+  # seconds apart went undetected once they were a day old, a pair fifty
+  # minutes apart was missed whenever it straddled the hour boundary, and the
+  # same working memory answered differently depending on when it was asked.
   - name: detect-temporal-conflict
     salience: 90
     when:
@@ -61,7 +67,7 @@ rules:
         alias: $a
         conditions:
           - slot: observed_at
-            expression: "changed_within(3600)"
+            bind: "?a-observed_at"
           - slot: tail
             bind: "?a-tail"
       - template: claim
@@ -72,12 +78,16 @@ rules:
           - slot: relation
             expression: "equals($a.relation)"
           - slot: observed_at
-            expression: "changed_within(3600)"
+            bind: "?b-observed_at"
           - slot: tail
             bind: "?b-tail"
           # Orders the pair, and rejects a claim against itself. Without it
           # every conflict is found twice, once per assignment.
           - test: "(< (str-compare ?a-tail ?b-tail) 0)"
+          # An unstamped claim defaults to 0.0 and must not pair with
+          # anything: absence of a timestamp is not evidence of closeness.
+          - test: "(and (> ?a-observed_at 0.0) (> ?b-observed_at 0.0))"
+          - test: "(< (abs (- ?a-observed_at ?b-observed_at)) 3600)"
     then:
       assert:
         - template: conflict

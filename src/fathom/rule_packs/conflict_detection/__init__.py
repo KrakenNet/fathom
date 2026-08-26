@@ -6,8 +6,10 @@ detected by a forward-chaining rule and reported as a ``conflict`` fact:
 - **mutual exclusion** -- two claims name tails a ``mutual_exclusion``
   declaration says cannot both hold of one head.
 - **temporal** -- two different tails for one ``(head, relation)`` observed
-  inside the same window. Far apart in time the same pair is a legitimate
-  change, so closeness is the whole test.
+  within ``DEFAULT_WINDOW_SECONDS`` *of each other*. Far apart in time the
+  same pair is a legitimate change, so closeness is the whole test. A claim
+  left at the default ``observed_at`` of 0 never pairs: absence of a
+  timestamp is not evidence of closeness.
 - **granularity** -- two claims that disagree only about how coarse they are,
   related by a ``subsumes`` declaration.
 
@@ -55,6 +57,12 @@ PACK_DIR = Path(__file__).resolve().parent
 #: The window `detect-temporal-conflict` encodes, in seconds. Two claims
 #: further apart than this are a change, not a contradiction. Read it rather
 #: than hard-coding 3600 in a test.
+#:
+#: Measured between the two claims, not between each claim and now. The rule
+#: tested `changed_within(3600)` on both patterns, which measured recency: a
+#: pair a minute apart stopped being a conflict once it was a day old, a pair
+#: fifty minutes apart was missed whenever it straddled the boundary, and the
+#: same working memory answered differently depending on when it was asked.
 DEFAULT_WINDOW_SECONDS = 3600
 
 

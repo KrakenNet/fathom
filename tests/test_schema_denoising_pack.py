@@ -227,6 +227,48 @@ class TestSchemaDenoisingPack:
         # show which rule produced it.
         assert any(r.endswith("promote-stable-schema") for r in result.rule_trace)
 
+    def test_tau_reached_across_two_evaluations_still_promotes(self) -> None:
+        """A stream arrives in batches, and the count has to be retaken.
+
+        `promote-stable-schema` matched on `candidate_schema` alone, so it
+        was tested once -- when the candidate was first asserted -- and never
+        again. A relation that reached tau on a later `evaluate()` was never
+        promoted, which is every use of this pack that is not one batch.
+        """
+        engine = Engine()
+        engine.load_pack("schema-denoising")
+        for i in range(DEFAULT_TAU - 1):
+            engine.assert_fact(
+                "extracted_fact", {"head": f"h{i}", "relation": "works_at", "tail": "acme"}
+            )
+        engine.evaluate()
+        assert _facts_named(engine, "stable_schema") == []
+
+        engine.assert_fact(
+            "extracted_fact",
+            {"head": f"h{DEFAULT_TAU - 1}", "relation": "works_at", "tail": "acme"},
+        )
+        engine.evaluate()
+
+        assert [f["relation"] for f in _facts_named(engine, "stable_schema")] == ["works_at"]
+        assert len(_facts_named(engine, "aligned_fact")) == DEFAULT_TAU
+
+    def test_facts_arriving_after_promotion_are_aligned_too(self) -> None:
+        engine = Engine()
+        engine.load_pack("schema-denoising")
+        for i in range(DEFAULT_TAU):
+            engine.assert_fact(
+                "extracted_fact", {"head": f"h{i}", "relation": "works_at", "tail": "acme"}
+            )
+        engine.evaluate()
+
+        engine.assert_fact(
+            "extracted_fact", {"head": "late", "relation": "works_at", "tail": "acme"}
+        )
+        engine.evaluate()
+
+        assert len(_facts_named(engine, "aligned_fact")) == DEFAULT_TAU + 1
+
     def test_firings_are_still_auditable_with_match_evidence(self) -> None:
         """rule_trace names the assert-only firings; evidence names their facts."""
         engine = Engine(match_evidence=True)
@@ -237,7 +279,11 @@ class TestSchemaDenoisingPack:
             )
         result = engine.evaluate()
         promotions = [m for m in result.match_evidence if m.rule.endswith("promote-stable-schema")]
-        assert len(promotions) == 1
+        # One firing per supporting fact -- the rule joins the candidate to
+        # the extracted_facts that support it so the count is retaken as the
+        # stream grows. The promoted stable_schema is a duplicate after the
+        # first, which CLIPS suppresses.
+        assert len(promotions) == DEFAULT_TAU
         assert promotions[0].facts[0].slots == {"relation": "works_at"}
 
     def test_default_tau_matches_the_shipped_rule(self) -> None:
