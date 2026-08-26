@@ -86,10 +86,16 @@ class TestSupportedSubset:
         """`input.user.role` has to become one flat slot; the name says which."""
         assert "user_role" in _slot_types(_load("basic"))
 
-    def test_slot_types_are_inferred_from_the_literals(self) -> None:
+    def test_every_rego_number_infers_one_slot_type(self) -> None:
+        """Rego has a single `number`, so `> 3` must not imply an int slot.
+
+        Inferring `integer` from a whole-number literal produced a template
+        that rejects the input the policy was written for: `input.score > 1`
+        would refuse to assert `{"score": 1.5}`, which OPA answers `true`.
+        """
         assert _slot_types(_load("numeric")) == {
-            "attempts": "integer",
-            "resource_level": "integer",
+            "attempts": "float",
+            "resource_level": "float",
             "score": "float",
         }
 

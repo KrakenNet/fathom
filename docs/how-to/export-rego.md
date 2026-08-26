@@ -4,7 +4,7 @@ summary: Export the stateless subset of a Fathom ruleset to Rego with fathom con
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 sources:
   - src/fathom/rego.py
   - src/fathom/cli.py
@@ -77,6 +77,11 @@ looks: `equals(5)` on a `string` slot is the string `"5"`, and on an `integer`
 slot it is `5`. A `symbol` slot holding `true` or `false` becomes a Rego
 boolean, which is the inverse of what
 [the importer](convert-rego.md) does on the way in.
+
+A Fathom argument that carries its own quotes — `equals("Paris, France")` —
+is unquoted before it is re-encoded, so the Rego string holds the value and
+not a pair of quote marks. Set members are split on top-level commas only,
+so a member holding one stays a single member.
 
 ## How slots are addressed
 

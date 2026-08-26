@@ -4,7 +4,7 @@ summary: Translate the stateless subset of an OPA Rego policy into Fathom YAML w
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 sources:
   - src/fathom/rego.py
   - src/fathom/cli.py
@@ -95,7 +95,21 @@ above converts to `allow-1` and `deny-2`.
 
 Slot types are inferred from the literals each field is compared against, and
 widen to `string` when one field is compared against literals of different
-types.
+types. Rego has a single `number` type, so **every number becomes a `float`
+slot** — inferring `integer` from a policy that happens to compare against a
+whole number would produce a template that rejects the very input the policy
+was written for. `flatten_input` feeds those slots floats to match.
+
+### `deny` outranks `allow`
+
+Rego keeps `allow` and `deny` in separate documents and leaves the
+precedence to whoever queries them. Fathom renders one decision, last write
+wins, so a converted policy has to pick: **converted `deny` rules carry
+`salience: -10`**, which makes them fire last and beat a matching `allow`.
+Without it the answer for an input matching both came down to the order the
+rules happened to be written in — a suspended admin was allowed in one file
+and denied in the other. A note names the choice; change the salience if
+your caller resolved it the other way.
 
 ## The convertible subset
 
@@ -127,6 +141,8 @@ Each refusal is printed to stderr naming the rule and the construct.
 | `count(input.tags) > 2` | The operand is a function call or a computed reference, not a field. |
 | `input.enabled` | A bare truthiness check. Compare the value explicitly. |
 | Rules not named `allow` / `deny` | Only those two head names have an unambiguous Fathom decision. |
+| `allow if { ... } else = false { ... }` | An `else` branch is a second rule body with its own value. Write it as a separate Fathom rule whose salience orders it. |
+| `input.x in {1, "two"}` | The set mixes types and a Fathom slot holds one. Widening to `string` would leave the numbers unmatchable rather than merely imprecise. |
 | Any other built-in | Unsupported; reported by name. |
 
 ### A rule with one unconvertible condition is dropped whole

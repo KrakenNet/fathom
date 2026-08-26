@@ -1161,7 +1161,10 @@ class Compiler:
                 "List arguments must contain at least one item",
                 detail="List arguments must contain at least one item",
             )
-        return [item.strip() for item in inner.split(",")]
+        # Top-level commas only. A plain split shredded any quoted member
+        # holding one, so `in(["Paris, France", Berlin])` silently became a
+        # three-member list, two of them nonsense.
+        return Compiler._split_operator_args(inner)
 
     @staticmethod
     def _resolve_cross_refs(arg: str) -> str | None:
