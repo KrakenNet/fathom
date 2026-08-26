@@ -4,7 +4,7 @@ sources:
   - pyproject.toml
   - src/fathom/__init__.py
   - README.md
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Fathom
