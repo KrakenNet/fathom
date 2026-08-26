@@ -10,12 +10,15 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from agents import Agent
+from agents.tool_context import ToolContext
+from agents.tool_guardrails import ToolInputGuardrail, ToolInputGuardrailData
 
-# Mock the agents package before importing the adapter so the import guard
-# does not raise when openai-agents is not installed.
-sys.modules.setdefault("agents", MagicMock())
-
-from fathom.integrations.openai_agents import (  # noqa: E402
+# openai-agents is installed in CI (`uv sync --all-extras`), so the adapter
+# imports the real package here. A MagicMock used to be planted instead, which
+# is precisely how a guardrail signature the SDK never calls passed this suite.
+# See tests/test_adapters_real_engine.py for the dispatch-level cover.
+from fathom.integrations.openai_agents import (
     PolicyViolation,
     _build_tool_request_facts,
     _evaluate_tool_call,
@@ -150,39 +153,61 @@ class TestPolicyViolation:
 # ---------------------------------------------------------------------------
 
 
+def _data(tool_name: str = TOOL_NAME, arguments: str = INPUT_JSON) -> ToolInputGuardrailData:
+    """Build the payload the Agents SDK runner hands a tool input guardrail."""
+    return ToolInputGuardrailData(
+        context=ToolContext(
+            context=None,
+            tool_name=tool_name,
+            tool_call_id="call-1",
+            tool_arguments=arguments,
+        ),
+        agent=Agent(name="unit-test-agent"),
+    )
+
+
 class TestFathomToolGuardrail:
     """Tests for the fathom_tool_guardrail factory function."""
+
+    def test_factory_returns_a_tool_input_guardrail(self) -> None:
+        """The SDK calls ``.run()`` on it; a bare callable is never invoked."""
+        guardrail = fathom_tool_guardrail(engine=_make_engine(), agent_id=AGENT_ID)
+        assert isinstance(guardrail, ToolInputGuardrail)
 
     def test_allow_passes(self) -> None:
         async def _run() -> None:
             engine = _make_engine(decision="allow")
             guardrail = fathom_tool_guardrail(engine=engine, agent_id=AGENT_ID)
-            await guardrail(tool_name=TOOL_NAME, arguments=INPUT_JSON)
+            outcome = await guardrail.run(_data())
+            assert outcome.behavior["type"] == "allow"
             engine.evaluate_once.assert_called_once()
 
         asyncio.run(_run())
 
-    def test_deny_raises(self) -> None:
+    def test_deny_raises_exception_behavior(self) -> None:
+        """Blocking is a behavior on the return value, not a raise."""
+
         async def _run() -> None:
             engine = _make_engine(decision="deny", reason="forbidden", rule_trace=["deny-rule"])
             guardrail = fathom_tool_guardrail(engine=engine, agent_id=AGENT_ID)
-            with pytest.raises(PolicyViolation) as exc_info:
-                await guardrail(tool_name=TOOL_NAME, arguments=INPUT_JSON)
-            assert exc_info.value.decision == "deny"
-            assert exc_info.value.reason == "forbidden"
+            outcome = await guardrail.run(_data())
+            assert outcome.behavior["type"] == "raise_exception"
+            assert isinstance(outcome.output_info, PolicyViolation)
+            assert outcome.output_info.decision == "deny"
+            assert outcome.output_info.reason == "forbidden"
 
         asyncio.run(_run())
 
-    def test_escalate_raises(self) -> None:
+    def test_escalate_raises_exception_behavior(self) -> None:
         async def _run() -> None:
             engine = _make_engine(
                 decision="escalate", reason="human review", rule_trace=["esc-rule"]
             )
             guardrail = fathom_tool_guardrail(engine=engine, agent_id=AGENT_ID)
-            with pytest.raises(PolicyViolation) as exc_info:
-                await guardrail(tool_name=TOOL_NAME, arguments=INPUT_JSON)
-            assert exc_info.value.decision == "escalate"
-            assert exc_info.value.reason == "human review"
+            outcome = await guardrail.run(_data())
+            assert outcome.behavior["type"] == "raise_exception"
+            assert outcome.output_info.decision == "escalate"
+            assert outcome.output_info.reason == "human review"
 
         asyncio.run(_run())
 
@@ -190,7 +215,7 @@ class TestFathomToolGuardrail:
         async def _run() -> None:
             engine = _make_engine(decision="allow")
             guardrail = fathom_tool_guardrail(engine=engine, agent_id=AGENT_ID)
-            await guardrail(tool_name="calculator", arguments='{"expr": "1+1"}')
+            await guardrail.run(_data(tool_name="calculator", arguments='{"expr": "1+1"}'))
             call_args = _scoped_fact(engine)
             assert call_args[0] == "tool_request"
             fact = call_args[1]
@@ -199,14 +224,12 @@ class TestFathomToolGuardrail:
 
         asyncio.run(_run())
 
-    def test_guardrail_default_arguments_none(self) -> None:
+    def test_non_json_arguments_are_forwarded_verbatim(self) -> None:
         async def _run() -> None:
             engine = _make_engine(decision="allow")
             guardrail = fathom_tool_guardrail(engine=engine, agent_id=AGENT_ID)
-            await guardrail(tool_name=TOOL_NAME)
-            call_args = _scoped_fact(engine)
-            fact = call_args[1]
-            assert fact["arguments"] == "None"
+            await guardrail.run(_data(arguments="not json"))
+            assert _scoped_fact(engine)[1]["arguments"] == "not json"
 
         asyncio.run(_run())
 
@@ -233,7 +256,7 @@ class TestImportGuard:
                     sys.modules,
                     {"agents": None},
                 ),
-                pytest.raises(ImportError, match="openai-agents is required"),
+                pytest.raises(ImportError, match="openai-agents >= 0.4 is required"),
             ):
                 importlib.import_module(mod_name)
         finally:

@@ -1,10 +1,21 @@
 """OpenAI Agents SDK adapter for Fathom policy enforcement.
 
-Provides :func:`fathom_tool_guardrail` which creates an async tool input
-guardrail that evaluates tool calls against loaded Fathom rules and raises
-:class:`PolicyViolation` unless the decision is ``allow``.
+Provides :func:`fathom_tool_guardrail`, which builds a
+:class:`~agents.tool_guardrails.ToolInputGuardrail` that evaluates tool calls
+against loaded Fathom rules and halts the run unless the decision is
+``allow``.
 
-Requires ``openai-agents >= 0.1``.  Install via::
+Attach it to the tools it should guard::
+
+    from agents import function_tool
+
+    guardrail = fathom_tool_guardrail(engine, "agent-1")
+
+    @function_tool(tool_input_guardrails=[guardrail])
+    def wipe_prod(target: str) -> str: ...
+
+Requires ``openai-agents >= 0.4`` — the release that introduced
+``agents.tool_guardrails``. Install via::
 
     pip install fathom-rules[openai-agents]
 """
@@ -19,14 +30,23 @@ from typing import TYPE_CHECKING, Any
 from fathom.integrations import PolicyViolation as PolicyViolation
 
 try:
-    import agents  # noqa: F401
+    # `agents.tool_guardrails` landed in openai-agents 0.4.0. Importing it here
+    # — rather than bare `agents` — makes an older install fail loudly at
+    # import instead of silently never guarding a tool, which would fail open.
+    from agents.tool_guardrails import (
+        ToolGuardrailFunctionOutput,
+        ToolInputGuardrail,
+    )
 except ImportError as _exc:
     raise ImportError(
-        "openai-agents is required for the OpenAI Agents SDK integration. "
+        "openai-agents >= 0.4 is required for the OpenAI Agents SDK "
+        "integration (agents.tool_guardrails was added in 0.4.0). "
         "Install it with: pip install fathom-rules[openai-agents]"
     ) from _exc
 
 if TYPE_CHECKING:
+    from agents.tool_guardrails import ToolInputGuardrailData
+
     from fathom.engine import Engine
 
 
@@ -111,12 +131,18 @@ def _evaluate_tool_call(
 def fathom_tool_guardrail(
     engine: Engine,
     agent_id: str,
-) -> Any:
-    """Factory that returns an async tool input guardrail for OpenAI Agents SDK.
+) -> ToolInputGuardrail[Any]:
+    """Factory that returns a tool input guardrail for the OpenAI Agents SDK.
 
-    The returned callable accepts ``tool_name`` and ``arguments`` parameters,
-    evaluates them against the Fathom policy engine, and raises
-    :class:`PolicyViolation` unless the decision is ``allow``.
+    The guardrail reads the tool name and raw arguments off the
+    ``ToolInputGuardrailData`` the SDK hands it, evaluates them against the
+    Fathom policy engine, and returns a ``raise_exception`` outcome — which
+    the runner turns into ``ToolInputGuardrailTripwireTriggered`` — unless
+    the decision is ``allow``. The triggering :class:`PolicyViolation` is
+    carried on the outcome's ``output_info``.
+
+    Blocking is a *return value*, not an exception: the SDK inspects
+    ``ToolGuardrailFunctionOutput.behavior`` to decide what to do.
 
     Args:
         engine: A configured :class:`~fathom.engine.Engine` instance with
@@ -124,22 +150,29 @@ def fathom_tool_guardrail(
         agent_id: Identifier for the agent making tool calls.
 
     Returns:
-        An async callable suitable for use as a tool input guardrail.
+        A :class:`~agents.tool_guardrails.ToolInputGuardrail` ready to pass
+        to ``function_tool(tool_input_guardrails=[...])``.
     """
 
-    async def _guardrail(
-        tool_name: str,
-        arguments: str | None = None,
-    ) -> None:
+    async def _guardrail(data: ToolInputGuardrailData) -> ToolGuardrailFunctionOutput:
         """Evaluate a tool call against Fathom policy rules.
 
         The underlying CLIPS engine is synchronous, so this delegates
         to the shared helper directly.
 
         Args:
-            tool_name: Name of the tool being called.
-            arguments: Tool input arguments as a string.
+            data: The SDK's guardrail payload, carrying the tool context.
         """
-        _evaluate_tool_call(engine, agent_id, tool_name, arguments)
+        context = data.context
+        try:
+            _evaluate_tool_call(
+                engine,
+                agent_id,
+                context.tool_name,
+                context.tool_arguments,
+            )
+        except PolicyViolation as exc:
+            return ToolGuardrailFunctionOutput.raise_exception(output_info=exc)
+        return ToolGuardrailFunctionOutput.allow()
 
-    return _guardrail
+    return ToolInputGuardrail(guardrail_function=_guardrail, name="fathom_tool_guardrail")

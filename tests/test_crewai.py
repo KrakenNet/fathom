@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from crewai.hooks.tool_hooks import ToolCallHookContext
 
-# ---------------------------------------------------------------------------
-# Mock crewai before importing the adapter (crewai is not installed)
-# ---------------------------------------------------------------------------
-
-_mock_crewai = ModuleType("crewai")
-sys.modules.setdefault("crewai", _mock_crewai)
-
-from fathom.integrations.crewai import (  # noqa: E402
+# crewai is installed in CI (`uv sync --all-extras`), so the adapter imports
+# the real package here. A stand-in module used to be planted instead, which
+# is precisely how a hook signature no crewai release ever calls passed this
+# suite. See tests/test_adapters_real_engine.py for the dispatch-level cover.
+from fathom.integrations.crewai import (
     PolicyViolation,
     _build_tool_request_facts,
     _evaluate_tool_call,
@@ -152,41 +151,53 @@ class TestPolicyViolation:
 # ---------------------------------------------------------------------------
 
 
+def _context(tool_name: str = TOOL_NAME, tool_input: Any = None) -> ToolCallHookContext:
+    """Build the context object CrewAI hands a ``before_tool_call`` hook."""
+    return ToolCallHookContext(
+        tool_name=tool_name,
+        tool_input={"expr": "1+1"} if tool_input is None else tool_input,
+        tool=MagicMock(),
+    )
+
+
 class TestBeforeToolCallHook:
     """Tests for the fathom_before_tool_call factory function."""
 
     def test_allow_passes_through(self) -> None:
         engine = _make_engine(decision="allow")
         hook = fathom_before_tool_call(engine=engine, agent_id=AGENT_ID)
-        hook(TOOL_NAME, INPUT_JSON)
+        assert hook(_context()) is None
         engine.evaluate_once.assert_called_once()
 
-    def test_deny_raises(self) -> None:
+    def test_deny_returns_false(self) -> None:
+        """CrewAI blocks on a ``False`` return; a raise would fail open."""
         engine = _make_engine(decision="deny", reason="forbidden", rule_trace=["deny-rule"])
         hook = fathom_before_tool_call(engine=engine, agent_id=AGENT_ID)
-        with pytest.raises(PolicyViolation) as exc_info:
-            hook(TOOL_NAME, INPUT_JSON)
-        assert exc_info.value.decision == "deny"
+        assert hook(_context()) is False
 
-    def test_escalate_raises(self) -> None:
+    def test_escalate_returns_false(self) -> None:
         engine = _make_engine(
             decision="escalate", reason="needs approval", rule_trace=["esc-rule"]
         )
         hook = fathom_before_tool_call(engine=engine, agent_id=AGENT_ID)
-        with pytest.raises(PolicyViolation) as exc_info:
-            hook(TOOL_NAME, INPUT_JSON)
-        assert exc_info.value.decision == "escalate"
-        assert exc_info.value.reason == "needs approval"
+        assert hook(_context()) is False
 
     def test_fact_dict_passed_to_engine(self) -> None:
         engine = _make_engine(decision="allow")
         hook = fathom_before_tool_call(engine=engine, agent_id=AGENT_ID)
-        hook("calculator", '{"expr": "1+1"}')
+        hook(_context(tool_name="calculator"))
         call_args = _scoped_fact(engine)
         assert call_args[0] == "tool_request"
         fact = call_args[1]
         assert fact["tool_name"] == "calculator"
         assert fact["agent_id"] == AGENT_ID
+
+    def test_string_tool_input_is_forwarded_verbatim(self) -> None:
+        """CrewAI types tool_input as a dict, but a raw string must survive."""
+        engine = _make_engine(decision="allow")
+        hook = fathom_before_tool_call(engine=engine, agent_id=AGENT_ID)
+        hook(_context(tool_input=INPUT_JSON))
+        assert _scoped_fact(engine)[1]["arguments"] == str(json.loads(INPUT_JSON))
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +222,7 @@ class TestImportGuard:
                     sys.modules,
                     {"crewai": None},
                 ),
-                pytest.raises(ImportError, match="crewai is required"),
+                pytest.raises(ImportError, match="crewai >= 1.5 is required"),
             ):
                 importlib.import_module(mod_name)
         finally:

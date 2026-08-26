@@ -125,6 +125,12 @@ class FathomCallbackHandler(BaseCallbackHandler):
         session_id: Optional session identifier for stateful evaluation.
     """
 
+    # LangChain's callback manager swallows handler exceptions and logs a
+    # warning unless the handler opts in to propagation. Without this the
+    # PolicyViolation raised below never reaches the caller and the denied
+    # tool runs anyway — a fail-open.
+    raise_error = True
+
     def __init__(
         self,
         engine: Engine,
@@ -174,6 +180,12 @@ class FathomAsyncCallbackHandler(AsyncCallbackHandler):
         agent_id: Identifier for the agent making tool calls.
         session_id: Optional session identifier for stateful evaluation.
     """
+
+    # LangChain's callback manager swallows handler exceptions and logs a
+    # warning unless the handler opts in to propagation. Without this the
+    # PolicyViolation raised below never reaches the caller and the denied
+    # tool runs anyway — a fail-open.
+    raise_error = True
 
     def __init__(
         self,

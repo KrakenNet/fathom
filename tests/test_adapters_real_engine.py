@@ -8,6 +8,14 @@ they catch the two adapter bugs the mock-based suites missed:
   on call *N*'s working memory (issue #137);
 * the guard blocked on a denylist of two decisions, so ``route`` and
   ``scope`` — and a missing decision — permitted the tool call.
+
+Every driver below dispatches through the framework's own tool-execution
+path and asserts on the *tool body's side effect*, never by calling the
+adapter's handler directly. Calling the handler directly is what let three
+adapters ship with signatures no framework ever calls: the engine was real,
+the rules were real, the decision was right, and the tool ran anyway. A
+correct decision that the framework discards is a fail-open, and only a real
+dispatch can see it.
 """
 
 from __future__ import annotations
@@ -17,6 +25,25 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from agents import Agent as OpenAIAgent
+from agents.tool_context import ToolContext
+from agents.tool_guardrails import ToolInputGuardrailData
+from crewai.agents.parser import AgentAction
+from crewai.hooks import (
+    clear_before_tool_call_hooks,
+    register_before_tool_call_hook,
+)
+from crewai.tools.structured_tool import CrewStructuredTool
+from crewai.utilities.i18n import I18N
+from crewai.utilities.tool_utils import execute_tool_and_check_finality
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.flows.llm_flows.functions import handle_function_call_list_async
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.adk.sessions.session import Session
+from google.adk.tools.function_tool import FunctionTool
+from google.genai import types
+from langchain_core.tools import StructuredTool
 
 from fathom.engine import Engine
 from fathom.integrations import crewai as crewai_adapter
@@ -171,39 +198,165 @@ def rule_pack(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
+class _RecordingEngine:
+    """Engine proxy that remembers the last decision, for block messages.
+
+    CrewAI's block signal is a bare ``False`` and its rejection string
+    carries no rule reason, so the reason the assertions check has to be
+    read back off the engine. The framework still decides whether the tool
+    body runs — that is what the drivers assert on.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.last: Any = None
+
+    def evaluate_once(self, facts: list[tuple[str, dict[str, Any]]]) -> Any:
+        self.last = self._inner.evaluate_once(facts)
+        return self.last
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 def _langchain_call(engine: Engine, tool_name: str) -> None:
-    langchain_adapter.FathomCallbackHandler(engine=engine, agent_id=AGENT_ID).on_tool_start(
-        {"name": tool_name}, "{}"
+    """Invoke a real LangChain tool with the handler attached."""
+    ran: list[str] = []
+    tool = StructuredTool.from_function(
+        func=lambda: ran.append(tool_name) or "ok",
+        name=tool_name,
+        description="regression tool",
     )
+    handler = langchain_adapter.FathomCallbackHandler(engine=engine, agent_id=AGENT_ID)
+
+    try:
+        tool.invoke({}, config={"callbacks": [handler]})
+    except langchain_adapter.PolicyViolation:
+        assert ran == [], f"LangChain ran {tool_name} despite a policy violation"
+        raise
+    assert ran == [tool_name], f"LangChain skipped {tool_name} on an allow decision"
 
 
 def _langchain_async_call(engine: Engine, tool_name: str) -> None:
+    """Invoke a real async LangChain tool with the async handler attached."""
+    ran: list[str] = []
+
+    async def _body() -> str:
+        ran.append(tool_name)
+        return "ok"
+
+    tool = StructuredTool.from_function(
+        func=lambda: ran.append(tool_name) or "ok",
+        coroutine=_body,
+        name=tool_name,
+        description="regression tool",
+    )
     handler = langchain_adapter.FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
-    asyncio.run(handler.on_tool_start({"name": tool_name}, "{}"))
+
+    try:
+        asyncio.run(tool.ainvoke({}, config={"callbacks": [handler]}))
+    except langchain_adapter.PolicyViolation:
+        assert ran == [], f"LangChain ran {tool_name} despite a policy violation"
+        raise
+    assert ran == [tool_name], f"LangChain skipped {tool_name} on an allow decision"
 
 
 def _crewai_call(engine: Engine, tool_name: str) -> None:
-    crewai_adapter.fathom_before_tool_call(engine, AGENT_ID)(tool_name, "{}")
+    """Run a real CrewAI tool call through the registered before-hook."""
+    ran: list[str] = []
+    recorder = _RecordingEngine(engine)
+    tool = CrewStructuredTool.from_function(
+        func=lambda: ran.append(tool_name) or "ok",
+        name=tool_name,
+        description="regression tool",
+    )
+
+    clear_before_tool_call_hooks()
+    register_before_tool_call_hook(crewai_adapter.fathom_before_tool_call(recorder, AGENT_ID))
+    try:
+        execute_tool_and_check_finality(
+            agent_action=AgentAction(
+                thought="", tool=tool_name, tool_input="{}", text=f"{tool_name}{{}}"
+            ),
+            tools=[tool],
+            i18n=I18N(),
+        )
+    finally:
+        clear_before_tool_call_hooks()
+
+    if not ran:
+        result = recorder.last
+        raise crewai_adapter.PolicyViolation(
+            decision=result.decision,
+            reason=result.reason,
+            rule_trace=result.rule_trace,
+        )
 
 
 def _openai_call(engine: Engine, tool_name: str) -> None:
-    asyncio.run(openai_adapter.fathom_tool_guardrail(engine, AGENT_ID)(tool_name, "{}"))
+    """Run the guardrail exactly as the Agents SDK runner runs it."""
+    guardrail = openai_adapter.fathom_tool_guardrail(engine, AGENT_ID)
+    outcome = asyncio.run(
+        guardrail.run(
+            ToolInputGuardrailData(
+                context=ToolContext(
+                    context=None,
+                    tool_name=tool_name,
+                    tool_call_id="call-1",
+                    tool_arguments="{}",
+                ),
+                agent=OpenAIAgent(name="regression-agent"),
+            )
+        )
+    )
+
+    # The runner reads `behavior`; anything other than "allow" stops the call.
+    if outcome.behavior["type"] != "allow":
+        raise outcome.output_info
 
 
 def _adk_call(engine: Engine, tool_name: str) -> None:
-    """Drive the ADK callback, re-raising its error dict as PolicyViolation.
+    """Run a real ADK function call through the agent's before-tool callback.
 
     ADK reports a violation by returning ``{"error": ...}`` rather than
     raising, so the shared assertions below get a raise-shaped driver.
     """
-    callback = adk_adapter.fathom_before_tool_callback(engine, AGENT_ID)
-    outcome = callback(SimpleNamespace(name=tool_name), {}, None)
-    if outcome is not None:
+    ran: list[str] = []
+
+    def _body() -> str:
+        """Regression tool."""
+        ran.append(tool_name)
+        return "ok"
+
+    _body.__name__ = tool_name
+    agent = LlmAgent(
+        name="regression_agent",
+        before_tool_callback=adk_adapter.fathom_before_tool_callback(engine, AGENT_ID),
+    )
+    context = InvocationContext(
+        session_service=InMemorySessionService(),
+        invocation_id="invocation-1",
+        session=Session(id="session-1", app_name="regression", user_id="user-1"),
+        agent=agent,
+    )
+
+    event = asyncio.run(
+        handle_function_call_list_async(
+            context,
+            [types.FunctionCall(name=tool_name, args={}, id="call-1")],
+            {tool_name: FunctionTool(_body)},
+        )
+    )
+    response = event.content.parts[0].function_response.response
+
+    if "error" in response:
+        assert ran == [], f"ADK ran {tool_name} despite a policy violation"
         raise adk_adapter.PolicyViolation(
             decision="blocked",
-            reason=outcome["error"],
+            reason=response["error"],
             rule_trace=[],
         )
+    assert ran == [tool_name], f"ADK skipped {tool_name} on an allow decision"
 
 
 ADAPTERS: list[tuple[str, Callable[[Engine, str], None], type[Exception]]] = [

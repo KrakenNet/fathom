@@ -10,14 +10,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock the google.adk package before importing the adapter so the import guard
-# does not raise when google-adk is not installed.
-_google_mock = MagicMock()
-sys.modules.setdefault("google", _google_mock)
-sys.modules.setdefault("google.adk", _google_mock.adk)
-sys.modules.setdefault("google.adk.agents", _google_mock.adk.agents)
-
-from fathom.integrations.google_adk import (  # noqa: E402
+# google-adk is installed in CI (`uv sync --all-extras`), so the adapter
+# imports the real package here. A MagicMock used to be planted instead, which
+# hides any drift in the callback contract. See
+# tests/test_adapters_real_engine.py for the dispatch-level cover.
+from fathom.integrations.google_adk import (
     PolicyViolation,
     _build_tool_request_facts,
     _evaluate_tool_call,

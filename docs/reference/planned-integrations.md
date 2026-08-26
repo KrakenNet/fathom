@@ -160,12 +160,31 @@ on the previous call's working memory.
 The guard is **allowlist-only**: it permits the call when — and only when —
 the decision is exactly `allow`. Every other outcome (`deny`, `escalate`,
 `route`, `scope`, a missing decision, or any value a future release adds)
-raises `PolicyViolation` — one class, defined in `fathom.integrations` and
-re-exported by every adapter, so one `except` covers all four — or returns
-an error dict for ADK. A denylist of
-known-bad decisions would fail open on anything it had not heard of.
+blocks the call. A denylist of known-bad decisions would fail open on
+anything it had not heard of.
+
+*How* each adapter blocks is dictated by its framework, and only LangChain
+blocks by raising. CrewAI, the Agents SDK and ADK all wrap the handler call
+in `try/except`, log whatever it raises, and then run the tool anyway — so
+in those three a raised exception is a fail-open, and the block has to be a
+return value:
+
+| Adapter | Block signal | Carries the reason? |
+|---------|--------------|---------------------|
+| LangChain | raises `PolicyViolation` (needs `raise_error = True` on the handler, or LangChain swallows it) | yes |
+| CrewAI | hook returns `False` | no — CrewAI's own rejection message replaces it |
+| OpenAI Agents SDK | guardrail returns `ToolGuardrailFunctionOutput.raise_exception(output_info=violation)`, which the runner turns into `ToolInputGuardrailTripwireTriggered` | yes, on `output_info` |
+| Google ADK | callback returns `{"error": ...}` | yes |
+
+`PolicyViolation` is one class, defined in `fathom.integrations` and
+re-exported by every adapter, so one `except` covers every adapter that
+raises.
+
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
-`fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
+`fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`. The CrewAI and
+Agents SDK extras carry floors of `crewai>=1.5` and `openai-agents>=0.4` —
+the releases that introduced `crewai.hooks` and `agents.tool_guardrails`
+respectively. Earlier releases have no hook to attach to at all.
 
 ## Policy Studio — `packages/fathom-studio/`
 

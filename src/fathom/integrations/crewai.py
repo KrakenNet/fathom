@@ -1,10 +1,18 @@
 """CrewAI hook for Fathom policy enforcement.
 
-Provides :func:`fathom_before_tool_call` which returns a callable that
-intercepts CrewAI tool calls, evaluates them against loaded Fathom rules,
-and raises :class:`PolicyViolation` unless the decision is ``allow``.
+Provides :func:`fathom_before_tool_call`, which returns a hook matching
+CrewAI's ``before_tool_call`` protocol: it takes a single
+:class:`~crewai.hooks.tool_hooks.ToolCallHookContext` and returns ``False``
+to block the call.
 
-Requires ``crewai >= 0.80``.  Install via::
+Register the returned hook with CrewAI's global registry::
+
+    from crewai.hooks import register_before_tool_call_hook
+
+    register_before_tool_call_hook(fathom_before_tool_call(engine, "agent-1"))
+
+Requires ``crewai >= 1.5`` — the release that introduced ``crewai.hooks``.
+Install via::
 
     pip install fathom-rules[crewai]
 """
@@ -19,15 +27,21 @@ from typing import TYPE_CHECKING
 from fathom.integrations import PolicyViolation as PolicyViolation
 
 try:
-    import crewai as _crewai  # noqa: F401
+    # `crewai.hooks` landed in crewai 1.5.0. Importing it here — rather than
+    # bare `crewai` — makes an older install fail loudly at import instead of
+    # silently never invoking the hook, which would fail open.
+    from crewai.hooks import register_before_tool_call_hook as _register  # noqa: F401
 except ImportError as _exc:
     raise ImportError(
-        "crewai is required for the CrewAI integration. "
+        "crewai >= 1.5 is required for the CrewAI integration "
+        "(crewai.hooks was added in 1.5.0). "
         "Install it with: pip install fathom-rules[crewai]"
     ) from _exc
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from crewai.hooks.tool_hooks import ToolCallHookContext
 
     from fathom.engine import Engine
 
@@ -113,13 +127,17 @@ def _evaluate_tool_call(
 def fathom_before_tool_call(
     engine: Engine,
     agent_id: str,
-) -> Callable[[str, str], None]:
+) -> Callable[[ToolCallHookContext], bool | None]:
     """Factory that returns a CrewAI ``before_tool_call`` hook.
 
-    The returned callable receives the tool name and arguments string,
-    asserts a ``tool_request`` fact into the Fathom engine, evaluates
-    rules, and raises :class:`PolicyViolation` unless the decision is
+    The returned hook receives a single ``ToolCallHookContext``, asserts a
+    ``tool_request`` fact into the Fathom engine, evaluates rules, and
+    returns ``False`` — CrewAI's block signal — unless the decision is
     ``allow``.
+
+    Blocking is a *return value*, not an exception: CrewAI wraps the whole
+    before-hook loop in ``try/except`` and logs anything raised, then runs
+    the tool anyway. A hook that raises fails open.
 
     Args:
         engine: A configured :class:`~fathom.engine.Engine` instance with
@@ -127,11 +145,17 @@ def fathom_before_tool_call(
         agent_id: Identifier for the agent making tool calls.
 
     Returns:
-        A callable matching CrewAI's ``before_tool_call`` signature
-        ``(tool_name: str, arguments: str) -> None``.
+        A callable matching CrewAI's
+        :class:`~crewai.hooks.types.BeforeToolCallHook` protocol.
     """
 
-    def _hook(tool_name: str, arguments: str) -> None:
-        _evaluate_tool_call(engine, agent_id, tool_name, arguments)
+    def _hook(context: ToolCallHookContext) -> bool | None:
+        tool_input = context.tool_input
+        arguments = tool_input if isinstance(tool_input, str) else json.dumps(tool_input)
+        try:
+            _evaluate_tool_call(engine, agent_id, context.tool_name, arguments)
+        except PolicyViolation:
+            return False
+        return None
 
     return _hook
