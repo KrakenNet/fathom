@@ -15,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-08-21
+last_verified: 2026-08-26
 ---
 
 # Planned Integrations
@@ -114,10 +114,11 @@ Both the dead tree and the stale root spec are gone; the single spec is
 
 **What is missing:**
 
-- **The client covers 4 of the 10 documented endpoints** — `/v1/evaluate`,
+- **The client covers 4 of the 11 documented endpoints** — `/v1/evaluate`,
   `/v1/facts` (assert and retract) and `/v1/query`. `/v1/compile`,
   `/v1/templates`, `/v1/modules`, `/v1/rules`, `/v1/rules/reload`,
-  `/v1/status` and `/health` have no method on `FathomClient`.
+  `/v1/status`, `/v1/data/{path}` and `/health` have no method on
+  `FathomClient`.
 - **No published npm release.** `repository.url` in `package.json` points
   at the monorepo; no `dist/` is published. Tracked as issue
   [#40](https://github.com/KrakenNet/fathom/issues/40).
