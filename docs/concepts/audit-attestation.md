@@ -4,7 +4,7 @@ summary: Why every Fathom evaluation is recorded, and how the optional Ed25519 J
 audience: [app-developers, rule-authors]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 sources:
   - src/fathom/audit.py
   - src/fathom/chained_log.py
@@ -94,9 +94,16 @@ Field by field:
 - **`modules_traversed`** / **`rules_fired`** — copied from
   `EvaluationResult.module_trace` and `rule_trace`. The modules active
   during inference and the fully-qualified `module::rule` names in fire
-  order.
+  order. *Every* firing is listed, including rules whose `then` is only an
+  `assert` block: the forward-chaining step that derived the fact a later
+  rule decided on is the part of the chain an auditor most needs. A rule
+  that fires twice appears twice. Each compiled rule asserts one
+  `__fathom_decision` per firing to record this; an assert-only rule's
+  carries `action none`.
 - **`decision`** / **`reason`** — the `action` and `reason` read off the
-  last `__fathom_decision` fact. `None` if no rule asserted a decision.
+  last `__fathom_decision` fact. `None` if no rule asserted a decision, and
+  the engine's `default_decision` (with the reason `default decision (no
+  rule rendered a decision)`) when one is configured.
 - **`duration_us`** — microseconds spent in the inference loop.
 - **`metadata`** — arbitrary string key/value pairs propagated from the
   decision's rule.
@@ -249,7 +256,8 @@ One `MatchEvidence` entry per firing — a rule that fires twice on different
 facts appears twice — and one `AssertedFact` per condition element on the
 rule's left-hand side, in the order the conditions were written. Rules with
 no `then.action` are covered too, so an assert-only rule that quietly seeded
-a fact still explains itself.
+a fact still explains itself. `rules_fired` already names those firings; the
+evidence adds the facts behind each one.
 
 The same list is copied onto the `AuditRecord`, so evidence survives to the
 sink and through JSON serialization.

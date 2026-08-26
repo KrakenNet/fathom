@@ -9,7 +9,7 @@ sources:
   - src/fathom/engine.py
   - src/fathom/facts.py
   - src/fathom/integrations/rest.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Fact
@@ -226,9 +226,10 @@ it explicitly.
 
 ## What is not surfaced
 
-- **Internal decision facts.** Rules assert a `__fathom_decision` fact
-  to carry the outcome; the template is built by `Engine.__init__`
-  (engine.py lines 51–60, 198) and deliberately kept out of
+- **Internal decision facts.** Every compiled rule asserts a
+  `__fathom_decision` fact per firing, carrying the outcome when it
+  declared one; the template is built by `Engine.__init__` (engine.py
+  lines 89–104, 272–273) and deliberately kept out of
   `_template_registry`, so it never appears in `query`, `retract`, or
   the audit fact-snapshot.
 - **`initial-fact`.** Asserted by `env.reset()`; excluded by the same

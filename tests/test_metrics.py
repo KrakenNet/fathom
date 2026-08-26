@@ -646,7 +646,10 @@ class TestEvaluationWiring:
     def test_default_deny_without_rule_trace(self, prom_registry: CollectorRegistry) -> None:
         mc = MetricsCollector(enabled=True)
         mc.record_evaluation(
-            _make_eval_result(decision="deny", reason="default decision (no rules fired)"),
+            _make_eval_result(
+                decision="deny",
+                reason="default decision (no rule rendered a decision)",
+            ),
             session_id="s1",
         )
         val = prom_registry.get_sample_value(

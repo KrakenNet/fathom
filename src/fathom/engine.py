@@ -74,10 +74,23 @@ _FATHOM_MATCHES_MAX_LEN = 4096
 _USER_FN_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]*$")
 
 
-# CLIPS deftemplate built on every Engine init (design.md Section 6.1)
+# CLIPS deftemplate built on every Engine init (design.md Section 6.1).
+#
+# Asserted once per firing by every compiled rule, whether or not that rule
+# renders a decision. ``action none`` is the assert-only case: the rule fired,
+# it belongs in ``rule_trace``, and it is not a candidate for the decision.
+# Reading the trace off decision-bearing facts alone dropped every
+# forward-chaining rule, so the step that derived the fact a later rule
+# decided on was missing from the trace and from the signed audit record.
+#
+# ``seq`` makes each fact unique. CLIPS suppresses duplicate asserts, so
+# without it a rule firing twice would be recorded once whenever its other
+# slots happened to match.
 _DECISION_TEMPLATE = (
     "(deftemplate MAIN::__fathom_decision"
-    "    (slot action (type SYMBOL) (allowed-symbols allow deny escalate scope route))"
+    "    (slot seq (type INTEGER) (default 0))"
+    "    (slot action (type SYMBOL)"
+    "        (allowed-symbols none allow deny escalate scope route) (default none))"
     '    (slot reason (type STRING) (default ""))'
     '    (slot rule (type STRING) (default ""))'
     "    (slot log-level (type SYMBOL) (allowed-symbols none summary full) (default summary))"
@@ -85,6 +98,10 @@ _DECISION_TEMPLATE = (
     "    (slot attestation (type SYMBOL) (allowed-symbols TRUE FALSE) (default FALSE))"
     '    (slot metadata (type STRING) (default "")))'
 )
+
+# Source of the ``seq`` above. MAIN exports every construct and each generated
+# module does ``(import MAIN ?ALL)``, so a rule in any module can increment it.
+_DECISION_SEQ_GLOBAL = "(defglobal MAIN ?*fathom-decision-seq* = 0)"
 
 # Built only on an ``Engine(match_evidence=True)``. Lives in MAIN, which every
 # generated module imports with ``(import MAIN ?ALL)``, so a rule in any module
@@ -252,6 +269,7 @@ class Engine:
         self._metrics = MetricsCollector(enabled=metrics)
 
         # Build the decision template into the CLIPS environment
+        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision")
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision")
         if match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence")
@@ -1185,6 +1203,7 @@ class Engine:
         new_env = clips.Environment()
 
         # Decision template — matches what __init__ does on startup.
+        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision", env=new_env)
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision", env=new_env)
         if self._match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence", env=new_env)

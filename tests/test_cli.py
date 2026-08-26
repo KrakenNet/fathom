@@ -145,7 +145,7 @@ def _mock_engine(**overrides):
     mock_env.facts.return_value = []
     engine._env = mock_env
 
-    # Default evaluate returns a deny decision (no rules fired)
+    # Default evaluate returns a deny decision (nothing rendered one)
     engine.evaluate.return_value = overrides.get(
         "eval_result",
         EvaluationResult(decision="deny", reason="default deny"),

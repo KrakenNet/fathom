@@ -4,7 +4,7 @@ summary: How the Fathom engine runs — sessions, the evaluation loop, module fo
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 sources:
   - src/fathom/engine.py
   - src/fathom/evaluator.py
@@ -75,8 +75,8 @@ working memory:
 3. **Rule RHS.** A rule's `then.asserts` list — modeled as `AssertSpec` in
    `src/fathom/models.py` — compiles to additional `(assert ...)` forms on
    the rule's right-hand side. When the rule fires, those facts enter working
-   memory alongside the `__fathom_decision` fact that carries the rule's
-   action.
+   memory alongside the `__fathom_decision` fact that records the firing
+   and carries the rule's action, if it declared one.
 
 In all three paths, Python values cross into CLIPS through clipspy: strings
 become `STRING`, ints and floats become their CLIPS numeric counterparts,
@@ -99,11 +99,13 @@ snapshots.
 3. **Run to quiescence.** `self._env.run()` fires rules until no activations
    remain on any focused module.
 4. **Read the winning decision.** `_read_decision()` iterates the
-   `__fathom_decision` facts that rules emitted and picks a winner (next
-   section).
+   `__fathom_decision` facts that rules emitted, skips the ones whose
+   `action` is `none`, and picks a winner from the rest (next section).
 5. **Capture traces.** `_capture_trace()` walks the same decision facts in
    order and records every rule that fired plus the modules those rules
-   came from.
+   came from. Every compiled rule asserts one of these facts per firing,
+   assert-only rules included, so a forward-chaining step that seeded a
+   fact appears in the trace even though it decided nothing.
 6. **Clean up.** All `__fathom_decision` facts are retracted so the next
    `evaluate()` call starts with a clean decision slate. User facts are
    not touched.
@@ -195,11 +197,12 @@ what a safety-oriented policy usually wants.
 
 A few consequences follow:
 
-- **No rule fires ⇒ default decision.** The engine is constructed with
-  `default_decision="deny"`, so an empty `facts` list after `env.run()`
-  returns `("deny", "default decision (no rules fired)", {})`. The only
-  way to get `allow` out of a Fathom engine is to have a rule explicitly
-  assert one.
+- **No rule renders a decision ⇒ default decision.** The engine is
+  constructed with `default_decision="deny"`, so if nothing survives the
+  `action none` filter after `env.run()` the result is
+  `("deny", "default decision (no rule rendered a decision)", {})` — whether
+  no rule fired at all or only assert-only ones did. The only way to get
+  `allow` out of a Fathom engine is to have a rule explicitly assert one.
 - **One rule fires ⇒ that decision wins trivially.** No ordering concerns.
 - **Both fire ⇒ salience determines order, last-asserted wins.** The
   failure mode to avoid is giving deny rules *higher* salience than the

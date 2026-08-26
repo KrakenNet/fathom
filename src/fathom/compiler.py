@@ -280,6 +280,7 @@ class Compiler:
         lines.append("    =>")
 
         # RHS: action assertion
+        escaped_name = self._escape_clips_string(full_name)
         rhs = self._compile_action(defn.then, full_name, templates)
         lines.append(rhs)
 
@@ -287,8 +288,9 @@ class Compiler:
         # assert-only ones that never produce a ``__fathom_decision``.
         if self._match_evidence:
             indices = " ".join(f"(fact-index ?{_EVIDENCE_VAR}{i})" for i in range(len(defn.when)))
-            escaped = self._escape_clips_string(full_name)
-            lines.append(f'    (assert (__fathom_evidence (rule "{escaped}") (facts {indices})))')
+            lines.append(
+                f'    (assert (__fathom_evidence (rule "{escaped_name}") (facts {indices})))'
+            )
 
         lines.append(")")
         return "\n".join(lines)
@@ -502,11 +504,27 @@ class Compiler:
             A CLIPS assert statement string for ``__fathom_decision``.
         """
         indent = "    "
-        lines: list[str] = []
+        rule_name_escaped = self._escape_clips_string(rule_name)
+        # Every firing is recorded, so ``rule_trace`` and the audit record
+        # name the forward-chaining rules too -- reading the trace off
+        # decision-bearing facts alone lost the step that derived the fact
+        # the deciding rule matched on. ``seq`` is what keeps a rule that
+        # fires twice from collapsing into one fact under CLIPS duplicate
+        # suppression.
+        lines: list[str] = [
+            f"{indent}(bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))",
+        ]
 
-        # Emit __fathom_decision only when an action is declared (FR-7).
-        # Assert-only rules (action=None) skip this block entirely.
-        if then.action is not None:
+        # An assert-only rule (action=None) records the firing and nothing
+        # else: ``action`` defaults to ``none``, which never wins a decision
+        # (FR-7).
+        if then.action is None:
+            lines.append(
+                f"{indent}(assert (__fathom_decision "
+                f"(seq ?*fathom-decision-seq*) "
+                f'(rule "{rule_name_escaped}")))'
+            )
+        else:
             # Action is a SYMBOL (unquoted), reason is a STRING (quoted)
             action_str = then.action.value
             reason_expr = self._compile_reason(then.reason)
@@ -518,11 +536,11 @@ class Compiler:
                 if then.metadata
                 else ""
             )
-            rule_name_escaped = self._escape_clips_string(rule_name)
 
             lines.extend(
                 [
                     f"{indent}(assert (__fathom_decision",
+                    f"{indent}    (seq ?*fathom-decision-seq*)",
                     f"{indent}    (action {action_str})",
                     f"{indent}    (reason {reason_expr})",
                     f'{indent}    (rule "{rule_name_escaped}")',

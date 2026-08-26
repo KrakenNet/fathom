@@ -222,7 +222,14 @@ class TestPack:
         _claim(engine, "alice", "status", "active", LONG_AGO)
         _claim(engine, "alice", "status", "terminated", LONG_AGO)
         result = engine.evaluate()
-        assert result.rule_trace == []
+        # The pack's own rules render nothing; "deny" here is the engine's
+        # fail-closed default, and its reason says so.
+        assert result.decision == "deny"
+        assert result.reason == "default decision (no rule rendered a decision)"
+        # The detection rules did fire, and the trace has to say so: an
+        # assert-only rule is the inference step whoever reads the conflict
+        # facts needs to be able to point at.
+        assert any(r.endswith("detect-mutual-exclusion") for r in result.rule_trace)
 
     def test_asserting_alone_detects_nothing(self, engine: Engine) -> None:
         """Detection is host-evaluated, never re-entrant inside an assert."""

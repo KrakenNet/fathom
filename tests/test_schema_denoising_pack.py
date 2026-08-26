@@ -219,10 +219,16 @@ class TestSchemaDenoisingPack:
                 "extracted_fact", {"head": f"h{i}", "relation": "works_at", "tail": "acme"}
             )
         result = engine.evaluate()
-        assert result.rule_trace == []
+        # "deny" is the engine's fail-closed default, not the pack's call.
+        assert result.decision == "deny"
+        assert result.reason == "default decision (no rule rendered a decision)"
+        # Pure inference still traces: the promotion is the whole point of the
+        # pack, and a host that acts on the promoted schema has to be able to
+        # show which rule produced it.
+        assert any(r.endswith("promote-stable-schema") for r in result.rule_trace)
 
     def test_firings_are_still_auditable_with_match_evidence(self) -> None:
-        """Assert-only rules leave no rule_trace, so evidence is the audit path."""
+        """rule_trace names the assert-only firings; evidence names their facts."""
         engine = Engine(match_evidence=True)
         engine.load_pack("schema-denoising")
         for i in range(DEFAULT_TAU):

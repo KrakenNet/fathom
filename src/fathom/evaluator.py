@@ -127,8 +127,15 @@ class Evaluator:
     def _capture_trace(self, env: clips.Environment) -> tuple[list[str], list[str]]:
         """Capture rule trace and module trace from decision facts.
 
-        Each ``__fathom_decision`` fact has a ``rule`` slot with
-        ``"module::rule_name"`` format. Collects all in assertion order.
+        Every compiled rule asserts one ``__fathom_decision`` per firing --
+        a forward-chaining rule with ``action none``, a deciding rule with
+        its own action -- so reading them in assertion order replays the
+        firings in order.
+
+        Assert-only rules used to emit nothing here, which left the rule
+        that derived the fact a later rule decided on missing from the trace
+        and from the signed audit record: the one step that explains the
+        decision.
 
         Returns:
             Tuple of (rule_trace, module_trace).
@@ -163,13 +170,15 @@ class Evaluator:
             is the winning rule's ``then.log`` value; a default decision
             (no rule fired) reports :attr:`LogLevel.SUMMARY`.
         """
-        facts = list(self._iter_decision_facts(env))
+        # ``action none`` is a rule that fired without rendering a decision;
+        # it belongs in the trace but is not a candidate to win here.
+        facts = [f for f in self._iter_decision_facts(env) if str(f["action"]) != "none"]
 
         if not facts:
             if self._default_decision is not None:
                 return (
                     self._default_decision,
-                    "default decision (no rules fired)",
+                    "default decision (no rule rendered a decision)",
                     {},
                     LogLevel.SUMMARY,
                 )

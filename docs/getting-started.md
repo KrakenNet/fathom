@@ -184,7 +184,7 @@ modules/modules.yaml           single 'governance' module
 rules/access-control.yaml      the deny rule
 ```
 
-The agent's `secret` clearance is below the request's `top-secret` classification, so the deny rule fires. If the agent's clearance instead met or exceeded the classification, no deny rule would match and the engine would fall through to its fail-closed default (`decision = "deny"`, `reason = "default decision (no rules fired)"`). To grant access you would add an explicit allow rule with higher salience -- see [example 03](https://github.com/KrakenNet/fathom/tree/main/examples/03-classification-blp) for the full read/write Bell-LaPadula pattern.
+The agent's `secret` clearance is below the request's `top-secret` classification, so the deny rule fires. If the agent's clearance instead met or exceeded the classification, no deny rule would match and the engine would fall through to its fail-closed default (`decision = "deny"`, `reason = "default decision (no rule rendered a decision)"`). To grant access you would add an explicit allow rule with higher salience -- see [example 03](https://github.com/KrakenNet/fathom/tree/main/examples/03-classification-blp) for the full read/write Bell-LaPadula pattern.
 
 The result object contains five fields:
 
