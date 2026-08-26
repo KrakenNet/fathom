@@ -282,6 +282,20 @@ class Engine:
         return list(self._focus_order)
 
     @property
+    def attestation_service(self) -> AttestationService | None:
+        """Service signing this engine's decisions, if any.
+
+        Settable because a server can be handed an Engine it did not
+        construct — ``app.state.engine`` in the REST app — and still has to
+        attach the signing service configured alongside it.
+        """
+        return self._attestation_service
+
+    @attestation_service.setter
+    def attestation_service(self, service: AttestationService | None) -> None:
+        self._attestation_service = service
+
+    @property
     def ruleset_hash(self) -> str:
         """Addressable hash of the currently-loaded ruleset YAML.
 

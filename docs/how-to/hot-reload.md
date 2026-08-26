@@ -4,7 +4,7 @@ summary: Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed
 audience: [operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/integrations/grpc_server.py
@@ -30,6 +30,30 @@ restart, via `POST /v1/rules/reload`. Each reload:
   `ruleset_reload_rejected` on failure) carrying the
   `ruleset_hash_before`/`ruleset_hash_after` pair.
 
+## A reload only reaches a server that mounts its engine
+
+`POST /v1/rules/reload` swaps the ruleset on the Engine at
+`app.state.engine`, and that Engine is what `POST /v1/evaluate` and the OPA
+Data API serve. On a server with no Engine mounted — the shipped
+`uvicorn fathom.integrations.rest:app` deployment — the reload endpoint
+answers `503 not_ready` and each request compiles the ruleset its `ruleset`
+path names, straight off disk. Both are coherent; what is not is mounting an
+Engine and expecting the per-request `ruleset` path to still select the
+policy. On a server with an Engine mounted, `ruleset` is resolved and jailed
+but does not choose the ruleset.
+
+To hot-reload, build the app yourself and mount the Engine:
+
+```python
+from fathom.attestation import AttestationService
+from fathom.engine import Engine
+from fathom.integrations.rest import build_app
+
+app = build_app()
+app.state.engine = Engine.from_rules("/var/lib/fathom/rulesets/prod")
+app.state.attestation = AttestationService.generate_keypair()
+```
+
 ## Warning: a reload discards all working memory
 
 The new ruleset is compiled into a **fresh** CLIPS environment, and that
@@ -40,6 +64,12 @@ cleared with them.
 
 A failed reload changes nothing: the old environment keeps serving, so working
 memory survives. Only a *successful* swap wipes it.
+
+Open sessions go with it. A session holds its own Engine, compiled when the
+session opened, so it would otherwise keep deciding on the pre-reload
+ruleset for as long as it stayed alive — an admin tightening policy would
+never reach it. A successful reload therefore drops every session; callers
+re-open and re-seed.
 
 Plan for this. `Engine.subscribe_reload` is the seam: it registers a
 zero-argument callback fired after each successful swap, outside the reload

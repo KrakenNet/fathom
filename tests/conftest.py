@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
 
 from fathom.compiler import Compiler
 from fathom.engine import Engine
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -32,6 +35,32 @@ def normalize_clips(s: str) -> str:
     trailing newlines) while still catching meaningful token changes.
     """
     return _WHITESPACE_RE.sub(" ", s).strip()
+
+
+# ---------------------------------------------------------------------------
+# Shared REST app state
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_rest_app_state() -> Iterator[None]:
+    """Restore ``fathom.integrations.rest.app.state`` around every test.
+
+    ``app`` is a module-level singleton, so a test that mounts an Engine on
+    ``app.state.engine`` leaves it mounted for whatever runs next. That
+    matters now that ``POST /v1/evaluate`` serves the mounted Engine when
+    there is one: without this, a reload test could silently decide an
+    unrelated test's requests, and only under some random orderings.
+    """
+    from fathom.integrations.rest import app
+
+    tracked = ("engine", "attestation", "audit_sink", "ruleset_pubkey")
+    saved = {name: getattr(app.state, name, None) for name in tracked}
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            setattr(app.state, name, value)
 
 
 # ---------------------------------------------------------------------------

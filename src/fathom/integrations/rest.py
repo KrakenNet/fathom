@@ -175,6 +175,47 @@ def _require_session_engine(session_id: str) -> Engine:
     return engine
 
 
+def _data_plane_engine(
+    resolved: str,
+    attestation_service: AttestationService | None,
+) -> Engine:
+    """Return the Engine a stateless evaluation should run against.
+
+    When an Engine is mounted on ``app.state.engine`` it *is* the served
+    policy: it is the one ``POST /v1/rules/reload`` swaps, and a reload the
+    data plane cannot see is not a reload. Every stateless request used to
+    compile a fresh Engine off disk instead, so a successful hot-reload
+    changed the reported ruleset hash and nothing else — the endpoint
+    reported success while traffic kept being decided by the old ruleset.
+
+    Without a mounted Engine the request's own ``ruleset`` is compiled from
+    disk, which is what makes multi-ruleset serving work. The caller's path
+    is resolved and jailed either way, so a traversal attempt is still
+    rejected before this point.
+
+    Raises:
+        HTTPException: 400 when the named ruleset cannot be loaded. The
+            underlying diagnostic names server-side absolute paths, so it is
+            logged rather than returned.
+    """
+    mounted: Engine | None = getattr(app.state, "engine", None)
+    if mounted is not None:
+        # The mounted Engine is usually constructed before the attestation
+        # service is injected onto app.state, so attach it here rather than
+        # publish an `attestation_token` field that is always null.
+        if mounted.attestation_service is None and attestation_service is not None:
+            mounted.attestation_service = attestation_service
+        return mounted
+    try:
+        return Engine.from_rules(resolved, attestation_service=attestation_service)
+    except (CompilationError, FathomValidationError, OSError) as exc:
+        logger.warning("evaluate: unable to load ruleset", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_ruleset", "detail": "ruleset could not be loaded"},
+        ) from exc
+
+
 # Maximum accepted request body on the data-plane routes. POST /v1/evaluate
 # runs a quadratic CLIPS join over the facts it is handed, so an unbounded
 # body is an unbounded amount of server CPU. Sized to stay above the
@@ -381,6 +422,14 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     withdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the
     same session can never change this one's decision.
 
+    ``ruleset`` names a path under ``FATHOM_RULESET_ROOT`` and is always
+    resolved and jailed. It selects the policy only on a server with no
+    Engine mounted on ``app.state.engine`` — the shipped
+    ``uvicorn fathom.integrations.rest:app`` deployment. A server that
+    mounts one serves *that* Engine, because it is the one
+    ``POST /v1/rules/reload`` swaps and a reload the data plane cannot see
+    is not a reload.
+
     Declared ``def`` (not ``async def``) on purpose: CLIPS evaluation is
     blocking CPU work, so Starlette must run it in the threadpool rather
     than on the event loop, where one large request stalls every other
@@ -395,7 +444,7 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     if request.session_id:
         engine = _session_engine(request.session_id, resolved, attestation)
     else:
-        engine = Engine.from_rules(resolved, attestation_service=attestation)
+        engine = _data_plane_engine(resolved, attestation)
 
     try:
         result = engine.evaluate_once(
@@ -820,6 +869,14 @@ async def reload_rules(
             "ruleset failed to compile",
         )
 
+    # Sessions hold their own Engine, compiled when the session opened, so
+    # they would keep deciding on the pre-reload ruleset for as long as they
+    # stayed alive — an admin tightening policy would not reach them. Drop
+    # them: a reload already discards working memory by design (see
+    # docs/how-to/hot-reload.md), so surviving with stale *policy* is the
+    # worse of the two.
+    session_store.clear()
+
     timestamp = _now_iso()
     attestation_token = attestation.sign_event(
         {
@@ -975,9 +1032,15 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
 
     attestation = getattr(app.state, "attestation", None)
     try:
-        engine = Engine.from_rules(resolved, attestation_service=attestation)
-    except (CompilationError, FathomValidationError, OSError) as exc:
-        return _opa_error(400, "invalid_parameter", f"ruleset {ruleset_path!r}: {exc}")
+        engine = _data_plane_engine(resolved, attestation)
+    except HTTPException as exc:
+        # The loader's own text names the resolved server-side absolute path
+        # ("/srv/rules/x is not a directory"), which must never reach a remote
+        # caller — the same rule the ruleset path jail follows. Echo back only
+        # the path the caller sent.
+        return _opa_error(
+            exc.status_code, "invalid_parameter", f"ruleset {ruleset_path!r} could not be loaded"
+        )
 
     if template not in engine.template_registry:
         return _opa_error(

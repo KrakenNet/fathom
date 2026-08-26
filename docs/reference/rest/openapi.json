@@ -771,7 +771,7 @@
     },
     "/v1/evaluate": {
       "post": {
-        "description": "Evaluate facts against a ruleset (stateless or stateful).\n\nRequest-scoped: the supplied facts are asserted, evaluated, then\nwithdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the\nsame session can never change this one's decision.\n\nDeclared ``def`` (not ``async def``) on purpose: CLIPS evaluation is\nblocking CPU work, so Starlette must run it in the threadpool rather\nthan on the event loop, where one large request stalls every other\nconnection.",
+        "description": "Evaluate facts against a ruleset (stateless or stateful).\n\nRequest-scoped: the supplied facts are asserted, evaluated, then\nwithdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the\nsame session can never change this one's decision.\n\n``ruleset`` names a path under ``FATHOM_RULESET_ROOT`` and is always\nresolved and jailed. It selects the policy only on a server with no\nEngine mounted on ``app.state.engine`` \u2014 the shipped\n``uvicorn fathom.integrations.rest:app`` deployment. A server that\nmounts one serves *that* Engine, because it is the one\n``POST /v1/rules/reload`` swaps and a reload the data plane cannot see\nis not a reload.\n\nDeclared ``def`` (not ``async def``) on purpose: CLIPS evaluation is\nblocking CPU work, so Starlette must run it in the threadpool rather\nthan on the event loop, where one large request stalls every other\nconnection.",
         "operationId": "evaluate_v1_evaluate_post",
         "parameters": [
           {
