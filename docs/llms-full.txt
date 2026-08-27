@@ -2569,6 +2569,21 @@ app.state.engine = Engine.from_rules("/var/lib/fathom/rulesets/prod")
 app.state.attestation = AttestationService.generate_keypair()
 ```
 
+## What carries over, and what does not
+
+A reload is a **rule-only** swap: the payload holds rules, and everything else
+the rules need is rebuilt onto the fresh environment from what the Engine
+already holds — templates, modules, the classification and raw deffunctions
+loaded from `functions/`, deffunctions passed to `load_clips_function`, and the
+Python callables bound with `register_function`. Rules are compiled last, so
+they resolve against all of it.
+
+That list used to stop at templates and modules, and the Engine kept no record
+of functions at all: re-posting a pack's own unmodified rules was rejected with
+a raw CLIPS `Missing function declaration for 'below'`. Any pack using a
+classification hierarchy or a registered callable — which is every pack the
+`functions/` reference documents — could not be hot-reloaded.
+
 ## Warning: a reload discards all working memory
 
 The new ruleset is compiled into a **fresh** CLIPS environment, and that

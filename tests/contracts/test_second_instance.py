@@ -195,3 +195,105 @@ def test_one_hierarchy_still_compiles_through_the_unscoped_shim(tmp_path: Path) 
     engine.assert_fact("agent", {"id": "a-1", "trust": "untrusted", "sensitivity": "internal"})
 
     assert engine.evaluate().decision == "deny"
+
+
+# ---------------------------------------------------------------------------
+# A second *kind* of construct in the env: the ones a hot reload forgot.
+# ---------------------------------------------------------------------------
+
+_RELOAD_RULES = """
+module: gate
+ruleset: reloaded
+version: "1.0"
+
+rules:
+  - name: deny-below-basic
+    when:
+      - template: agent
+        conditions:
+          - slot: trust
+            expression: "below(basic)"
+    then:
+      action: deny
+      reason: "reloaded — below basic trust"
+"""
+
+
+def _one_hierarchy_pack(root: Path) -> Path:
+    _write(
+        root,
+        {
+            "templates": ("templates.yaml", _TEMPLATES),
+            "modules": ("modules.yaml", _MODULES),
+            "rules": ("rules.yaml", _RULES),
+        },
+    )
+    (root / "hierarchies").mkdir()
+    (root / "hierarchies" / "trust.yaml").write_text(_TRUST, encoding="utf-8")
+    (root / "functions").mkdir()
+    (root / "functions" / "functions.yaml").write_text(_TRUST_ONLY_FUNCTIONS, encoding="utf-8")
+    return root
+
+
+def test_reload_keeps_the_classification_functions_the_rules_call(tmp_path: Path) -> None:
+    """A reload is a rule-only swap onto a fresh env — which had no functions.
+
+    Re-posting a pack's own unmodified rules was rejected with a raw CLIPS
+    `Missing function declaration for 'below'`: templates and modules were
+    rebuilt onto the new environment from their registries, and nothing held a
+    record of the deffunctions at all.
+    """
+    engine = Engine.from_rules(
+        str(_one_hierarchy_pack(tmp_path / "pack")), default_decision="deny"
+    )
+
+    engine.reload_rules(_RELOAD_RULES.encode())
+
+    engine.assert_fact("agent", {"id": "a-1", "trust": "untrusted", "sensitivity": "internal"})
+    result = engine.evaluate()
+    assert result.decision == "deny"
+    assert result.reason == "reloaded — below basic trust"
+
+
+_BLOCKLIST_RULES = """
+module: gate
+ruleset: reloaded
+version: "1.0"
+
+rules:
+  - name: deny-blocklisted
+    when:
+      - template: agent
+        conditions:
+          - slot: id
+            bind: "?aid"
+          - test: "(on-blocklist ?aid)"
+    then:
+      action: deny
+      reason: "on the blocklist"
+"""
+
+
+def test_reload_keeps_a_callable_registered_through_the_sdk(tmp_path: Path) -> None:
+    """`register_function` bindings live only on the env the reload replaces."""
+    root = tmp_path / "pack"
+    _write(
+        root,
+        {
+            "templates": ("templates.yaml", _TEMPLATES),
+            "modules": ("modules.yaml", _MODULES),
+            "rules": ("rules.yaml", _RULES),
+        },
+    )
+    (root / "hierarchies").mkdir()
+    (root / "hierarchies" / "trust.yaml").write_text(_TRUST, encoding="utf-8")
+    (root / "functions").mkdir()
+    (root / "functions" / "functions.yaml").write_text(_TRUST_ONLY_FUNCTIONS, encoding="utf-8")
+
+    engine = Engine.from_rules(str(root), default_decision="allow")
+    engine.register_function("on-blocklist", lambda value: str(value) == "a-1")
+
+    engine.reload_rules(_BLOCKLIST_RULES.encode())
+
+    engine.assert_fact("agent", {"id": "a-1", "trust": "verified", "sensitivity": "internal"})
+    assert engine.evaluate().decision == "deny"

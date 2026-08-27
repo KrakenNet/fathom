@@ -242,6 +242,16 @@ class Engine:
         self._rule_registry: dict[str, RuleDefinition] = {}
         self._has_asserting_rules: bool = False
         self._hierarchy_registry: dict[str, HierarchyDefinition] = {}
+        # Everything built into the env that is neither a template, a module
+        # nor a rule, kept so a hot reload can replay it onto the fresh
+        # environment: deffunction sources in build order, and the Python
+        # callables bound by `register_function`. Without these the engine had
+        # no record of them at all, and a reload of a pack using either
+        # rebuilt its rules against an env where the functions did not exist
+        # — every such reload was rejected with a raw CLIPS
+        # "Missing function declaration".
+        self._deffunction_sources: list[tuple[str, str]] = []
+        self._python_functions: dict[str, Callable[..., Any]] = {}
         self._focus_order: list[str] = []
         self._reload_lock = threading.Lock()
         self._reload_listeners: list[Callable[[], None]] = []
@@ -814,6 +824,7 @@ class Engine:
                             block = block.strip()
                             if block:
                                 self._safe_build(block, context=f"function:{defn.name}")
+                                self._deffunction_sources.append((f"function:{defn.name}", block))
                         count += 1
         finally:
             self._lock.release()
@@ -922,6 +933,7 @@ class Engine:
         # corrupts the environment.
         with self._lock:
             self._safe_build(clips_string, context="clips_function")
+            self._deffunction_sources.append(("clips_function", clips_string))
 
     def register_function(
         self,
@@ -968,6 +980,7 @@ class Engine:
         # evaluate() and the fact mutators take.
         with self._lock:
             self._env.define_function(fn, name)
+            self._python_functions[name] = fn
 
     def subscribe(
         self,
@@ -1251,6 +1264,17 @@ class Engine:
             clips_str = self._compiler.compile_module(mdefn)
             self._safe_build(clips_str, context=f"module:{name}", env=new_env)
             new_module_registry[name] = mdefn
+
+        # Replay everything else the rules may call. Nothing in the reload
+        # payload defines these — a reload is a rule-only swap — but a rule
+        # referencing one is compiled here, and CLIPS resolves a function
+        # reference when the rule is built. Order matches the load order that
+        # produced them: user callables, then deffunctions (which may call
+        # them), then rules.
+        for fn_name, fn in self._python_functions.items():
+            new_env.define_function(fn, fn_name)
+        for context, source in self._deffunction_sources:
+            self._safe_build(source, context=context, env=new_env)
 
         # Validate the new ruleset's module is registered — same guard as
         # load_rules(). Raised as CompilationError; new_env is discarded.
