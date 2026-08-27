@@ -177,6 +177,29 @@ class TestRedisTtl:
             await store._client.flushdb()
             await store.close()
 
+    @pytest.mark.asyncio
+    async def test_count_ignores_a_fact_whose_key_expired(self, redis_port: int) -> None:
+        """`count` read the index set, which outlives the hashes it points at.
+
+        `query` prunes an id whose hash is gone; `count` answered SCARD, so a
+        store that had expired everything still reported its facts as present
+        -- and quota and capacity checks read `count`.
+        """
+        store = RedisFactStore(host="127.0.0.1", port=redis_port, db=11, ttl=60)
+        await store._client.flushdb()
+        try:
+            fact_id = await store.assert_fact("agent", {"id": "a1"})
+            # Exactly what the TTL does, without waiting for it.
+            await store._client.delete(store._fact_key("agent", fact_id))
+
+            # `count` first: a `query` prunes the index as a side effect, so
+            # asking in the other order hides the bug.
+            assert await store.count("agent") == 0
+            assert await store.query("agent") == []
+        finally:
+            await store._client.flushdb()
+            await store.close()
+
 
 class TestRedisEncoding:
     """The hash payload itself is JSON on every field."""
