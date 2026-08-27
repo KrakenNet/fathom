@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -65,6 +66,51 @@ from cryptography.hazmat.primitives.serialization import (
 
 from fathom.attestation import AttestationService, verify_token
 from fathom.errors import AttestationError
+
+
+def _claim_exclusive_writer(fd: int, path: Path) -> None:
+    """Take the whole-file writer lock, or refuse to be the second writer.
+
+    Every writer keeps ``_next_seq`` and ``_head_sha256`` in memory, derived
+    once at construction and never re-read. A second writer on the same path
+    therefore starts from a stale head and appends lines whose ``seq`` and
+    ``prev_sha256`` describe a file that no longer exists: every append
+    succeeds, nothing on the record or the log object says otherwise, and the
+    log verifies as ``malformed line 3: seq 1, expected 2`` — which reads to an
+    auditor as tampering. Failing closed here is the same posture the class
+    already takes on a torn line.
+
+    Advisory and OS-level, so a reader or a verifier is unaffected; it holds
+    for the writer's lifetime and is released when the handle closes. NFS and
+    other network filesystems do not reliably honour either primitive — one
+    writer per path per host is the supported deployment either way.
+    """
+    try:
+        import fcntl
+    except ImportError:  # Windows
+        import msvcrt
+
+        try:
+            # LK_NBLCK: non-blocking exclusive lock on one byte, used as a
+            # whole-file mutex. mypy on POSIX has no stubs for the constant.
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+        except OSError as exc:
+            raise AttestationError(
+                f"chained log {path} is already open for writing by another "
+                "process; a second writer would corrupt the chain",
+                operation="append",
+            ) from exc
+        return
+
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        raise AttestationError(
+            f"chained log {path} is already open for writing by another "
+            "process; a second writer would corrupt the chain",
+            operation="append",
+        ) from exc
+
 
 CHAIN_ISSUER = "fathom-chain"
 CHECKPOINT_RECORD_TYPE = "fathom.checkpoint"
@@ -337,6 +383,13 @@ class ChainedAttestationLog:
         self._anchor_callback = anchor_callback
         self._appends_since_checkpoint = 0
         self._fh: IO[bytes] | None = None
+        # `seq` and `prev_sha256` are read, used and advanced across several
+        # statements in `_append`. Two threads sharing one log — which is what
+        # `Engine(audit_sink=...)` invites, and what the Engine's own
+        # thread-safety promise implies — interleaved there and produced two
+        # lines claiming the same seq. Every evaluation returned normally and
+        # the resulting file verified as tampered.
+        self._write_lock = threading.Lock()
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._fingerprint = key_fingerprint(service.public_key)
@@ -448,6 +501,10 @@ class ChainedAttestationLog:
         return chained
 
     def _append(self, record: dict[str, Any]) -> ChainedRecord:
+        with self._write_lock:
+            return self._append_locked(record)
+
+    def _append_locked(self, record: dict[str, Any]) -> ChainedRecord:
         if self._corruption is not None:
             raise AttestationError(
                 f"chained log {self._path} is corrupt; refusing append: {self._corruption}",
@@ -478,6 +535,11 @@ class ChainedAttestationLog:
         )
         if self._fh is None:
             fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            try:
+                _claim_exclusive_writer(fd, self._path)
+            except AttestationError:
+                os.close(fd)
+                raise
             self._fh = os.fdopen(fd, "ab")
         self._fh.write(line + b"\n")
         self._fh.flush()

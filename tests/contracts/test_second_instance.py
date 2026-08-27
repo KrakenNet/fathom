@@ -297,3 +297,67 @@ def test_reload_keeps_a_callable_registered_through_the_sdk(tmp_path: Path) -> N
 
     engine.assert_fact("agent", {"id": "a-1", "trust": "verified", "sensitivity": "internal"})
     assert engine.evaluate().decision == "deny"
+
+
+# ---------------------------------------------------------------------------
+# A second writer on one chained log.
+# ---------------------------------------------------------------------------
+
+
+def test_two_threads_sharing_one_chained_log_produce_a_valid_chain(tmp_path: Path) -> None:
+    """`Engine(audit_sink=log)` twice, driven concurrently — the documented shape.
+
+    `seq` and `prev_sha256` were read, used and advanced across several
+    statements with no lock, so two threads produced two lines claiming the
+    same seq. Every append returned normally and nothing on the record or the
+    log said otherwise; the file verified as `malformed line 3: seq 1,
+    expected 2`, which reads to an auditor as tampering.
+    """
+    import threading
+
+    from fathom.attestation import AttestationService
+    from fathom.chained_log import ChainedAttestationLog
+
+    log = ChainedAttestationLog(tmp_path / "audit.jsonl", AttestationService.generate_keypair())
+    errors: list[BaseException] = []
+
+    def _writer(worker: int) -> None:
+        try:
+            for n in range(40):
+                log.append({"worker": worker, "n": n})
+        except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_writer, args=(w,)) for w in (1, 2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    log.close()
+
+    assert errors == []
+    verification = log.verify()
+    assert verification.ok, verification.error
+    assert verification.count == 80
+
+
+def test_a_second_writer_on_one_path_is_refused(tmp_path: Path) -> None:
+    """Two handles keep two stale heads. Fail closed, as a torn line does."""
+    from fathom.attestation import AttestationService
+    from fathom.chained_log import ChainedAttestationLog
+    from fathom.errors import AttestationError
+
+    path = tmp_path / "audit.jsonl"
+    service = AttestationService.generate_keypair()
+
+    first = ChainedAttestationLog(path, service)
+    first.append({"from": "first"})
+
+    second = ChainedAttestationLog(path, service)
+    with pytest.raises(AttestationError, match="already open for writing"):
+        second.append({"from": "second"})
+
+    first.close()
+    verification = first.verify()
+    assert verification.ok, verification.error
+    assert verification.count == 1

@@ -159,6 +159,17 @@ Three implementations ship with Fathom:
 
   Verify it later with `fathom verify-chain <log> --pubkey <log>.pub.pem`.
 
+  **One writer per path.** The chain's `seq` and `prev_sha256` are held in the
+  writer's memory, derived when it opens the log. Sharing one log object across
+  threads is fine — appends serialise on the log's own lock — but a *second*
+  `ChainedAttestationLog` on the same path, in this process or another, would
+  start from a stale head and write lines describing a file that no longer
+  exists. Every append would succeed and the log would verify as
+  `malformed line 3: seq 1, expected 2`, which reads as tampering. The second
+  writer is therefore refused: its first append raises `AttestationError`.
+  The lock is advisory and OS-level, so readers and `fathom verify-chain` are
+  unaffected; network filesystems do not honour it reliably.
+
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
 several of those — none of which Fathom provides out of the box, but all of
