@@ -154,7 +154,8 @@ Error codes:
 
 - `400 invalid_request` — both or neither of `ruleset_path` /
   `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
-  not valid base64; ruleset failed to compile.
+  not valid base64; ruleset failed to compile. Each emits
+  `ruleset_reload_rejected` to the audit sink.
 - `400 unsigned_ruleset` — `require_signature=true` (the default) and
   either `signature` is missing or Ed25519 verification failed. Also
   emits `ruleset_reload_rejected` to the audit sink.
@@ -367,9 +368,13 @@ configured audit sink. Successful reloads emit:
 }
 ```
 
-Rejected reloads emit `event_type: ruleset_reload_rejected` with a
-`reason` field (`missing_signature`, `verification_failed`,
-`unknown_template`, …) and the *unchanged* `ruleset_hash_before`.
+Every rejected reload emits `event_type: ruleset_reload_rejected` with a
+`reason` field and the *unchanged* `ruleset_hash_before`. The reasons are
+`missing_signature`, the verification failure text, `compile_failed`,
+`unreadable_ruleset_path`, `malformed_signature`, `invalid_request` (both or
+neither source named), and `server_misconfigured`. Both transports emit them;
+neither returns the compiler's diagnostic or the resolved server-side path to
+the caller, so the audit sink is where an operator reads what happened.
 
 The `attestation_token` returned from a successful reload is a JWT
 signed by the server's `AttestationService.sign_event()` (C6); you can

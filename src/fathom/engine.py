@@ -259,12 +259,19 @@ class Engine:
 
         self._match_evidence = match_evidence
         self._compiler = Compiler(match_evidence=match_evidence)
+        # A request-scoped evaluation asserts its facts and runs the rules in
+        # two separate provider calls. A reload landing between them used to
+        # hand the run a brand-new, empty environment, so the request was
+        # decided by the default while the caller's facts sat in an env
+        # nothing would read again. `evaluate_once` pins the env it started
+        # on; everything else follows `self._env`.
+        self._pinned_env: clips.Environment | None = None
         self._fact_manager = FactManager(
-            env_provider=lambda: self._env,
+            env_provider=self._current_env,
             template_registry=self._template_registry,
         )
         self._evaluator = Evaluator(
-            env_provider=lambda: self._env,
+            env_provider=self._current_env,
             default_decision=self._default_decision,
             focus_order=self._focus_order,
             fact_manager=self._fact_manager,
@@ -1129,6 +1136,10 @@ class Engine:
 
     # --- Atomic-swap ruleset reload (design C5, AC-5.3, NFR-8) ---
 
+    def _current_env(self) -> clips.Environment:
+        """The env this operation belongs to: a pinned request's, else the live one."""
+        return self._pinned_env if self._pinned_env is not None else self._env
+
     def reload_rules(
         self,
         ruleset_yaml: bytes,
@@ -1144,11 +1155,12 @@ class Engine:
         the env pointer, rule registry, and ``_ruleset_yaml_bytes`` in a
         single critical section.
 
-        In-flight evaluations are unaffected: :class:`Evaluator` and
-        :class:`FactManager` snapshot the env via a provider closure at the
-        start of each evaluation, so swapping ``self._env`` does not
-        reach into running evals. CLIPS callbacks registered on the old
-        env keep firing against the old env via their captured closure.
+        In-flight evaluations are unaffected: :class:`Evaluator` snapshots
+        the env at ``evaluate()`` entry and :meth:`evaluate_once` pins the env
+        it started on across its assert *and* its run, so swapping
+        ``self._env`` cannot land between a request's facts and the rules that
+        read them. CLIPS callbacks registered on the old env keep firing
+        against the old env via their captured closure.
 
         The audit sink is intentionally **not** touched here; the REST /
         gRPC layer signs and emits the ``ruleset_reloaded`` event on
@@ -1717,6 +1729,10 @@ class Engine:
                         f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
                         "so the fact is also written through to the shared FactStore."
                     )
+            # Pin the env for the whole request: the assert below and the run
+            # that follows must happen in the same environment even if a
+            # reload swaps `self._env` between them.
+            outer_pin, self._pinned_env = self._pinned_env, self._env
             handles = self._fact_manager.assert_facts_scoped(facts)
             for template, _ in facts:
                 self._metrics.record_fact_asserted(template)
@@ -1727,7 +1743,7 @@ class Engine:
             # way out is still refracted on the very next call.
             # Fact indices present before inference. Used only on the
             # budget-exhaustion path below.
-            pre_run_indices = {fact.index for fact in self._env.facts()}
+            pre_run_indices = {fact.index for fact in self._current_env().facts()}
             try:
                 return self.evaluate()
             except EvaluationLimitError:
@@ -1742,7 +1758,7 @@ class Engine:
                 # The request produced no decision, so nothing it created has
                 # any value — drop the lot and leave working memory as the
                 # request found it.
-                for fact in list(self._env.facts()):
+                for fact in list(self._current_env().facts()):
                     if fact.index in pre_run_indices:
                         continue
                     with contextlib.suppress(Exception):
@@ -1756,13 +1772,14 @@ class Engine:
                 # Facts the rules derived during this run are the request's
                 # too, and outlive it the same way. Internal bookkeeping
                 # (`__fathom_decision`) is left to `evaluate`.
-                for fact in list(self._env.facts()):
+                for fact in list(self._current_env().facts()):
                     if fact.index in pre_run_indices:
                         continue
                     if str(fact.template.name).startswith("__fathom"):
                         continue
                     with contextlib.suppress(Exception):
                         fact.retract()
+                self._pinned_env = outer_pin
                 if handles:
                     self._metrics.record_facts_retracted(len(handles))
                 self._publish_working_memory(t for t, _ in facts)

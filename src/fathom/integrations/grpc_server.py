@@ -501,6 +501,11 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                 )
             which = "ruleset_path" if has_path else "ruleset_yaml"
 
+        # Set before the source is read: the read itself can be rejected, and
+        # a rejection is an audited event that carries both.
+        hash_before = engine.ruleset_hash
+        actor = "grpc-anon"
+
         # --- materialise raw YAML bytes ---
         if which == "ruleset_yaml":
             raw_yaml_bytes = request.ruleset_yaml.encode("utf-8")
@@ -509,15 +514,27 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             try:
                 with open(resolved, "rb") as f:
                     raw_yaml_bytes = f.read()
-            except OSError as exc:
+            except OSError:
+                # The OSError text carries the resolved server-side absolute
+                # path, which is what the ruleset jail exists to keep from a
+                # remote caller. Log it, answer with a fixed string -- the
+                # rule REST already follows.
+                logger.warning("grpc reload: unable to read ruleset_path", exc_info=True)
+                self._write_audit(
+                    {
+                        "event_type": "ruleset_reload_rejected",
+                        "reason": "unreadable_ruleset_path",
+                        "ruleset_hash_before": hash_before,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "actor": actor,
+                    },
+                )
                 context.abort(
                     grpc.StatusCode.INVALID_ARGUMENT,
-                    f"invalid_request: unable to read ruleset_path: {exc}",
+                    "invalid_request: unable to read ruleset_path",
                 )
 
         sig_bytes: bytes | None = request.signature or None
-        hash_before = engine.ruleset_hash
-        actor = "grpc-anon"
         timestamp = datetime.now(UTC).isoformat()
 
         # --- signature verification (fail-closed when required) ---
@@ -577,10 +594,23 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                 sig_bytes if self._require_signature else None,
                 self._ruleset_pubkey if self._require_signature else None,
             )
-        except CompilationError as exc:
+        except CompilationError:
+            # Compiler diagnostics name the files they were reading, so they
+            # are server-side detail. A caller who wants the diagnostic runs
+            # the ruleset through Compile, which touches no server paths.
+            logger.warning("grpc reload: ruleset failed to compile", exc_info=True)
+            self._write_audit(
+                {
+                    "event_type": "ruleset_reload_rejected",
+                    "reason": "compile_failed",
+                    "ruleset_hash_before": hash_before,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "actor": actor,
+                },
+            )
             context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
-                f"invalid_ruleset: {str(exc).split(chr(10), 1)[0]}",
+                "invalid_ruleset: ruleset failed to compile",
             )
 
         timestamp = datetime.now(UTC).isoformat()

@@ -776,14 +776,36 @@ async def reload_rules(
             "engine or attestation not configured",
         )
 
+    def _rejected(status: int, error: str, detail: str, reason: str) -> JSONResponse:
+        """Every way a reload can be refused is an audited event.
+
+        Only the two signature rejections wrote to the sink, so an operator
+        reading the audit trail saw nothing for a compile failure -- the
+        reason the how-to names -- or for an unreadable path, a malformed
+        signature, or a request that named both sources. A reload attempt
+        that leaves no trace is the one an attacker wants.
+        """
+        _write_audit(
+            audit_sink,
+            {
+                "event_type": "ruleset_reload_rejected",
+                "reason": reason,
+                "ruleset_hash_before": engine.ruleset_hash if engine is not None else None,
+                "timestamp": _now_iso(),
+                "actor": "bearer-token",
+            },
+        )
+        return _make_error_response(status, error, detail)
+
     # --- exactly-one-of ruleset_path / ruleset_yaml ---
     has_path = payload.ruleset_path is not None
     has_yaml = payload.ruleset_yaml is not None
     if has_path == has_yaml:
-        return _make_error_response(
+        return _rejected(
             400,
             "invalid_request",
             "exactly one of ruleset_path or ruleset_yaml must be provided",
+            "invalid_request",
         )
 
     # --- materialise raw YAML bytes ---
@@ -802,10 +824,11 @@ async def reload_rules(
             # which must never reach a remote caller -- the same rule the
             # ruleset path jail follows. Log it, answer with a fixed string.
             logger.warning("reload: unable to read ruleset_path", exc_info=True)
-            return _make_error_response(
+            return _rejected(
                 400,
                 "invalid_request",
                 "unable to read ruleset_path",
+                "unreadable_ruleset_path",
             )
 
     # --- decode signature (base64 string → bytes) ---
@@ -814,10 +837,11 @@ async def reload_rules(
         try:
             sig_bytes = base64.b64decode(payload.signature, validate=True)
         except (binascii.Error, ValueError):
-            return _make_error_response(
+            return _rejected(
                 400,
                 "invalid_request",
                 "signature must be valid base64",
+                "malformed_signature",
             )
 
     # --- signature verification (fail-closed when required) ---
@@ -825,10 +849,11 @@ async def reload_rules(
     if require_signature:
         if pubkey is None:
             # Should have failed at build_app; defensive 500.
-            return _make_error_response(
+            return _rejected(
                 500,
                 "server_misconfigured",
                 "require_signature=true but ruleset pubkey is not loaded",
+                "server_misconfigured",
             )
         if sig_bytes is None:
             # Missing signature is a signature-rejection, not a request shape
@@ -886,10 +911,11 @@ async def reload_rules(
         # the ruleset through POST /v1/compile, which compiles inline YAML and
         # touches no server paths.
         logger.warning("reload: ruleset failed to compile", exc_info=True)
-        return _make_error_response(
+        return _rejected(
             400,
             "invalid_ruleset",
             "ruleset failed to compile",
+            "compile_failed",
         )
 
     # Sessions hold their own Engine, compiled when the session opened, so

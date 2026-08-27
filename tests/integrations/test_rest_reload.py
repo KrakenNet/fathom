@@ -518,3 +518,61 @@ def test_concurrent_reloads(
         data_a["ruleset_hash_after"],
         data_b["ruleset_hash_after"],
     )
+
+
+def test_every_rejected_reload_is_audited(
+    signed_client: tuple[TestClient, Ed25519PrivateKey, _ListAuditSink, AttestationService],
+) -> None:
+    """The how-to names `unknown_template` -- a compile failure -- as an
+    audited rejection reason, and compile failures wrote nothing at all.
+
+    Only the two signature rejections reached the sink, so an operator
+    watching the audit trail for reload attempts saw none of these. Each case
+    is driven separately and the sink is read after each, since a reload
+    attempt that leaves no trace is the interesting one.
+    """
+    client, priv, sink, _attestation = signed_client
+
+    def _signed(yaml_str: str) -> dict[str, str]:
+        return {
+            "ruleset_yaml": yaml_str,
+            "signature": base64.b64encode(priv.sign(yaml_str.encode("utf-8"))).decode("ascii"),
+        }
+
+    broken = yaml.safe_dump(
+        {
+            "ruleset": "rs-broken",
+            "module": "gov",
+            "rules": [
+                {
+                    "name": "rule-unknown-slot",
+                    "when": [
+                        {
+                            "template": "agent",
+                            "conditions": [{"slot": "nonesuch", "expression": "equals(bob)"}],
+                        }
+                    ],
+                    "then": {"action": "allow", "reason": "ok"},
+                }
+            ],
+        }
+    )
+    cases = [
+        ("compile_failed", _signed(broken)),
+        (
+            "invalid_request",
+            {"ruleset_yaml": _ruleset_yaml("rule-both", "bob"), "ruleset_path": "a.yaml"},
+        ),
+        ("malformed_signature", {"ruleset_yaml": _ruleset_yaml("r", "bob"), "signature": "!!!"}),
+        ("unreadable_ruleset_path", {"ruleset_path": "nonesuch.yaml"}),
+    ]
+
+    for reason, body in cases:
+        before = len(sink.records)
+        resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+
+        assert resp.status_code >= 400, (reason, resp.text)
+        new = sink.records[before:]
+        assert [r.get("reason") for r in new] == [reason], (reason, new)
+        assert new[0]["event_type"] == "ruleset_reload_rejected"
+        assert new[0]["ruleset_hash_before"].startswith("sha256:")
