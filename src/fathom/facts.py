@@ -296,7 +296,15 @@ class FactManager:
             to_retract: list[tuple[Any, dict[str, Any]]] = []
             for fact in tpl.facts():
                 ts = self._fact_timestamps.get(fact.index)
-                if ts is not None and ts + ttl < now:
+                if ts is None:
+                    # A rule's `then.assert` creates facts through CLIPS
+                    # directly, so nothing stamped them here and the template's
+                    # documented `ttl:` never applied to derived facts at all.
+                    # First sighting is the available birth time; cleanup runs
+                    # at every evaluation, so it trails the assert by one cycle.
+                    self._fact_timestamps[fact.index] = now
+                    continue
+                if ts + ttl < now:
                     row: dict[str, Any] = {}
                     for name in slot_names:
                         val = fact[name]

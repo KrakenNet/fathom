@@ -1051,10 +1051,17 @@ class Engine:
             CompilationError: If the hierarchy file cannot be found or parsed.
         """
         parent = function_file.parent
+        # The reference documents `hierarchy_ref` as naming the hierarchy, and
+        # its worked example writes `hierarchy_ref: clearance`. Resolution was
+        # strictly by filename, so the documented form searched for a file
+        # literally named `clearance` and raised.
+        names = [hierarchy_ref]
+        if not Path(hierarchy_ref).suffix:
+            names += [f"{hierarchy_ref}.yaml", f"{hierarchy_ref}.yml"]
         candidates = [
-            parent / hierarchy_ref,
-            parent / "hierarchies" / hierarchy_ref,
-            parent.parent / "hierarchies" / hierarchy_ref,
+            directory / name
+            for name in names
+            for directory in (parent, parent / "hierarchies", parent.parent / "hierarchies")
         ]
         for candidate in candidates:
             if candidate.exists():
@@ -1681,8 +1688,11 @@ class Engine:
         (decision D1) — this is an additional entry point, not a change to
         that one.
 
-        Facts asserted by *rules* during evaluation are left in place; only
-        the caller-supplied ones are withdrawn.
+        Facts a *rule* asserts during the run are withdrawn too. They were
+        left in place, which contradicted the promise above: one request that
+        derived a standing grant re-decided every later request on the same
+        engine, and a REST or gRPC server is one engine serving everybody.
+        :meth:`evaluate` is the entry point that accumulates.
 
         Args:
             facts: List of ``(template_name, slot_data)`` tuples, the same
@@ -1743,6 +1753,16 @@ class Engine:
                 # budget) must not leak the request's facts into the working
                 # memory of the next request on this session.
                 self._fact_manager.retract_handles(handles)
+                # Facts the rules derived during this run are the request's
+                # too, and outlive it the same way. Internal bookkeeping
+                # (`__fathom_decision`) is left to `evaluate`.
+                for fact in list(self._env.facts()):
+                    if fact.index in pre_run_indices:
+                        continue
+                    if str(fact.template.name).startswith("__fathom"):
+                        continue
+                    with contextlib.suppress(Exception):
+                        fact.retract()
                 if handles:
                     self._metrics.record_facts_retracted(len(handles))
                 self._publish_working_memory(t for t, _ in facts)

@@ -264,9 +264,13 @@ def test_assert_emits_each_slot_in_its_declared_type(tmp_path: Path) -> None:
     pack = _pack(tmp_path, ASSERT_RULES)
     engine = Engine.from_rules(pack, default_decision="allow")
 
-    result = engine.evaluate_once(
-        [("request", {"level_str": "cui", "level_sym": "cui", "score": 0.0, "count": 0})]
+    # `evaluate`, not `evaluate_once`: the request-scoped entry point withdraws
+    # what the rules derived along with what the caller sent, and the derived
+    # fact is what this test reads.
+    engine.assert_fact(
+        "request", {"level_str": "cui", "level_sym": "cui", "score": 0.0, "count": 0}
     )
+    result = engine.evaluate()
 
     assert result.decision == "deny"
     assert engine.query("alarm") == [{"level": "high", "score": 7, "note": "hello world"}]

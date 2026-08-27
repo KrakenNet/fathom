@@ -149,16 +149,19 @@ def test_the_audit_record_carries_the_assert_only_rule(pack: str) -> None:
 def test_a_rule_that_fires_twice_is_traced_twice(pack: str) -> None:
     """CLIPS drops a duplicate assert, so identical decisions collapsed to one.
 
-    ``evaluate_once`` withdraws the caller's facts but leaves rule-asserted
-    ones, so the second call sees alice's ``flagged`` fact alongside bob's and
-    ``deny-flagged`` fires on each.
+    Two requests in one call flag two actors, and ``deny-flagged`` fires once
+    per flag.
     """
     engine = Engine.from_rules(pack)
 
-    engine.evaluate_once([("request", {"actor": "alice", "amount": 25000.0})])
-    second = engine.evaluate_once([("request", {"actor": "bob", "amount": 99999.0})])
+    result = engine.evaluate_once(
+        [
+            ("request", {"actor": "alice", "amount": 25000.0}),
+            ("request", {"actor": "bob", "amount": 99999.0}),
+        ]
+    )
 
-    assert second.rule_trace.count("gov::deny-flagged") == 2
+    assert result.rule_trace.count("gov::deny-flagged") == 2
 
 
 def test_a_rule_that_did_not_fire_is_not_traced(pack: str) -> None:

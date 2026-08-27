@@ -656,7 +656,13 @@ class Compiler:
         hier_def = hierarchy[hier_name]
         levels = hier_def.levels
 
-        return self._compile_classification_functions(defn.name, levels)
+        # Named for the hierarchy, not for `defn.name`: the emitted family is
+        # documented as `<hier>-rank` / `<hier>-below` / `<hier>-meets-or-
+        # exceeds` / `<hier>-within-scope`, and a rule's `test:` CE can call
+        # those directly. Under the function's name those documented calls did
+        # not exist. `compile_all_classification_functions` already keys on the
+        # hierarchy, so this also makes the two emission paths agree.
+        return self._compile_classification_functions(hier_name, levels)
 
     def compile_all_classification_functions(
         self,

@@ -351,3 +351,97 @@ def _mcp_tool_names(server: FathomMCPServer) -> list[str]:
     import asyncio
 
     return [tool.name for tool in asyncio.run(server._mcp.list_tools())]
+
+
+# ---------------------------------------------------------------------------
+# The other way an earlier call changes a later one: what the RULES asserted.
+# ---------------------------------------------------------------------------
+
+_GRANT_TEMPLATES = """
+templates:
+  - name: tool_call
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+      - name: tool
+        type: symbol
+        required: true
+  - name: grant
+    slots:
+      - name: agent_id
+        type: string
+        required: true
+"""
+
+_GRANT_RULES = """
+module: policy
+ruleset: derived-grant
+version: "1.0"
+
+rules:
+  - name: derive-grant-on-elevate
+    salience: 100
+    when:
+      - template: tool_call
+        conditions:
+          - slot: tool
+            expression: "equals(elevate)"
+          - slot: agent_id
+            bind: "?aid"
+    then:
+      action: allow
+      reason: "elevation granted"
+      assert:
+        - template: grant
+          slots:
+            agent_id: "?aid"
+
+  - name: allow-read-with-grant
+    salience: 50
+    when:
+      - template: tool_call
+        alias: $c
+        conditions:
+          - slot: tool
+            expression: "equals(read_file)"
+      - template: grant
+        conditions:
+          - slot: agent_id
+            expression: "equals($c.agent_id)"
+    then:
+      action: allow
+      reason: "granted agent may read"
+"""
+
+
+@pytest.fixture(scope="module")
+def grant_pack(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.mktemp("derived_grant")
+    for subdir, body in (
+        ("templates", _GRANT_TEMPLATES),
+        ("modules", _MODULES),
+        ("rules", _GRANT_RULES),
+    ):
+        (root / subdir).mkdir()
+        (root / subdir / f"{subdir}.yaml").write_text(body, encoding="utf-8")
+    return root
+
+
+def test_a_request_scoped_call_does_not_inherit_an_earlier_calls_grant(
+    grant_pack: Path,
+) -> None:
+    """`evaluate_once` promises the same facts give the same decision.
+
+    It withdrew the facts the *caller* supplied and left every fact the rules
+    derived, so one elevation request permanently re-decided every later read
+    on that engine -- and a REST/gRPC server is one engine serving everybody.
+    """
+    engine = Engine.from_rules(str(grant_pack), default_decision="deny")
+    read = [("tool_call", {"agent_id": AGENT_ID, "tool": "read_file"})]
+
+    before = engine.evaluate_once(read).decision
+    engine.evaluate_once([("tool_call", {"agent_id": AGENT_ID, "tool": "elevate"})])
+    after = engine.evaluate_once(read).decision
+
+    assert (before, after) == ("deny", "deny")

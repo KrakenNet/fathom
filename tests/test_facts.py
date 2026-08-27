@@ -1176,3 +1176,71 @@ def test_retract_keeps_timestamps_of_surviving_facts(multi_template_engine) -> N
     e.assert_fact("user", {"name": "drop", "age": 2})
     e.retract("user", {"name": "drop"})
     assert len(e._fact_manager._fact_timestamps) == 1
+
+
+def test_ttl_expires_a_fact_a_rule_asserted(tmp_path) -> None:
+    """A template's `ttl:` must apply to facts however they were asserted.
+
+    Timestamps were recorded only on the SDK/REST assert path, and
+    `cleanup_expired` skipped any fact it had no timestamp for. A rule's
+    `then.assert` creates facts through CLIPS directly, so every derived fact
+    -- the standing grants and alarms TTL exists for -- lived forever under a
+    template that documents an expiry.
+    """
+    import time
+
+    from fathom.engine import Engine
+
+    pack = tmp_path / "pack"
+    for subdir, name, body in (
+        (
+            "templates",
+            "templates.yaml",
+            "templates:\n"
+            "  - name: trigger\n"
+            "    slots:\n"
+            "      - name: id\n"
+            "        type: string\n"
+            "        required: true\n"
+            "  - name: alert\n"
+            "    ttl: 1\n"
+            "    slots:\n"
+            "      - name: id\n"
+            "        type: string\n"
+            "        required: true\n",
+        ),
+        ("modules", "modules.yaml", "modules:\n  - name: gate\nfocus_order:\n  - gate\n"),
+        (
+            "rules",
+            "rules.yaml",
+            'module: gate\nruleset: derived\nversion: "1.0"\n\n'
+            "rules:\n"
+            "  - name: raise-alert\n"
+            "    when:\n"
+            "      - template: trigger\n"
+            "        conditions:\n"
+            "          - slot: id\n"
+            '            bind: "?tid"\n'
+            "    then:\n"
+            "      action: escalate\n"
+            '      reason: "triggered"\n'
+            "      assert:\n"
+            "        - template: alert\n"
+            "          slots:\n"
+            '            id: "?tid"\n',
+        ),
+    ):
+        (pack / subdir).mkdir(parents=True, exist_ok=True)
+        (pack / subdir / name).write_text(body, encoding="utf-8")
+
+    engine = Engine.from_rules(str(pack), default_decision="allow")
+    engine.assert_fact("trigger", {"id": "t-1"})
+    engine.evaluate()
+    assert engine.query("alert") == [{"id": "t-1"}]
+
+    engine._fact_manager.cleanup_expired()  # first sighting starts the clock
+    for fact_idx in list(engine._fact_manager._fact_timestamps):
+        engine._fact_manager._fact_timestamps[fact_idx] = time.time() - 3600
+    engine._fact_manager.cleanup_expired()
+
+    assert engine.query("alert") == []
