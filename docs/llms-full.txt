@@ -2361,6 +2361,14 @@ string evaluates against the root itself. `SessionID` is optional for
 stateless evaluation — passing one creates a server-side session that
 later `AssertFact` / `Query` / `Retract` calls can reuse.
 
+Sessions need a server that mounts no Engine — the shipped
+`uvicorn fathom.integrations.rest:app` deployment, or `serve_grpc()` called
+without one. A server that mounts an Engine serves that Engine and only that
+Engine, so it refuses `session_id` (`400 sessions_unavailable`, or
+`FAILED_PRECONDITION` over gRPC) rather than open a session under a ruleset
+the caller chose. See
+[Hot-reloading rulesets](hot-reload.md#a-reload-only-reaches-a-server-that-mounts-its-engine).
+
 ### Working memory across calls
 
 `AssertFact`, `Query`, and `Retract` all operate on a session
@@ -2555,7 +2563,8 @@ answers `503 not_ready` and each request compiles the ruleset its `ruleset`
 path names, straight off disk. Both are coherent; what is not is mounting an
 Engine and expecting the per-request `ruleset` path to still select the
 policy. On a server with an Engine mounted, `ruleset` is resolved and jailed
-but does not choose the ruleset.
+but does not choose the ruleset, and `session_id` is refused rather than
+opening a session under a ruleset the caller picked.
 
 To hot-reload, build the app yourself and mount the Engine:
 
@@ -2595,11 +2604,15 @@ cleared with them.
 A failed reload changes nothing: the old environment keeps serving, so working
 memory survives. Only a *successful* swap wipes it.
 
-Open sessions go with it. A session holds its own Engine, compiled when the
-session opened, so it would otherwise keep deciding on the pre-reload
-ruleset for as long as it stayed alive — an admin tightening policy would
-never reach it. A successful reload therefore drops every session; callers
-re-open and re-seed.
+There are no open sessions to lose. A session holds its own Engine, compiled
+from the ruleset the *caller* named — so on a server that mounts an Engine a
+session would decide under a policy the caller chose, and a reload of the
+mounted Engine would never reach it. `POST /v1/evaluate` therefore refuses
+`session_id` on a mounted server with `400 sessions_unavailable`, and the
+`Evaluate` RPC refuses it with `FAILED_PRECONDITION`. Stateful sessions
+belong to the deployment that mounts no Engine and serves rulesets by path;
+the mounted deployment serves stateless evaluation, which is the shape that
+can honour a reload.
 
 Plan for this. `Engine.subscribe_reload` is the seam: it registers a
 zero-argument callback fired after each successful swap, outside the reload
@@ -2805,6 +2818,19 @@ ruleset signature verification disabled (require_signature=false +
 FATHOM_ALLOW_UNSIGNED_RULESETS=1); hot-reload will accept unsigned
 rulesets
 ```
+
+Half an escape is no escape, and it says so. `build_app(require_signature=False)`
+without `FATHOM_ALLOW_UNSIGNED_RULESETS=1` keeps verification on and logs:
+
+```
+require_signature=false has no effect without FATHOM_ALLOW_UNSIGNED_RULESETS=1;
+ruleset signature verification stays ON (the dev escape requires both)
+```
+
+That combination used to disable verification outright — the env var decided
+only whether a pubkey was loaded, never whether signatures were checked — so a
+server built with the flag alone accepted a reload payload carrying no
+signature at all.
 
 The WARN line is emitted once per process; scrape for it in your log
 aggregator to detect dev escape accidentally turned on in prod. Every

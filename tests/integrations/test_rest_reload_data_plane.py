@@ -123,18 +123,19 @@ def test_reload_changes_the_decision_the_data_plane_returns(
     assert after["body"]["reason"] == "alice banned"
 
 
-def test_reload_drops_sessions_still_holding_the_old_ruleset(
+def test_a_mounted_server_refuses_a_session_rather_than_compiling_the_callers_ruleset(
     mounted_client: TestClient,
 ) -> None:
-    """A session's own Engine would otherwise outlive the policy it compiled."""
-    assert _evaluate(mounted_client, session_id="s-1")["body"]["decision"] == "allow"
+    """A session's Engine is not the mounted one, so the caller would pick it.
 
-    mounted_client.post(
-        "/v1/rules/reload",
-        json={"ruleset_yaml": _ruleset_yaml("deny-alice", "deny", "alice banned")},
-        headers=AUTH,
-    )
+    This used to answer ``allow`` out of an Engine compiled from whatever
+    ``ruleset`` the request named — the policy the server mounts decided
+    nothing, and the reload below could not reach that traffic either.
+    """
+    refused = _evaluate(mounted_client, session_id="s-1")
 
+    assert refused["status"] == 400
+    assert refused["body"]["error"] == "sessions_unavailable"
     assert session_store.get("s-1") is None
 
 

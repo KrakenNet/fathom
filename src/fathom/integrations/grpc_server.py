@@ -32,6 +32,7 @@ from fathom.errors import CompilationError, EvaluationError, EvaluationLimitErro
 from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.integrations.sessions import (
+    SessionError,
     SessionLimitError,
     SessionNotFoundError,
     SessionRulesetMismatchError,
@@ -101,6 +102,10 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         from fathom.engine import Engine
 
         self._default_engine = default_engine or Engine()
+        # Whether the *caller* supplied the engine. An engine passed in is the
+        # served policy; the fallback empty one decides nothing and exists so
+        # the read-only RPCs stay callable.
+        self._mounts_engine = default_engine is not None
         self._session_store = SessionStore()
         self._attestation = attestation
         self._audit_sink = audit_sink
@@ -118,6 +123,24 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         """
         if not session_id:
             return self._default_engine
+        if self._mounts_engine:
+            # A session needs its own working memory -- AssertFact accumulates
+            # into it -- so it cannot be the mounted engine without every
+            # session reading every other session's facts; and any other
+            # engine is compiled from the `ruleset` the caller named, which is
+            # a data-plane caller choosing the deciding policy and escaping
+            # Reload at the same time. A server that mounts an engine serves
+            # stateless evaluation only. REST refuses the same request with
+            # 400 sessions_unavailable.
+            if context is None:
+                raise SessionError("sessions_unavailable: this server serves the mounted ruleset")
+            context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                "sessions_unavailable: this server serves the ruleset it was "
+                "constructed with; omit session_id, or run a server with no "
+                "engine mounted to use sessions",
+            )
+            raise  # unreachable; abort raises
         if not ruleset:
             # RPCs other than Evaluate carry no ruleset field, so they join
             # whatever session already exists rather than asserting a binding.

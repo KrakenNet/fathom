@@ -152,7 +152,27 @@ def _session_engine(
     A session is bound to the ruleset it was created with; addressing it
     with a different one is 409 rather than a silent evaluation under the
     wrong policy.
+
+    Refused outright on a server that mounts an Engine. A session needs its
+    own working memory -- ``/v1/facts`` accumulates into it -- so it cannot
+    *be* the mounted Engine without every session reading every other
+    session's facts; and any other Engine is compiled from the ``ruleset``
+    the caller named, which is the caller choosing the deciding policy and
+    escaping ``POST /v1/rules/reload`` at the same time. Neither is
+    acceptable, so the mounted deployment serves stateless evaluation only.
     """
+    if getattr(app.state, "engine", None) is not None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "sessions_unavailable",
+                "detail": (
+                    "this server serves the ruleset mounted on app.state.engine; "
+                    "omit session_id, or run a server with no Engine mounted to "
+                    "use sessions"
+                ),
+            },
+        )
     try:
         return session_store.get_or_create(session_id, rules_path, attestation_service)
     except SessionRulesetMismatchError as exc:
@@ -428,7 +448,10 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     ``uvicorn fathom.integrations.rest:app`` deployment. A server that
     mounts one serves *that* Engine, because it is the one
     ``POST /v1/rules/reload`` swaps and a reload the data plane cannot see
-    is not a reload.
+    is not a reload. ``session_id`` is refused there with 400
+    ``sessions_unavailable`` for the same reason: a session's Engine is
+    compiled from the ruleset the caller named, so opening one would hand
+    policy selection back to the data plane.
 
     Declared ``def`` (not ``async def``) on purpose: CLIPS evaluation is
     blocking CPU work, so Starlette must run it in the threadpool rather
@@ -1151,11 +1174,23 @@ def build_app(*, require_signature: bool = True) -> FastAPI:
     app.state.engine = None
     app.state.attestation = None
     app.state.audit_sink = None
-    app.state.require_signature = require_signature
+    # Both halves or neither. Assigning the flag verbatim here made
+    # `require_signature=False` alone switch verification off, while the env
+    # var below decided only whether a pubkey was loaded -- so a single stray
+    # flag lowered the floor the docs promise takes two.
+    dev_escape = not require_signature and allow_unsigned
+    app.state.require_signature = not dev_escape
     app.state.last_reload_iso = None
     app.state.boot_time_iso = _now_iso()
 
-    if not require_signature and allow_unsigned:
+    if not require_signature and not allow_unsigned:
+        logger.warning(
+            "require_signature=false has no effect without "
+            "FATHOM_ALLOW_UNSIGNED_RULESETS=1; ruleset signature verification "
+            "stays ON (the dev escape requires both)"
+        )
+
+    if dev_escape:
         logger.warning(
             "ruleset signature verification disabled "
             "(require_signature=false + FATHOM_ALLOW_UNSIGNED_RULESETS=1); "

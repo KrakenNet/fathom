@@ -156,6 +156,14 @@ string evaluates against the root itself. `SessionID` is optional for
 stateless evaluation — passing one creates a server-side session that
 later `AssertFact` / `Query` / `Retract` calls can reuse.
 
+Sessions need a server that mounts no Engine — the shipped
+`uvicorn fathom.integrations.rest:app` deployment, or `serve_grpc()` called
+without one. A server that mounts an Engine serves that Engine and only that
+Engine, so it refuses `session_id` (`400 sessions_unavailable`, or
+`FAILED_PRECONDITION` over gRPC) rather than open a session under a ruleset
+the caller chose. See
+[Hot-reloading rulesets](hot-reload.md#a-reload-only-reaches-a-server-that-mounts-its-engine).
+
 ### Working memory across calls
 
 `AssertFact`, `Query`, and `Retract` all operate on a session
