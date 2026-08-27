@@ -4,7 +4,7 @@ summary: How to author a Fathom ruleset in YAML, covering patterns, conditions, 
 audience: [rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py

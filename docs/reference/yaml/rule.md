@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 # Rule
@@ -208,7 +208,25 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
 call to the generated `below` / `meets-or-exceeds` / `within-scope`
-CLIPS deffunction. Temporal operators emit `(test …)` CEs that call
+CLIPS deffunction.
+
+**Which hierarchy is decided by the level you name.** `meets_or_exceeds(verified)`
+compiles to `trust-meets-or-exceeds` because `verified` is a level of the
+`trust` hierarchy and of no other one loaded. There is no syntax for naming a
+hierarchy, and none is needed: the level is the discriminator. Two
+consequences, both compile errors rather than a silently wrong answer:
+
+- a level no loaded hierarchy defines — a typo, or a hierarchy the bundle
+  forgot — fails to compile, naming the level and every loaded ladder;
+- a level two hierarchies both define is ambiguous and fails to compile.
+  Rename it in one of them.
+
+When the argument is a cross-fact reference (`$other.level`) rather than a
+literal, the hierarchy cannot be resolved at compile time and the call goes to
+the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
+within one hierarchy.
+
+Temporal operators emit `(test …)` CEs that call
 external functions registered at runtime.
 
 Any other operator raises `CompilationError` from `_compile_condition`.

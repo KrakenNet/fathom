@@ -25,6 +25,10 @@ from fathom.models import (
     ThenBlock,
 )
 
+#: Classification operators whose CLIPS function is per-hierarchy. The rest of
+#: `_CLASSIFICATION_OPS` map to `fathom-*` externals, which take no hierarchy.
+_HIERARCHY_SCOPED_OPS = frozenset({"below", "meets_or_exceeds", "within_scope"})
+
 # Mapping from SlotType to CLIPS type strings
 _CLIPS_TYPE_MAP: dict[SlotType, str] = {
     SlotType.STRING: "STRING",
@@ -73,6 +77,10 @@ class Compiler:
     def __init__(self, match_evidence: bool = False) -> None:
         # Track the first hierarchy loaded for backward-compat unscoped shims
         self._first_hierarchy_name: str | None = None
+        # Every hierarchy compiled so far, name -> its ordered levels. A
+        # classification operator picks its hierarchy out of this by the level
+        # it names; see `_scoped_classification_fn`.
+        self._hierarchy_levels: dict[str, list[str]] = {}
         self._match_evidence = match_evidence
 
     @staticmethod
@@ -688,6 +696,7 @@ class Compiler:
             A string containing CLIPS deffunctions (scoped + optional unscoped shims).
         """
         rank_name = f"{name}-rank"
+        self._hierarchy_levels[name] = list(levels)
 
         # Build rank deffunction with switch cases.
         #
@@ -1315,6 +1324,52 @@ class Compiler:
                 tests.append(f"(test (eq ?{existing} {var}))")
         return parts, tests
 
+    def _scoped_classification_fn(self, op: str, unscoped: str, level: str, slot: str) -> str:
+        """Pick the hierarchy a classification operator meant, by the level it names.
+
+        ``below`` / ``meets-or-exceeds`` / ``within-scope`` are emitted once as
+        unscoped shims that delegate to the *first* hierarchy compiled. A pack
+        with two of them -- a sensitivity ladder and a trust ladder, both
+        authored exactly as the reference documents -- therefore ranked every
+        level of the second one through the first one's table, where nothing
+        matches and the rank is the ``-1`` default. ``meets_or_exceeds(X)``
+        became ``-1 >= -1``, true for every value, and ``below(X)`` became
+        ``-1 < -1``, false for every value: the allow rule fired
+        unconditionally and the deny rule never fired at all.
+
+        There is no YAML syntax for naming a hierarchy, and adding one would
+        not repair the packs already written. The level itself is the
+        discriminator -- ``verified`` belongs to the trust ladder and to
+        nothing else -- so this resolves it and emits that hierarchy's scoped
+        deffunction. When the level is ambiguous or unknown the answer would
+        be a silent always-true, so it is a compile error instead.
+
+        Falls back to the unscoped shim when no hierarchy has been compiled
+        into this Compiler: the deffunction may have been supplied directly
+        through ``load_clips_function``.
+        """
+        if op not in _HIERARCHY_SCOPED_OPS or not self._hierarchy_levels:
+            return unscoped
+
+        owners = [name for name, levels in self._hierarchy_levels.items() if level in levels]
+        if len(owners) == 1:
+            return f"{owners[0]}-{unscoped}"
+
+        known = ", ".join(
+            f"{name} ({', '.join(levels)})"
+            for name, levels in sorted(self._hierarchy_levels.items())
+        )
+        if not owners:
+            raise CompilationError(
+                f"{op}({level}) on slot '{slot}': no loaded hierarchy has a level "
+                f"named '{level}'. Loaded: {known}.",
+            )
+        raise CompilationError(
+            f"{op}({level}) on slot '{slot}': '{level}' is a level of "
+            f"{' and '.join(sorted(owners))}, so the hierarchy to rank it in is "
+            f"ambiguous. Rename the level in one of them. Loaded: {known}.",
+        )
+
     # Classification operators that produce a slot binding + test CE
     _CLASSIFICATION_OPS: dict[str, str] = {
         "below": "below",
@@ -1562,6 +1617,8 @@ class Compiler:
             # Resolve the argument (cross-ref or literal)
             cross_ref = self._resolve_cross_refs(arg)
             arg_var = cross_ref if cross_ref is not None else self._validate_operator_arg(arg, op)
+            if cross_ref is None:
+                clips_fn = self._scoped_classification_fn(op, clips_fn, arg, slot)
             slot_binding = f"({slot} {slot_var})"
             test_ce = f"(test ({clips_fn} {slot_var} {arg_var}))"
             return slot_binding, test_ce

@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 # Function
@@ -66,6 +66,15 @@ scoped versions. These shims are emitted **only for the first loaded
 hierarchy** (tracked via `self._first_hierarchy_name`); subsequent
 hierarchies add their scoped deffunctions but do not overwrite the
 unscoped shims.
+
+A rule's classification operator does **not** compile to a shim. It compiles to
+the scoped deffunction of the hierarchy that owns the level it names — see
+[`meets_or_exceeds` in the rule reference](./rule.md#supported-operators). The
+shims exist for a deffunction supplied directly through `load_clips_function`,
+and for the cross-fact form (`$other.level`), whose hierarchy is not knowable at
+compile time. Routing every rule through them is what made a second hierarchy
+unusable: its levels ranked `-1` through the first hierarchy's table, so
+`meets_or_exceeds` was true for every value and `below` false for every value.
 
 Compilation failures:
 
@@ -159,7 +168,8 @@ Notes:
 - The unscoped `below` / `meets-or-exceeds` / `within-scope` shims
   appear because `clearance` is the **first** hierarchy loaded. A
   second hierarchy would emit only its scoped deffunctions; it would
-  not shadow the shims.
+  not shadow the shims. Rules over the second hierarchy still work:
+  they compile to its scoped deffunctions, chosen by the level they name.
 - `FunctionDefinition.name` (`clearance-check`) and `params` (`[a, b]`)
   are not reflected in the output — the classification path drives
   emission purely from the hierarchy.
