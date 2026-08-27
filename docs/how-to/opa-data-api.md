@@ -4,7 +4,7 @@ summary: Answer OPA Data API requests from Fathom, so an existing OPA caller kee
 audience: [app-developers]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/rego.py
@@ -80,6 +80,16 @@ Three consequences worth knowing:
 - **Fields no slot declares are dropped**, not rejected. An OPA caller sends
   its whole input document; a field no rule reads must not fail the request.
 - **Lists and nulls are dropped**, since Fathom has no slot type for them.
+- **No two input paths share a slot.** A key containing `_` is flattened with
+  `__`, so `{"user": {"role": "guest"}, "user_role": "admin"}` fills
+  `user_role` with `guest` and `user__role` with `admin`. Both spellings used
+  to land in `user_role` and the later key won, which let a caller who
+  controlled any string field escalate by naming it after a nested path.
+- **A document that does not fit the templates is undefined, not an error.**
+  A missing required slot or a value of the wrong type answers with the
+  engine's default decision — the same `false` OPA answers when the reference
+  is undefined. It used to be a `500`, which is the signal orchestrators and
+  circuit-breakers read as "the policy engine is broken".
 
 Assert into a different template with `?template=`; an unknown name is a 400
 listing the templates the ruleset does declare.
@@ -90,6 +100,7 @@ listing the templates the ruleset does declare.
 |---|---|---|
 | Authentication | Open by default | Bearer token, as on every other route |
 | Undefined document | `{}` with 200 | Always defined — the engine has a default decision (`deny`) |
+| Input that does not fit the policy | `false` (undefined reference) | Same — the default decision, not an error |
 | Error envelope | `{"code", "message"}` | Same, on these two routes only |
 | `POST /v1/data` (no path) | Whole data document | 400 — name a ruleset |
 

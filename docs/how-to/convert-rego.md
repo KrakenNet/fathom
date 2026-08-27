@@ -4,7 +4,7 @@ summary: Translate the stateless subset of an OPA Rego policy into Fathom YAML w
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 sources:
   - src/fathom/rego.py
   - src/fathom/cli.py
@@ -89,6 +89,13 @@ actually reads, with nested paths flattened into slot names —
 `input.user.role` becomes the slot `user_role`. Rename the template with
 `--template`.
 
+The flattening is one-to-one: a key that itself contains `_` is written with
+`__`, so `input.user.role` and a literal top-level `input.user_role` land in
+`user_role` and `user__role` rather than fighting over one slot. They are two
+unrelated paths in Rego and they stay unrelated here — a caller who controls
+any string field of the document must not be able to fill a nested slot by
+naming their field after it.
+
 Rego ORs the bodies that share a rule name; Fathom ORs separate rules. Each
 body therefore becomes its own rule, named `<decision>-<index>`: the policy
 above converts to `allow-1` and `deny-2`.
@@ -99,6 +106,25 @@ types. Rego has a single `number` type, so **every number becomes a `float`
 slot** — inferring `integer` from a policy that happens to compare against a
 whole number would produce a template that rejects the very input the policy
 was written for. `flatten_input` feeds those slots floats to match.
+
+### A field the document leaves out
+
+Rego leaves an absent reference undefined, and a rule body that touches it
+fails. A CLIPS slot always holds a value: with no default, `action` comes out
+as `""` and `amount` as `0.0`, which satisfy `not_equals(delete)` and
+`less_than(100)` — so a document that simply omitted the field was **allowed**
+here while OPA denied it, with nothing reported.
+
+Every converted slot therefore defaults to a sentinel — `"__fathom_absent__"`
+for strings and symbols, `-1.7976931348623157e+308` for floats — and every
+converted rule carries one `not_equals(<sentinel>)` per slot it reads. A
+partial document leaves those guards unsatisfied, the rule does not fire, and
+the decision falls to the engine's default, which is what OPA answers for the
+same document. The one case this encoding gets wrong is a document that sends
+the sentinel as a real value; it is read as the field being absent.
+
+The guards are bookkeeping, not policy, so `fathom convert to-rego` drops them
+again on the way back out.
 
 ### `deny` outranks `allow`
 

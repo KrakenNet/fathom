@@ -72,6 +72,20 @@ _DECISIONS = {"allow": "allow", "deny": "deny"}
 #: depending on the order the Rego file happened to list them in.
 _DENY_SALIENCE = -10
 
+#: What a converted slot holds when the input document leaves the field out.
+#: Rego leaves an absent reference undefined and the rule body simply fails; a
+#: CLIPS slot always has a value, and the type's derived default ("" or 0.0)
+#: happily satisfies `not_equals(delete)` and `less_than(100)` -- so a partial
+#: document was ALLOWED here and denied by OPA. Absence is therefore given a
+#: value of its own, and every converted rule guards the slots it reads
+#: against it. A document that really does carry the sentinel is treated as
+#: not carrying the field, which is the one case this encoding gets wrong.
+_ABSENT: dict[str, str | float] = {
+    "string": "__fathom_absent__",
+    "symbol": "__fathom_absent__",
+    "float": -1.7976931348623157e308,
+}
+
 
 @dataclass(frozen=True)
 class Skipped:
@@ -245,15 +259,28 @@ def _set_members(term: dict[str, Any]) -> list[str | int | float | bool] | None:
 # ---------------------------------------------------------------------------
 
 
+def _escape_segment(segment: str) -> str:
+    """Double any `_` in one path segment so the join stays reversible.
+
+    Without this, `input.user.role` and a literal top-level `input.user_role`
+    flatten to the same slot -- two unrelated paths in Rego, one slot here,
+    and whichever the document mentions last wins. A caller who controlled any
+    string field escalated by naming it `user_role`.
+    """
+    return segment.replace("_", "__")
+
+
 def _slot_name(path: list[str]) -> str:
     """`["input", "user", "role"]` -> `user_role`.
 
     Rego's `input` is an arbitrary nested document and a Fathom template is
     flat, so the nesting is flattened into the slot name. The mapping is
     documented rather than clever: a reader has to be able to look at
-    `user_role` and know which Rego reference it came from.
+    `user_role` and know which Rego reference it came from. A segment that
+    itself contains `_` is escaped to `__`, which keeps the mapping one-to-one
+    (see :func:`_escape_segment`).
     """
-    return "_".join(path[1:])
+    return "_".join(_escape_segment(segment) for segment in path[1:])
 
 
 def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]:
@@ -268,10 +295,15 @@ def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]
     Values Fathom has no slot type for (lists, null, nested nulls) are left
     out. No rule can match on them, so carrying them through would only make
     the assert fail on a field nothing reads.
+
+    Key segments are escaped exactly as :func:`_slot_name` escapes them, so no
+    two input paths can land in the same slot: `{"user": {"role": x}}` fills
+    `user_role` and a top-level `"user_role"` fills `user__role`, which is the
+    slot a policy reading `input.user_role` was converted against.
     """
     flat: dict[str, Any] = {}
     for key, value in document.items():
-        name = f"{_prefix}{key}"
+        name = f"{_prefix}{_escape_segment(key)}"
         if isinstance(value, dict):
             flat.update(flatten_input(value, f"{name}_"))
         elif isinstance(value, bool):
@@ -493,6 +525,7 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
 
     result = ConversionResult(package=package, module=module)
     slots: dict[str, str] = {}
+    guarded: list[tuple[dict[str, Any], dict[str, str]]] = []
 
     for index, rego_rule in enumerate(ast.get("rules") or []):
         head = rego_rule.get("head") or {}
@@ -643,13 +676,28 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
             # file order. Deny fires last and wins.
             rule["salience"] = _DENY_SALIENCE
         result.rules.append(rule)
+        guarded.append((rule, dict(rule_slots)))
+
+    # Presence guards go on last, using the slot types as finally widened: a
+    # slot widened to `string` by a later rule needs the string sentinel, not
+    # the one its own rule inferred.
+    for rule, rule_slots in guarded:
+        conditions = rule["when"][0]["conditions"]
+        rule["when"][0]["conditions"] = [
+            {"slot": slot, "expression": _expression_text("not_equals", _ABSENT[slots[slot]])}
+            for slot in sorted(rule_slots)
+            if slots[slot] in _ABSENT
+        ] + conditions
 
     if slots:
         result.templates.append(
             {
                 "name": template,
                 "slots": [
-                    {"name": slot, "type": slot_type} for slot, slot_type in sorted(slots.items())
+                    {"name": slot, "type": slot_type, "default": _ABSENT[slot_type]}
+                    if slot_type in _ABSENT
+                    else {"name": slot, "type": slot_type}
+                    for slot, slot_type in sorted(slots.items())
                 ],
             }
         )
@@ -659,6 +707,14 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
             'boolean slot type, so assert them as the strings "true" / "false"; '
             "a Python `True` is rejected by slot validation rather than silently "
             "failing to match."
+        )
+    if slots:
+        result.notes.append(
+            "Every rule guards the fields it reads against the sentinel each "
+            "slot defaults to, so a document that omits a field decides the "
+            "way OPA decides it -- the rule does not fire. Send the sentinel "
+            f"({_ABSENT['string']!r}, {_ABSENT['float']!r}) as a real value "
+            "and it will be read as the field being absent."
         )
     actions = {rule["then"]["action"] for rule in result.rules}
     if {"allow", "deny"} <= actions:
@@ -774,6 +830,11 @@ def _rego_condition(reference: str, op: str, arg: str, slot_type: str) -> str | 
     return None
 
 
+#: The conditions :func:`convert_ast` adds to stand in for "the field is
+#: present". They carry no meaning outside the converted pack.
+_ABSENCE_GUARDS = frozenset(_expression_text("not_equals", value) for value in _ABSENT.values())
+
+
 def _why_not_exportable(op: str) -> str:
     """Name the family an operator belongs to, not just that it is unsupported."""
     if op in Compiler._TEMPORAL_OPS:
@@ -832,6 +893,13 @@ def _export_rule(
 
     body: list[str] = []
     for condition in pattern.conditions:
+        if condition.expression in _ABSENCE_GUARDS:
+            # Bookkeeping, not policy: the guard exists because a CLIPS slot
+            # always holds a value and Rego's `input` field simply may not be
+            # there. Exporting it would write the encoding into a language
+            # that does not need it -- and a round trip would then guard the
+            # guards.
+            continue
         if condition.test is not None:
             return Skipped(name, "test:", "a raw CLIPS conditional element cannot be translated")
         if condition.bind is not None:
@@ -970,7 +1038,11 @@ def _render_rego(package: str, documents: dict[str, list[Any]], flat: bool) -> s
     for document in sorted(documents):
         for rule, body in documents[document]:
             if rule.then.reason:
-                lines.append(f"# {rule.then.reason}")
+                # Every line, not the first. A reason is prose and prose wraps;
+                # the lines after the first used to land in the file as live
+                # Rego, which OPA either rejects outright or -- when the text
+                # happens to parse -- accepts as a rule the ruleset never had.
+                lines.extend(f"# {line}".rstrip() for line in rule.then.reason.splitlines())
             lines.append(f"# fathom rule: {rule.name}")
             lines.append(f"{document} if {{")
             lines.extend(f"\t{expression}" for expression in body)

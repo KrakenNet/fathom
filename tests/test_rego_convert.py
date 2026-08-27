@@ -25,7 +25,7 @@ import yaml
 
 from fathom.engine import Engine
 from fathom.errors import CompilationError
-from fathom.rego import ConversionResult, convert_ast, parse_rego
+from fathom.rego import _ABSENCE_GUARDS, ConversionResult, convert_ast, parse_rego
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rego"
 
@@ -35,8 +35,29 @@ def _load(name: str) -> ConversionResult:
 
 
 def _expressions(result: ConversionResult, rule_name: str) -> list[str]:
+    """The rule's conditions, minus the presence guards.
+
+    Every converted rule carries one `not_equals(<sentinel>)` per slot it
+    reads, standing in for Rego's "the field is there at all". They are
+    asserted on their own in :class:`TestAbsentFields`; everywhere else they
+    are noise.
+    """
     rule = next(r for r in result.rules if r["name"] == rule_name)
-    return [c["expression"] for c in rule["when"][0]["conditions"]]
+    return [
+        c["expression"]
+        for c in rule["when"][0]["conditions"]
+        if c["expression"] not in _ABSENCE_GUARDS
+    ]
+
+
+def _slot_defaults(result: ConversionResult) -> dict[str, object]:
+    return {s["name"]: s.get("default") for s in result.templates[0]["slots"]}
+
+
+def _guards(result: ConversionResult, rule_name: str) -> list[str]:
+    """The slots *rule_name* guards for presence."""
+    rule = next(r for r in result.rules if r["name"] == rule_name)
+    return [c["slot"] for c in rule["when"][0]["conditions"] if c["expression"] in _ABSENCE_GUARDS]
 
 
 def _slot_types(result: ConversionResult) -> dict[str, str]:
@@ -68,6 +89,50 @@ def _load_into_engine(result: ConversionResult) -> Engine:
 # ---------------------------------------------------------------------------
 # What converts
 # ---------------------------------------------------------------------------
+
+
+class TestAbsentFields:
+    """A field the document leaves out must not decide as if it were there.
+
+    Rego leaves an absent reference undefined and the rule body fails. A CLIPS
+    slot always holds a value, and the derived default -- `""` or `0.0` --
+    satisfies `not_equals(delete)` and `less_than(100)`, so a partial document
+    was allowed here and denied by OPA. Each slot now defaults to a sentinel
+    and each rule guards the slots it reads against it.
+    """
+
+    def test_every_slot_a_rule_reads_is_guarded(self) -> None:
+        assert _guards(_load("basic"), "allow-1") == ["action", "user_role"]
+        assert _guards(_load("basic"), "deny-2") == ["user_suspended"]
+
+    def test_a_slot_defaults_to_the_sentinel_its_readers_guard_against(self) -> None:
+        assert _slot_defaults(_load("basic")) == {
+            "action": "__fathom_absent__",
+            "user_role": "__fathom_absent__",
+            "user_suspended": "__fathom_absent__",
+        }
+
+    def test_a_numeric_slot_gets_a_numeric_sentinel(self) -> None:
+        """`not_equals("__fathom_absent__")` on a float slot is not a comparison."""
+        assert set(_slot_defaults(_load("numeric")).values()) == {-1.7976931348623157e308}
+
+    def test_the_conversion_reports_the_encoding(self) -> None:
+        assert any("sentinel" in note for note in _load("basic").notes)
+
+    def test_a_document_missing_a_field_does_not_fire_the_rule(self) -> None:
+        """The whole point, end to end: OPA denies this, and so must the pack."""
+        engine = _load_into_engine(_load("basic"))
+
+        result = engine.evaluate_once([("input", {"user_role": "admin"})])
+
+        assert result.decision == "deny"
+
+    def test_a_document_carrying_the_field_still_fires(self) -> None:
+        engine = _load_into_engine(_load("basic"))
+
+        result = engine.evaluate_once([("input", {"user_role": "admin", "action": "read"})])
+
+        assert result.decision == "allow"
 
 
 class TestSupportedSubset:

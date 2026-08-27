@@ -10,7 +10,7 @@ sources:
   - src/fathom/integrations/auth.py
   - src/fathom/metrics.py
   - src/fathom/cli.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 # Configuration

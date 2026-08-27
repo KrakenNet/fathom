@@ -1030,6 +1030,29 @@ def _opa_facts(engine: Engine, template: str, document: dict[str, Any]) -> dict[
     return {k: v for k, v in flatten_input(document).items() if k in declared}
 
 
+def _opa_undefined(engine: Engine, document_name: str) -> JSONResponse:
+    """The answer for a document no rule can be evaluated against.
+
+    Shaped exactly like the happy path so an OPA client cannot tell the two
+    apart -- which is the point: OPA answers `false` for an undefined `allow`,
+    not an error.
+    """
+    decision = engine.default_decision
+    if document_name:
+        return JSONResponse(content={"result": decision == document_name})
+    return JSONResponse(
+        content={
+            "result": {
+                "allow": decision == "allow",
+                "deny": decision == "deny",
+                "decision": decision,
+                "reason": None,
+                "rule_trace": [],
+            }
+        }
+    )
+
+
 def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONResponse:
     """Shared body of the GET and POST forms of the Data API."""
     segments = [segment for segment in path.split("/") if segment]
@@ -1075,7 +1098,17 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
 
     try:
         result = engine.evaluate_once(facts=[(template, _opa_facts(engine, template, document))])
-    except (EvaluationError, FathomValidationError) as exc:
+    except FathomValidationError:
+        # The document does not fit the templates -- a missing required slot,
+        # a value of the wrong type. In Rego that is not an error: the
+        # reference is undefined, the rule body fails, and the policy falls to
+        # its default. Answer the same way rather than reporting a caller's
+        # partial document as a server fault (it used to be a 500, which is
+        # what orchestrators and circuit-breakers read as "the policy engine
+        # is broken"). The engine's default decision is fail-closed.
+        logger.debug("opa data: document does not fit template %r", template, exc_info=True)
+        return _opa_undefined(engine, document_name)
+    except EvaluationError as exc:
         return _opa_error(500, "internal_error", str(exc))
 
     if document_name:

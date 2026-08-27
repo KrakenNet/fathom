@@ -4,7 +4,7 @@ summary: Export the stateless subset of a Fathom ruleset to Rego with fathom con
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 sources:
   - src/fathom/rego.py
   - src/fathom/cli.py
@@ -53,9 +53,16 @@ allow if {
 }
 ```
 
-The rule's `then.reason` becomes a comment. Rego's answer is a bare boolean
-with nowhere to put a reason, and dropping it loses the one thing that
-explains the rule.
+The rule's `then.reason` becomes a comment — **every** line of it. Rego's
+answer is a bare boolean with nowhere to put a reason, and dropping it loses
+the one thing that explains the rule. Only the first line used to be
+prefixed, so a two-line reason was written into the exported policy as live
+Rego: `opa` rejected the file, or, when the second line happened to parse,
+accepted a rule the Fathom ruleset never had.
+
+A condition comparing a slot against its own absent-sentinel is not exported.
+It is the encoding `fathom convert rego` uses to stand in for "the field is
+present at all", and Rego says that natively.
 
 ## What exports
 

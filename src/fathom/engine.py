@@ -324,6 +324,11 @@ class Engine:
         self._attestation_service = service
 
     @property
+    def default_decision(self) -> str | None:
+        """The decision returned when no rule fires (``None`` leaves it unset)."""
+        return self._default_decision
+
+    @property
     def ruleset_hash(self) -> str:
         """Addressable hash of the currently-loaded ruleset YAML.
 
