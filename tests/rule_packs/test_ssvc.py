@@ -195,6 +195,20 @@ def test_all_published_branches(branch: dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_the_readmes_own_meta_line_asserts() -> None:
+    """`engine.assert_fact("ssvc_meta", ssvc.SSVC_META)` -- the pack's only
+    usage example for the provenance fact, run verbatim.
+
+    ``SSVC_META`` carried a fourth key, ``branches_source``, that the template
+    never declared, so the documented line raised ValidationError.
+    """
+    engine = Engine.from_rules(PACK_DIR)
+
+    engine.assert_fact("ssvc_meta", SSVC_META)
+
+    assert engine.query("ssvc_meta")[0]["version"] == SSVC_META["version"]
+
+
 def test_meta_facts_present() -> None:
     """`ssvc_meta` provenance facts must survive a full evaluate() round-trip.
 

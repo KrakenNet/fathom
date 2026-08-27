@@ -279,6 +279,42 @@ DISPATCH: dict[str, Callable[[Any, str], list[str]]] = {
 }
 
 
+@pytest.fixture
+def shipped_agentic_engine() -> Engine:
+    """The pack Fathom ships for exactly this job, loaded the documented way."""
+    engine = Engine(default_decision="allow")
+    engine.load_pack("owasp-agentic")
+    return engine
+
+
+@pytest.mark.parametrize("dispatch", list(DISPATCH), ids=list(DISPATCH))
+def test_the_shipped_agentic_pack_blocks_through_every_adapter(
+    dispatch: str, shipped_agentic_engine: Engine
+) -> None:
+    """A pack no adapter can drive is a pack that guards nothing.
+
+    Every adapter asserts `tool_request`; the pack declared `tool_call`, so
+    its dangerous-tools rule could not fire on anything an adapter sent.
+    """
+    ran = DISPATCH[dispatch](shipped_agentic_engine, "exec")
+
+    assert ran == [], f"{dispatch} ran a tool the shipped pack denies: {ran}"
+
+
+@pytest.mark.parametrize("dispatch", list(DISPATCH), ids=list(DISPATCH))
+def test_the_shipped_agentic_pack_lets_a_benign_tool_through(
+    dispatch: str, shipped_agentic_engine: Engine
+) -> None:
+    """The half that shows the block above is a decision, not an accident.
+
+    With the template mismatch in place every call raised `ValidationError`
+    on an unknown template, so the pack blocked everything -- including this.
+    """
+    ran = DISPATCH[dispatch](shipped_agentic_engine, "web_search")
+
+    assert ran == ["web_search"], f"{dispatch} blocked a tool the pack permits: {ran}"
+
+
 @pytest.mark.parametrize("dispatch", list(DISPATCH), ids=list(DISPATCH))
 def test_a_denied_tool_body_never_runs(dispatch: str, engine: Engine) -> None:
     ran = DISPATCH[dispatch](engine, DENIED)

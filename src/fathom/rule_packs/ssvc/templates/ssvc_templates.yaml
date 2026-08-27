@@ -41,3 +41,7 @@ templates:
       - { name: version, type: string, required: true }
       - { name: source, type: string, required: true }
       - { name: source_sha256, type: string, required: true }
+      # Declared because `SSVC_META` carries it: the pack's documented
+      # `engine.assert_fact("ssvc_meta", ssvc.SSVC_META)` asserts that dict
+      # whole, and an undeclared key is a ValidationError.
+      - { name: branches_source, type: string, default: "" }

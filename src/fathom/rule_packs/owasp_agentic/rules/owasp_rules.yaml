@@ -11,7 +11,7 @@ rules:
       - template: agent_input
         conditions:
           - slot: content
-            expression: "matches(ignore previous|system prompt|you are now|forget your instructions|disregard|override)"
+            expression: "matches((?i)ignore previous|system prompt|you are now|forget your instructions|disregard|override)"
     then:
       action: escalate
       reason: "Possible prompt injection detected in agent input"
@@ -21,7 +21,7 @@ rules:
   - name: deny-excessive-agency-exec
     salience: 50
     when:
-      - template: tool_call
+      - template: tool_request
         conditions:
           - slot: tool_name
             expression: "in([exec, shell, eval, subprocess, os_command])"
