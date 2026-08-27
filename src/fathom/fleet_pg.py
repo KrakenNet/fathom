@@ -68,6 +68,10 @@ SELECT COUNT(*) FROM fleet_facts
 WHERE template = $1;
 """
 
+#: Backoff for re-establishing the LISTEN connection after the backend dies.
+_RECONNECT_BASE_DELAY = 0.5
+_RECONNECT_MAX_DELAY = 30.0
+
 
 class PostgresFactStore:
     """Async fact store backed by PostgreSQL.
@@ -85,7 +89,12 @@ class PostgresFactStore:
         self._listen_conn: asyncpg.Connection[asyncpg.Record] | None = None
         self._subscribers: dict[str, list[_SubscriptionCallback]] = defaultdict(list)
         self._listening_templates: set[str] = set()
+        #: Templates whose channel is registered on the *current* LISTEN
+        #: connection. Cleared whenever that connection is replaced.
+        self._registered: set[str] = set()
+        self._listen_lock = asyncio.Lock()
         self._listener_task: asyncio.Task[None] | None = None
+        self._closing = False
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -108,6 +117,9 @@ class PostgresFactStore:
 
     async def close(self) -> None:
         """Shut down connections."""
+        # Closing the LISTEN connection fires the termination listener like any
+        # other backend loss would; say so first, or close() starts a reconnect.
+        self._closing = True
         if self._listener_task is not None:
             self._listener_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -193,45 +205,100 @@ class PostgresFactStore:
     # ------------------------------------------------------------------
 
     async def _ensure_listen_conn(self) -> asyncpg.Connection[asyncpg.Record]:
-        """Return (and lazily create) a dedicated LISTEN connection."""
-        if self._listen_conn is None:
-            try:
-                self._listen_conn = await asyncpg.connect(dsn=self._dsn)
-            except OSError as exc:
-                raise FleetConnectionError(
-                    f"Failed to create LISTEN connection: {exc}",
-                    backend="postgres",
-                ) from exc
-            except asyncpg.PostgresError as exc:
-                raise FleetError(
-                    f"PostgreSQL error creating LISTEN connection: {exc}",
-                ) from exc
-        return self._listen_conn
+        """Return a live LISTEN connection, replacing one whose backend is gone.
 
-    async def _start_listening(self, template: str) -> None:
-        """Subscribe to the PostgreSQL channel for *template*."""
-        if template in self._listening_templates:
-            return
-        conn = await self._ensure_listen_conn()
-        channel = self._channel_for(template)
+        A terminated backend leaves an ``asyncpg.Connection`` object behind that
+        answers ``is_closed()`` and nothing else. Handing it back would register
+        listeners that never fire. Caller must hold ``_listen_lock``.
+        """
+        conn = self._listen_conn
+        if conn is not None and not conn.is_closed():
+            return conn
 
-        async def _on_notification(
-            conn: asyncpg.Connection[asyncpg.Record],
-            pid: int,
-            channel: str,
-            payload: str,
-        ) -> None:
-            data = json.loads(payload)
-            notif = FactChangeNotification(
+        # A new connection carries none of the old one's listeners.
+        self._registered.clear()
+        try:
+            conn = await asyncpg.connect(dsn=self._dsn)
+        except OSError as exc:
+            raise FleetConnectionError(
+                f"Failed to create LISTEN connection: {exc}",
+                backend="postgres",
+            ) from exc
+        except asyncpg.PostgresError as exc:
+            raise FleetError(
+                f"PostgreSQL error creating LISTEN connection: {exc}",
+            ) from exc
+
+        conn.add_termination_listener(self._on_listen_conn_lost)
+        self._listen_conn = conn
+        return conn
+
+    async def _on_notification(
+        self,
+        conn: asyncpg.Connection[asyncpg.Record],
+        pid: int,
+        channel: str,
+        payload: str,
+    ) -> None:
+        """Turn a PostgreSQL NOTIFY payload into a local subscriber dispatch."""
+        data = json.loads(payload)
+        await self._notify_subscribers(
+            FactChangeNotification(
                 template=data["template"],
                 fact_id=data["fact_id"],
                 action=data["action"],
                 data=data.get("data"),
             )
-            await self._notify_subscribers(notif)
+        )
 
-        await conn.add_listener(channel, _on_notification)
+    async def _sync_listeners(self) -> None:
+        """Give the current LISTEN connection a listener per subscribed template.
+
+        The single funnel for both a fresh ``subscribe()`` and a reconnect, so a
+        template is never registered twice on one connection and never left off
+        a replacement.
+        """
+        async with self._listen_lock:
+            conn = await self._ensure_listen_conn()
+            for template in sorted(self._listening_templates - self._registered):
+                await conn.add_listener(self._channel_for(template), self._on_notification)
+                self._registered.add(template)
+
+    def _on_listen_conn_lost(self, _conn: asyncpg.Connection[asyncpg.Record]) -> None:
+        """asyncpg calls this when the LISTEN backend goes away."""
+        if self._closing or not self._listening_templates:
+            return
+        if self._listener_task is None or self._listener_task.done():
+            self._listener_task = asyncio.create_task(self._relisten())
+
+    async def _relisten(self) -> None:
+        """Reconnect and re-register every template, backing off while the
+        server is unreachable.
+
+        NOTIFY has no replay: changes made between the backend dying and this
+        succeeding are lost. Reconnecting bounds that window; leaving the dead
+        connection in place made it permanent.
+        """
+        delay = _RECONNECT_BASE_DELAY
+        while not self._closing and self._listening_templates:
+            try:
+                await self._sync_listeners()
+            except Exception:  # noqa: BLE001 -- a reconnect loop that dies is the bug
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, _RECONNECT_MAX_DELAY)
+                continue
+            return
+
+    async def _start_listening(self, template: str) -> None:
+        """Subscribe to the PostgreSQL channel for *template*."""
+        if template in self._listening_templates:
+            return
         self._listening_templates.add(template)
+        try:
+            await self._sync_listeners()
+        except BaseException:
+            self._listening_templates.discard(template)
+            raise
 
     # ------------------------------------------------------------------
     # FactStore interface
