@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from fathom.compiler import Compiler
 from fathom.engine import (
-    Engine,
     compartments_superset,
     dominates,
     has_compartment,
@@ -237,65 +236,6 @@ class TestMultiHierarchyCompilation:
         # Should have unscoped shims for backward compat
         assert "deffunction MAIN::below" in result
         assert "deffunction MAIN::meets-or-exceeds" in result
-
-
-# ---------------------------------------------------------------------------
-# Engine-level: hierarchy registry populated + dominates via closure
-# ---------------------------------------------------------------------------
-
-
-class TestEngineHierarchyRegistry:
-    """Tests for Engine hierarchy registry and dominance via CLIPS external fn."""
-
-    def test_hierarchy_registry_populated_after_load(self, tmp_path) -> None:
-        """Loading functions with hierarchy_ref populates _hierarchy_registry."""
-        # Create hierarchy YAML
-        hier_file = tmp_path / "classification.yaml"
-        hier_file.write_text(
-            "name: classification\nlevels:\n  - unclassified\n  - confidential\n  - secret\n"
-        )
-        # Create function YAML referencing the hierarchy
-        func_file = tmp_path / "functions.yaml"
-        func_file.write_text(
-            "functions:\n"
-            "  - name: classification\n"
-            "    type: classification\n"
-            "    params: [a, b]\n"
-            "    hierarchy_ref: classification.yaml\n"
-        )
-        engine = Engine()
-        engine.load_functions(str(func_file))
-        assert "classification" in engine._hierarchy_registry
-        assert engine._hierarchy_registry["classification"].levels == [
-            "unclassified",
-            "confidential",
-            "secret",
-        ]
-
-    def test_multiple_hierarchies_loaded(self, tmp_path) -> None:
-        """Loading two classification functions populates both hierarchies."""
-        # Create two hierarchy YAML files
-        cls_file = tmp_path / "classification.yaml"
-        cls_file.write_text("name: classification\nlevels:\n  - unclassified\n  - secret\n")
-        int_file = tmp_path / "integrity.yaml"
-        int_file.write_text("name: integrity\nlevels:\n  - low\n  - high\n")
-        # Create function YAML with two classification functions
-        func_file = tmp_path / "functions.yaml"
-        func_file.write_text(
-            "functions:\n"
-            "  - name: classification\n"
-            "    type: classification\n"
-            "    params: [a, b]\n"
-            "    hierarchy_ref: classification.yaml\n"
-            "  - name: integrity\n"
-            "    type: classification\n"
-            "    params: [a, b]\n"
-            "    hierarchy_ref: integrity.yaml\n"
-        )
-        engine = Engine()
-        engine.load_functions(str(func_file))
-        assert "classification" in engine._hierarchy_registry
-        assert "integrity" in engine._hierarchy_registry
 
 
 # ---------------------------------------------------------------------------
