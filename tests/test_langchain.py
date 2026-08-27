@@ -198,36 +198,39 @@ class TestSyncHandler:
 
 
 class TestAsyncHandler:
-    """Tests for the asynchronous LangChain callback handler."""
+    """Tests for the asynchronous LangChain callback handler.
+
+    ``on_tool_start`` is a plain ``def`` on this class on purpose: a
+    coroutine method is deferred by langchain_core's *sync* dispatcher into
+    ``_run_coros``, which swallows every exception and ignores
+    ``raise_error`` — and ``StructuredTool.ainvoke`` routes through that
+    dispatcher for any tool without a ``coroutine=``. See the comment above
+    the method. These tests call it the way both dispatchers do.
+    """
 
     def test_on_tool_start_allow(self) -> None:
-        async def _run() -> None:
-            engine = _make_engine(decision="allow")
-            handler = FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
-            await handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
-            engine.evaluate_once.assert_called_once()
-
-        asyncio.run(_run())
+        engine = _make_engine(decision="allow")
+        handler = FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
+        handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
+        engine.evaluate_once.assert_called_once()
 
     def test_on_tool_start_deny_raises(self) -> None:
-        async def _run() -> None:
-            engine = _make_engine(decision="deny", reason="blocked", rule_trace=["d1"])
-            handler = FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
-            with pytest.raises(PolicyViolation) as exc_info:
-                await handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
-            assert exc_info.value.decision == "deny"
-
-        asyncio.run(_run())
+        engine = _make_engine(decision="deny", reason="blocked", rule_trace=["d1"])
+        handler = FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
+        with pytest.raises(PolicyViolation) as exc_info:
+            handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
+        assert exc_info.value.decision == "deny"
 
     def test_on_tool_start_escalate_raises(self) -> None:
-        async def _run() -> None:
-            engine = _make_engine(decision="escalate", reason="human review", rule_trace=["e1"])
-            handler = FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
-            with pytest.raises(PolicyViolation) as exc_info:
-                await handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
-            assert exc_info.value.decision == "escalate"
+        engine = _make_engine(decision="escalate", reason="human review", rule_trace=["e1"])
+        handler = FathomAsyncCallbackHandler(engine=engine, agent_id=AGENT_ID)
+        with pytest.raises(PolicyViolation) as exc_info:
+            handler.on_tool_start(SERIALIZED_TOOL, INPUT_JSON)
+        assert exc_info.value.decision == "escalate"
 
-        asyncio.run(_run())
+    def test_the_method_is_not_a_coroutine(self) -> None:
+        """The sync callback manager silently drops one; that was the fail-open."""
+        assert not asyncio.iscoroutinefunction(FathomAsyncCallbackHandler.on_tool_start)
 
     def test_stores_attributes(self) -> None:
         engine = _make_engine()

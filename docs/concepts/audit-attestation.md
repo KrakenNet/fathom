@@ -4,7 +4,7 @@ summary: Why every Fathom evaluation is recorded, and how the optional Ed25519 J
 audience: [app-developers, rule-authors]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 sources:
   - src/fathom/audit.py
   - src/fathom/chained_log.py

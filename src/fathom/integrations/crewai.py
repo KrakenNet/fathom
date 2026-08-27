@@ -20,6 +20,7 @@ Install via::
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING
 
 # Re-exported: `from fathom.integrations.<adapter> import PolicyViolation`
@@ -37,6 +38,8 @@ except ImportError as _exc:
         "(crewai.hooks was added in 1.5.0). "
         "Install it with: pip install fathom-rules[crewai]"
     ) from _exc
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -124,6 +127,27 @@ def _evaluate_tool_call(
         )
 
 
+def _calling_agent_id(context: ToolCallHookContext, fallback: str) -> str:
+    """Identify the agent that made *this* call, not the one at registration.
+
+    CrewAI's hook registry is process-global and every registered hook runs on
+    every tool call, so a hook holding one identity labels the whole crew with
+    it -- and registering one hook per member is not a workaround, because any
+    hook returning ``False`` blocks the call, so each member's *allowed* calls
+    get blocked by everybody else's hook. The identity has to come off the
+    context CrewAI hands in.
+
+    ``role`` first: it is the human-authored name a policy author writes into
+    ``tool_request.agent_id``. ``id`` is a UUID, useful only as a last resort.
+    *fallback* is used when CrewAI supplies no agent, which its own
+    ``ToolCallHookContext`` documents as possible.
+    """
+    agent = getattr(context, "agent", None)
+    if agent is None:
+        return fallback
+    return str(getattr(agent, "role", "") or getattr(agent, "id", "") or fallback)
+
+
 def fathom_before_tool_call(
     engine: Engine,
     agent_id: str,
@@ -137,12 +161,19 @@ def fathom_before_tool_call(
 
     Blocking is a *return value*, not an exception: CrewAI wraps the whole
     before-hook loop in ``try/except`` and logs anything raised, then runs
-    the tool anyway. A hook that raises fails open.
+    the tool anyway. A hook that raises fails open. That applies to every
+    exception, not only :class:`PolicyViolation` — a pack whose tool-call
+    template is spelled differently raises ``ValidationError`` and never
+    produces a decision at all, which CrewAI logged and then ran the tool
+    over. No decision is not an allow, so anything raised on the way to one
+    blocks.
 
     Args:
         engine: A configured :class:`~fathom.engine.Engine` instance with
             rules and templates loaded.
-        agent_id: Identifier for the agent making tool calls.
+        agent_id: Fallback identity, used only when CrewAI supplies no agent
+            on the hook context. The agent that actually made the call is
+            read from ``context.agent`` — see :func:`_calling_agent_id`.
 
     Returns:
         A callable matching CrewAI's
@@ -153,8 +184,24 @@ def fathom_before_tool_call(
         tool_input = context.tool_input
         arguments = tool_input if isinstance(tool_input, str) else json.dumps(tool_input)
         try:
-            _evaluate_tool_call(engine, agent_id, context.tool_name, arguments)
+            _evaluate_tool_call(
+                engine,
+                _calling_agent_id(context, agent_id),
+                context.tool_name,
+                arguments,
+            )
         except PolicyViolation:
+            return False
+        except Exception:
+            # Fail closed. Every other failure -- ValidationError, ScopeError,
+            # EvaluationLimitError, a CLIPS fault -- means no decision was
+            # reached, and CrewAI runs the tool for anything this hook lets
+            # escape. Logged rather than swallowed silently: a policy that
+            # cannot be evaluated is an operational problem, not a deny.
+            _LOGGER.exception(
+                "fathom: blocking %s — the policy engine could not reach a decision",
+                context.tool_name,
+            )
             return False
         return None
 
