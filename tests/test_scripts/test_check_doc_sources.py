@@ -127,6 +127,42 @@ def test_dependabot_authored_commit_does_not_trip_gate(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+def test_release_please_commit_does_not_trip_gate(tmp_path: Path) -> None:
+    # release-please rewrites the version line in pyproject.toml,
+    # __init__.py, README.md and docs/index.md on every release, and every
+    # page citing one of those aged instantly -- ~4 `last_verified` bumps
+    # per release for a change no page describes.
+    _init_repo(tmp_path)
+    (tmp_path / "src").mkdir()
+    src = tmp_path / "src" / "module.py"
+    src.write_text('__version__ = "0.10.0"\n')
+    _commit(tmp_path, "src v1", when="2020-01-01T00:00:00")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "page.md").write_text(PAGE_TEMPLATE.format(verified="2020-06-01"))
+    _commit(tmp_path, "docs", when="2020-06-01T00:00:00")
+    src.write_text('__version__ = "0.11.0"\n')
+    _commit(tmp_path, "chore(main): release 0.11.0", when="2026-06-24T00:00:00")
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_a_real_change_under_a_chore_subject_still_fails(tmp_path: Path) -> None:
+    # Only release-please's own two subjects are mechanical. A `chore(...)`
+    # that is a content change must still age the page.
+    _init_repo(tmp_path)
+    (tmp_path / "src").mkdir()
+    src = tmp_path / "src" / "module.py"
+    src.write_text("x = 1\n")
+    _commit(tmp_path, "src v1", when="2020-01-01T00:00:00")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "page.md").write_text(PAGE_TEMPLATE.format(verified="2020-06-01"))
+    _commit(tmp_path, "docs", when="2020-06-01T00:00:00")
+    src.write_text("x = 2\n")
+    _commit(tmp_path, "chore(release): drop the TLS default", when="2026-06-24T00:00:00")
+    result = _run(tmp_path)
+    assert result.returncode == 1, result.stderr + result.stdout
+
+
 def test_meaningful_commit_after_verified_still_fails(tmp_path: Path) -> None:
     # A real (non-mechanical) edit after last_verified must still be
     # caught even if a later dep bump sits on top of it.
