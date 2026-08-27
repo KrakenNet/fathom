@@ -158,6 +158,12 @@ Three implementations ship with Fathom:
   ```
 
   Verify it later with `fathom verify-chain <log> --pubkey <log>.pub.pem`.
+  That sidecar is only a convenience: it lives in the same trust domain as
+  the log, so a writer who forges the chain can forge the key beside it. Pin
+  the `key_fingerprint` the verification reports out-of-band, and verify
+  against a copy of the public key kept where the log's writer cannot reach
+  it. The private half is written through a fresh 0600 temporary file, so a
+  planted `<key>.tmp` can neither capture it nor relax its mode.
 
   **One writer per path.** The chain's `seq` and `prev_sha256` are held in the
   writer's memory, derived when it opens the log. Sharing one log object across

@@ -4,7 +4,7 @@ summary: One-line purpose + worked example for every fathom CLI command.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 sources:
   - src/fathom/cli.py
 ---
@@ -180,8 +180,18 @@ fathom verify-chain audit/chain.jsonl --pubkey audit/chain.jsonl.pub.pem
 ```
 
 The `--pubkey` option is required and takes the Ed25519 public key PEM
-that the log exports beside itself as `<log>.pub.pem`. Two optional
-checks detect truncation, which a self-contained log cannot reveal:
+that the log exports beside itself as `<log>.pub.pem`.
+
+**The sidecar is a convenience, not a trust anchor.** It sits in the same
+trust domain as the log: whoever can rewrite `audit/chain.jsonl` can replace
+`audit/chain.jsonl.pub.pem` with a key of their own and re-sign a wholly
+forged chain that verifies clean. Passing it makes the command say so.
+The value to keep out-of-band is the `key_fingerprint` the run prints (and
+reports in `--json`) — record it when the key is created, and verify against
+a copy of the public key held somewhere the log's writer cannot reach.
+
+Two optional checks detect truncation, which a self-contained log cannot
+reveal:
 
 - `--expected-head` — a line hash mirrored out-of-band; verification
   fails if it no longer appears in the log.

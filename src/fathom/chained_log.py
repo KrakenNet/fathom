@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import threading
 import time
 import uuid
@@ -190,6 +191,11 @@ class ChainVerification:
     log_id: str | None = None
     """The log's identity from its genesis record. Pin it out-of-band to
     detect a whole-chain splice from another log signed by the same key."""
+    key_fingerprint: str | None = None
+    """The genesis record's key fingerprint. A chain verifies against the key
+    it was signed with, whichever key that is, so this is the value to pin
+    out-of-band: it is what distinguishes the real signer from an attacker who
+    re-signed a forged chain with a key of their own."""
 
 
 class _ScanState:
@@ -333,14 +339,26 @@ def write_private_key_atomic(service: AttestationService, path: str | Path) -> P
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # The tmp name must not be predictable and must not be opened by a name
+    # something else may already hold: a planted `<key>.tmp` symlink sent the
+    # private half wherever it pointed, and a planted regular file kept its
+    # own mode, because O_CREAT's mode argument applies only when the open
+    # creates the file. mkstemp is O_CREAT|O_EXCL at 0600 on a fresh name.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    tmp = Path(tmp_name)
     try:
         os.write(fd, service.private_key_pem())
         os.fsync(fd)
-    finally:
         os.close(fd)
-    os.rename(tmp, path)
+    except BaseException:
+        os.close(fd)
+        tmp.unlink(missing_ok=True)
+        raise
+    try:
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     pub_path = path.with_name(path.name + ".pub.pem")
     pub_path.write_bytes(service.public_key_pem())
     return pub_path
@@ -643,6 +661,7 @@ def verify_chain(
             error_line=state.error_line,
             anchor_ok=None,
             log_id=state.log_id,
+            key_fingerprint=state.genesis_fingerprint,
         )
 
     if state.count == 0:
@@ -686,4 +705,5 @@ def verify_chain(
         error_line=None,
         anchor_ok=anchor_error is None if anchor_supplied else None,
         log_id=state.log_id,
+        key_fingerprint=state.genesis_fingerprint,
     )

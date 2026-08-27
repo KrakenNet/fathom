@@ -773,6 +773,15 @@ def verify_artifact(
     typer.echo("ok: signature valid")
 
 
+def _is_log_sidecar(pubkey: Path, log_path: Path) -> bool:
+    """Is this the ``<log>.pub.pem`` the log itself exported?"""
+    sidecar = log_path.with_name(log_path.name + ".pub.pem")
+    try:
+        return pubkey.resolve() == sidecar.resolve()
+    except OSError:  # pragma: no cover - unresolvable path is not the sidecar
+        return False
+
+
 @app.command("verify-chain")
 def verify_chain_cmd(
     log_path: Path = typer.Argument(  # noqa: B008
@@ -820,6 +829,13 @@ def verify_chain_cmd(
     except AttestationError as exc:
         _print_error(f"[fathom.cli] verify-chain failed: {exc}")
         raise typer.Exit(code=_EXIT_MALFORMED) from exc
+    except OSError as exc:
+        # `Path.exists()` is true for a directory and for a file this user
+        # cannot open. Reaching the verifier anyway raised IsADirectoryError /
+        # PermissionError as a traceback and exit 1 — the code that means the
+        # chain failed verification, for a run that never read one.
+        _print_error(f"[fathom.cli] verify-chain failed: cannot read log {log_path}: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
     except ValueError as exc:
         # cryptography raises ValueError on a PEM it cannot parse, which
         # escaped as a traceback and exit 1. The docs promise 2 when the key
@@ -835,6 +851,15 @@ def verify_chain_cmd(
         _print_success(
             f"ok: chain valid — {result.count} records, head {result.head_sha256}{anchored}"
         )
+        if result.key_fingerprint is not None:
+            typer.echo(f"  signed by key {result.key_fingerprint}")
+        if _is_log_sidecar(pubkey, log_path):
+            typer.echo(
+                "  note: this key came from the log's own sidecar, so it is in the "
+                "same trust domain as the log — whoever can rewrite the log can "
+                "rewrite the key beside it and re-sign a forged chain. Pin the "
+                "fingerprint above out-of-band and pass that key instead."
+            )
     else:
         _print_error(f"[fathom.cli] verify-chain failed: {result.error}")
 
