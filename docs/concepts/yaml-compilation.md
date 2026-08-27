@@ -4,7 +4,7 @@ summary: How authored YAML becomes CLIPS source — parse, validate, compile —
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 sources:
   - src/fathom/compiler.py
   - src/fathom/models.py
@@ -115,7 +115,11 @@ order when that key is absent (see [Module](../reference/yaml/module.md)).
     (session (user_role ?role))
     (test (eq ?role guest))
     =>
-    (assert (__fathom_decision (action deny) (reason "guest role") ...)))
+    (bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))
+    (assert (__fathom_decision
+        (seq ?*fathom-decision-seq*)
+        (action deny)
+        (reason "guest role") ...)))
 ```
 
 Emitted by `compile_rule(defn, module)`. A `(declare (salience N))` clause
@@ -191,14 +195,21 @@ This is why `AssertSpec.slots` is typed `dict[str, str]` even though the
 materialized fact can hold ints, symbols, and floats at runtime: at
 compile time the value *is* a fragment of CLIPS source.
 
-If `then.action` is set, `_compile_action` prepends an `__fathom_decision`
-assert before any user asserts. `action` is emitted as a SYMBOL
-(unquoted); `reason` becomes a quoted literal, or a `(str-cat …)`
-expression interpolating LHS binds when it contains `{variable}`
-placeholders. The engine reads `__fathom_decision` facts back at the end
-of `evaluate()` to determine the winning decision — see
-[Runtime & Working Memory](./runtime-and-working-memory.md). Assert-only
-rules (no `action`) skip the decision block entirely.
+Every rule's RHS opens by incrementing `?*fathom-decision-seq*` and
+asserting one `__fathom_decision` fact, before any user asserts. `action`
+is emitted as a SYMBOL (unquoted); `reason` becomes a quoted literal, or a
+`(str-cat …)` expression interpolating LHS binds when it contains
+`{variable}` placeholders. The engine reads `__fathom_decision` facts back
+at the end of `evaluate()` to determine the winning decision — see
+[Runtime & Working Memory](./runtime-and-working-memory.md).
+
+An assert-only rule (no `action`) asserts the fact too, carrying only its
+own name and the default `action none`. That records the firing for
+`rule_trace` and the signed audit record without making the rule a
+candidate for the decision; reading the trace off decision-bearing facts
+alone dropped every forward-chaining rule from it. The `seq` slot is what
+keeps a rule that fires twice from collapsing into one fact, since CLIPS
+silently discards a duplicate assert.
 
 ## Safety: why the validators matter
 

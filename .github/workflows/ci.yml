@@ -155,6 +155,27 @@ jobs:
           sudo tar -xzf /tmp/protoc-gen-doc.tar.gz -C /usr/local/bin protoc-gen-doc
           protoc-gen-doc --version
 
+      # The Rego suite parses with `opa parse` and compares decisions against
+      # `opa eval`. Without the binary those tests skipped, and the parity
+      # tests -- the only ones that ask whether a converted policy decides
+      # what the original decided -- never ran anywhere.
+      - name: Install OPA (test_rego_*.py)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          OPA_VERSION=1.4.2
+          OPA_SHA256=2c0ccdbbe0b8e2a5d12d9c42d92f1f34f494ffb32d1f3c4ddc36101be637d66f
+          # Retry the download (transient network); the SHA256 check stays
+          # after the retries, so a partial download fails loud.
+          for i in 1 2 3; do
+            curl -fsSL -o /tmp/opa \
+              "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static" \
+              && break || { echo "download attempt $i failed; retrying in $((i * 5))s"; sleep $((i * 5)); }
+          done
+          echo "${OPA_SHA256}  /tmp/opa" | sha256sum -c -
+          sudo install -m 0755 /tmp/opa /usr/local/bin/opa
+          opa version
+
       - name: Install Node (test_ts_sdk_docs.py)
         if: runner.os == 'Linux'
         uses: actions/setup-node@v7
@@ -183,7 +204,10 @@ jobs:
             tests/test_rest_metrics.py \
             tests/test_scripts/test_go_sdk_docs.py \
             tests/test_scripts/test_ts_sdk_docs.py \
-            tests/test_scripts/test_grpc_docs.py 2>&1)"
+            tests/test_scripts/test_grpc_docs.py \
+            tests/test_rego_convert.py \
+            tests/test_rego_export.py \
+            tests/test_rego_parity.py 2>&1)"
           echo "$out"
           if echo "$out" | grep -q "SKIPPED"; then
             echo "::error::A toolchain-gated test SKIPPED on Linux — install step regressed (issue #16)."

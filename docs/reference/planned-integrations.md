@@ -15,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 # Planned Integrations
@@ -160,12 +160,58 @@ on the previous call's working memory.
 The guard is **allowlist-only**: it permits the call when — and only when —
 the decision is exactly `allow`. Every other outcome (`deny`, `escalate`,
 `route`, `scope`, a missing decision, or any value a future release adds)
-raises `PolicyViolation` — one class, defined in `fathom.integrations` and
-re-exported by every adapter, so one `except` covers all four — or returns
-an error dict for ADK. A denylist of
-known-bad decisions would fail open on anything it had not heard of.
+blocks the call. A denylist of known-bad decisions would fail open on
+anything it had not heard of.
+
+*How* each adapter blocks is dictated by its framework, and only LangChain
+blocks by raising. CrewAI, the Agents SDK and ADK all wrap the handler call
+in `try/except`, log whatever it raises, and then run the tool anyway — so
+in those three a raised exception is a fail-open, and the block has to be a
+return value:
+
+| Adapter | Block signal | Carries the reason? |
+|---------|--------------|---------------------|
+| LangChain | raises `PolicyViolation` (needs `raise_error = True` on the handler, or LangChain swallows it) | yes |
+| CrewAI | hook returns `False` | no — CrewAI's own rejection message replaces it |
+| OpenAI Agents SDK | guardrail returns `ToolGuardrailFunctionOutput.raise_exception(output_info=violation)`, which the runner turns into `ToolInputGuardrailTripwireTriggered` | yes, on `output_info` |
+| Google ADK | callback returns `{"error": ...}` | yes |
+
+`PolicyViolation` is one class, defined in `fathom.integrations` and
+re-exported by every adapter, so one `except` covers every adapter that
+raises.
+
+`raise_error = True` is necessary but not sufficient on the async LangChain
+handler. `langchain_core` honours it in both its dispatchers, but only for a
+handler method that *runs* there: the sync dispatcher calls the method, sees a
+coroutine come back, and defers it to `_run_coros`, which catches everything,
+logs `Error in callback coroutine`, and never reads `raise_error`. That is not
+an exotic path — `StructuredTool.ainvoke` falls back to
+`run_in_executor(config, self.invoke, …)` for any tool with no `coroutine=`,
+which is every plain `@tool`-decorated function. `FathomAsyncCallbackHandler`
+therefore defines `on_tool_start` as a plain `def`; both dispatchers run it
+inline (the async one via `run_in_executor`) and both propagate. The engine is
+synchronous anyway.
+
+Blocking covers every failure to reach a decision, not only `deny`. An
+exception other than `PolicyViolation` — a `ValidationError` from a pack whose
+tool-call template is spelled differently, a `ScopeError`, an
+`EvaluationLimitError` — means no decision was produced, and the CrewAI hook
+turns it into the block signal and logs it rather than letting it escape into
+CrewAI's `except`, which would log it and then run the tool.
+
+The CrewAI hook reads the calling agent off the `ToolCallHookContext` CrewAI
+hands it (`agent.role`, else `agent.id`), falling back to the `agent_id` given
+to `fathom_before_tool_call` only when CrewAI supplies no agent. CrewAI's hook
+registry is process-global and every registered hook runs on every call, so an
+identity frozen at registration labels the whole crew with one name — and one
+hook per member is not a workaround, because any hook returning `False` blocks,
+so each member's allowed calls would be blocked by everybody else's hook.
+
 Install via `pip install fathom-rules[langchain]`, `fathom-rules[crewai]`,
-`fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`.
+`fathom-rules[openai-agents]`, or `fathom-rules[google-adk]`. The CrewAI and
+Agents SDK extras carry floors of `crewai>=1.5` and `openai-agents>=0.4` —
+the releases that introduced `crewai.hooks` and `agents.tool_guardrails`
+respectively. Earlier releases have no hook to attach to at all.
 
 ## Policy Studio — `packages/fathom-studio/`
 

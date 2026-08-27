@@ -26,6 +26,9 @@ bearer header exactly as the SPA's same-origin ``fetch`` presents the cookie.
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -344,3 +347,62 @@ def test_missing_ruleset_root_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("FATHOM_RULESET_ROOT", "/nonexistent/fathom/rulesets")
     with pytest.raises(rulesets.RulesetRootError, match="does not exist"):
         rulesets.ruleset_root()
+
+
+# --------------------------------------------------------------------------
+# SPA adapter (runs the shipped api.js under node)
+# --------------------------------------------------------------------------
+_ADAPTER_HARNESS = """
+const fs = require("fs");
+const src = fs.readFileSync(process.argv[2], "utf8");
+const response = JSON.parse(process.argv[3]);
+global.window = {};
+global.fetch = async () => ({
+  ok: true,
+  status: 200,
+  json: async () => response,
+});
+new Function(src)();
+window.StudioAPI.evaluate("rs", []).then((out) => {
+  console.log(JSON.stringify({ decision: out.decision, reason: out.reason }));
+});
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+@pytest.mark.parametrize(
+    ("response", "decision"),
+    [
+        ({"decision": "deny", "reason": ""}, "deny"),
+        ({"decision": "escalate"}, "escalate"),
+        ({}, "deny"),
+        ({"decision": "allow"}, "allow"),
+    ],
+)
+def test_the_spa_never_captions_a_block_as_permitted(
+    tmp_path: Path, response: dict[str, object], decision: str
+) -> None:
+    """A deny that carried no reason was captioned "request permitted".
+
+    The view read `decision: deny` from the same object, so the SPA showed a
+    blocked request and the sentence "All policies satisfied — request
+    permitted" side by side; a missing decision was captioned as an allow
+    outright. Driven through the shipped `api.js` itself, under node.
+    """
+    harness = tmp_path / "harness.js"
+    harness.write_text(_ADAPTER_HARNESS, encoding="utf-8")
+    api_js = Path(__file__).resolve().parents[1] / "src" / "fathom_studio" / "creem" / "api.js"
+
+    proc = subprocess.run(
+        [str(shutil.which("node")), str(harness), str(api_js), json.dumps(response)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["decision"] == decision
+    if decision != "allow":
+        assert "permitted" not in out["reason"], out

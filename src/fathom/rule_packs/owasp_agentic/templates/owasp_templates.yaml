@@ -1,5 +1,5 @@
 templates:
-  - name: tool_call
+  - name: tool_request
     slots:
       - name: tool_name
         type: symbol

@@ -453,6 +453,45 @@ class TestKeyHandling:
         pub = write_private_key_atomic(service, tmp_path / "k.pem")
         assert pub.read_bytes() == service.public_key_pem()
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink + mode semantics")
+    def test_a_planted_tmp_symlink_does_not_receive_the_private_key(
+        self, tmp_path: Path, service: AttestationService
+    ) -> None:
+        """The tmp name was `<key>.tmp` -- predictable, and opened by name.
+
+        Anyone able to create a file in the key's directory could plant that
+        symlink and have the next key creation write the Ed25519 private half
+        wherever it points.
+        """
+        key_path = tmp_path / "keys" / "chain.key"
+        key_path.parent.mkdir(parents=True)
+        elsewhere = tmp_path / "stolen.pem"
+        (key_path.parent / "chain.key.tmp").symlink_to(elsewhere)
+
+        write_private_key_atomic(service, key_path)
+
+        assert not elsewhere.exists(), "private key written through a planted symlink"
+        assert key_path.read_bytes() == service.private_key_pem()
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+    def test_a_planted_tmp_file_does_not_relax_the_key_mode(
+        self, tmp_path: Path, service: AttestationService
+    ) -> None:
+        """O_CREAT's mode applies only when the open creates the file.
+
+        Against a pre-created 0644 tmp file the write kept that mode, and the
+        rename carried it onto the private key.
+        """
+        key_path = tmp_path / "keys" / "chain.key"
+        key_path.parent.mkdir(parents=True)
+        planted = key_path.parent / "chain.key.tmp"
+        planted.write_text("")
+        planted.chmod(0o644)
+
+        write_private_key_atomic(service, key_path)
+
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
 
 class TestCli:
     def _setup(self, tmp_path: Path) -> tuple[Path, Path, ChainedAttestationLog]:
@@ -484,6 +523,67 @@ class TestCli:
         log_path.write_bytes(b"\n".join(lines) + b"\n")
         result = runner.invoke(app, ["verify-chain", str(log_path), "--pubkey", str(pub)])
         assert result.exit_code == 1
+
+    def test_verify_chain_unreadable_pubkey_exits_2(self, tmp_path: Path) -> None:
+        """A file that is not a PEM is a key file that cannot be read.
+
+        `cryptography` raises ValueError, which nothing caught: the command
+        printed a raw traceback and exited 1 — the code that means "the chain
+        failed verification", for a run that never verified anything.
+        """
+        log_path, _, _ = self._setup(tmp_path)
+        bad = tmp_path / "not-a-key.pem"
+        bad.write_text("this is not a PEM\n")
+
+        result = runner.invoke(app, ["verify-chain", str(log_path), "--pubkey", str(bad)])
+
+        assert result.exit_code == 2
+        assert "Traceback" not in result.output
+        assert "cannot read public key" in result.output
+
+    def test_verify_chain_directory_log_exits_2(self, tmp_path: Path) -> None:
+        """A path that exists but cannot be read as a log never verified.
+
+        `Path.exists()` is true for a directory, so the open inside the
+        verifier raised IsADirectoryError: a raw traceback and exit 1, the
+        code that means the chain failed verification.
+        """
+        _, pub, _ = self._setup(tmp_path)
+        directory = tmp_path / "logs"
+        directory.mkdir()
+
+        result = runner.invoke(app, ["verify-chain", str(directory), "--pubkey", str(pub)])
+
+        assert result.exit_code == 2
+        assert "Traceback" not in result.output
+
+    def test_verify_chain_warns_when_the_pubkey_is_the_logs_own_sidecar(
+        self, tmp_path: Path
+    ) -> None:
+        """The sidecar shares the log's trust domain, so it anchors nothing.
+
+        Whoever can rewrite the log can rewrite the key beside it and sign a
+        wholly forged chain that verifies clean. The command still verifies --
+        it says what the result is worth, and prints the fingerprint to pin.
+        """
+        log_path, pub, _ = self._setup(tmp_path)
+
+        result = runner.invoke(app, ["verify-chain", str(log_path), "--pubkey", str(pub)])
+
+        assert result.exit_code == 0
+        assert "same trust domain" in result.output
+
+    def test_verify_chain_reports_the_key_fingerprint_to_pin(self, tmp_path: Path) -> None:
+        """What an operator compares against an out-of-band record."""
+        log_path, pub, _ = self._setup(tmp_path)
+        genesis = json.loads(log_path.read_text(encoding="utf-8").splitlines()[0])
+
+        result = runner.invoke(
+            app, ["verify-chain", str(log_path), "--pubkey", str(pub), "--json"]
+        )
+
+        data = json.loads(result.output)
+        assert data["key_fingerprint"] == genesis["record"]["key_fingerprint"]
 
     def test_verify_chain_missing_log_exits_2(self, tmp_path: Path) -> None:
         _, pub, _ = self._setup(tmp_path)

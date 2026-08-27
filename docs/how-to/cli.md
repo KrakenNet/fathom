@@ -4,7 +4,7 @@ summary: One-line purpose + worked example for every fathom CLI command.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 sources:
   - src/fathom/cli.py
 ---
@@ -63,6 +63,35 @@ directory. Without that context a `string` slot's literal is emitted bare —
 CLIPS rejects that form with `[CSTRNCHK1]`, so the printed constructs would be
 ones the engine never builds and that do not load.
 
+The output is ordered to load, not to mirror the directory walk. It opens with
+the same preamble the engine builds — the `?*fathom-decision-seq*` global and
+the `__fathom_decision` deftemplate every rule's RHS asserts into, plus
+`(defmodule MAIN (export ?ALL))` when the pack declares modules — and then
+follows with deftemplates, defmodules, deffunctions and defrules in that
+order, because CLIPS resolves a reference when the construct naming it is
+built.
+
+One thing the text cannot carry: the `fathom-*` operators (`fathom-matches`,
+`fathom-count-exceeds`, and the rest) are Python callbacks the engine
+registers on the environment before it compiles any rule. A bare `clips`
+process has no such functions, so loading the output there fails on the first
+rule that uses an operator. Feed it to an environment prepared the way the
+engine prepares one.
+
+A pack that depends on another (`cmmc` on `nist-800-53`, say) compiles to
+constructs that reference templates and modules the other pack owns; compile
+both together, as `Engine.from_rules` loads them. Pointed at a directory the
+command checks this for you — it builds what it is about to print into a
+prepared environment and exits 1, with the CLIPS diagnostics, rather than
+printing constructs that raise on line 1. A single YAML file is exempt: a
+rules file names the module and templates its siblings define, which the
+command reads for slot types and does not emit, so its output is a fragment
+by construction.
+
+The declared focus order is printed as a trailing comment. `(focus …)` is a
+command the evaluator issues per evaluation, not a construct, and a loader
+rejects it.
+
 ## info
 
 Load a rule pack and print a summary of everything the engine sees:
@@ -76,6 +105,12 @@ fathom info examples/03-classification-blp
 
 Use `info` as a sanity check after editing a pack — if a template or
 rule is missing from the listing, it did not compile into the engine.
+
+The function listing covers the `fathom-*` operators the engine registers plus
+any `deffunction` the pack declares. It is read from the `MAIN` module: CLIPS
+enumerates deffunctions in whichever module is current, and building a pack's
+last `defmodule` leaves that one current, which is why this section used to report
+`Functions (0)` for every pack.
 
 ## test
 
@@ -145,8 +180,18 @@ fathom verify-chain audit/chain.jsonl --pubkey audit/chain.jsonl.pub.pem
 ```
 
 The `--pubkey` option is required and takes the Ed25519 public key PEM
-that the log exports beside itself as `<log>.pub.pem`. Two optional
-checks detect truncation, which a self-contained log cannot reveal:
+that the log exports beside itself as `<log>.pub.pem`.
+
+**The sidecar is a convenience, not a trust anchor.** It sits in the same
+trust domain as the log: whoever can rewrite `audit/chain.jsonl` can replace
+`audit/chain.jsonl.pub.pem` with a key of their own and re-sign a wholly
+forged chain that verifies clean. Passing it makes the command say so.
+The value to keep out-of-band is the `key_fingerprint` the run prints (and
+reports in `--json`) — record it when the key is created, and verify against
+a copy of the public key held somewhere the log's writer cannot reach.
+
+Two optional checks detect truncation, which a self-contained log cannot
+reveal:
 
 - `--expected-head` — a line hash mirrored out-of-band; verification
   fails if it no longer appears in the log.
@@ -155,7 +200,8 @@ checks detect truncation, which a self-contained log cannot reveal:
 
 Pass `--json` to emit the verification result as JSON. The command
 exits 0 when the chain is valid, 1 when verification fails, and 2 when
-the log or key file cannot be read.
+the log or key file cannot be read — a file that is not a parseable PEM
+counts as a key that cannot be read, and reports that rather than raising.
 
 ## repl
 

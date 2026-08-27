@@ -296,7 +296,15 @@ class FactManager:
             to_retract: list[tuple[Any, dict[str, Any]]] = []
             for fact in tpl.facts():
                 ts = self._fact_timestamps.get(fact.index)
-                if ts is not None and ts + ttl < now:
+                if ts is None:
+                    # A rule's `then.assert` creates facts through CLIPS
+                    # directly, so nothing stamped them here and the template's
+                    # documented `ttl:` never applied to derived facts at all.
+                    # First sighting is the available birth time; cleanup runs
+                    # at every evaluation, so it trails the assert by one cycle.
+                    self._fact_timestamps[fact.index] = now
+                    continue
+                if ts + ttl < now:
                     row: dict[str, Any] = {}
                     for name in slot_names:
                         val = fact[name]
@@ -398,6 +406,18 @@ class FactManager:
                 and value == int(value)
             ):
                 result[key] = int(value)
+            elif (
+                slot.type == SlotType.FLOAT
+                and isinstance(value, int)
+                and not isinstance(value, bool)
+            ):
+                # `_PYTHON_TYPE_MAP` accepts an int for a FLOAT slot, but CLIPS
+                # types a bare `3` as INTEGER and rejects it against a FLOAT
+                # slot -- so the assert failed after validation had passed.
+                # JSON clients feel this hardest: JSON has no int/float split,
+                # so a whole-numbered float arrives as `3` and a caller cannot
+                # express `3.0` at all.
+                result[key] = float(value)
             elif slot.type == SlotType.STRING and not isinstance(value, str):
                 result[key] = str(value)
         return result

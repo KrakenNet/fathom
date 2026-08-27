@@ -4,7 +4,7 @@ summary: Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed
 audience: [operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/integrations/grpc_server.py
@@ -30,6 +30,46 @@ restart, via `POST /v1/rules/reload`. Each reload:
   `ruleset_reload_rejected` on failure) carrying the
   `ruleset_hash_before`/`ruleset_hash_after` pair.
 
+## A reload only reaches a server that mounts its engine
+
+`POST /v1/rules/reload` swaps the ruleset on the Engine at
+`app.state.engine`, and that Engine is what `POST /v1/evaluate` and the OPA
+Data API serve. On a server with no Engine mounted — the shipped
+`uvicorn fathom.integrations.rest:app` deployment — the reload endpoint
+answers `503 not_ready` and each request compiles the ruleset its `ruleset`
+path names, straight off disk. Both are coherent; what is not is mounting an
+Engine and expecting the per-request `ruleset` path to still select the
+policy. On a server with an Engine mounted, `ruleset` is resolved and jailed
+but does not choose the ruleset, and `session_id` is refused rather than
+opening a session under a ruleset the caller picked.
+
+To hot-reload, build the app yourself and mount the Engine:
+
+```python
+from fathom.attestation import AttestationService
+from fathom.engine import Engine
+from fathom.integrations.rest import build_app
+
+app = build_app()
+app.state.engine = Engine.from_rules("/var/lib/fathom/rulesets/prod")
+app.state.attestation = AttestationService.generate_keypair()
+```
+
+## What carries over, and what does not
+
+A reload is a **rule-only** swap: the payload holds rules, and everything else
+the rules need is rebuilt onto the fresh environment from what the Engine
+already holds — templates, modules, the classification and raw deffunctions
+loaded from `functions/`, deffunctions passed to `load_clips_function`, and the
+Python callables bound with `register_function`. Rules are compiled last, so
+they resolve against all of it.
+
+That list used to stop at templates and modules, and the Engine kept no record
+of functions at all: re-posting a pack's own unmodified rules was rejected with
+a raw CLIPS `Missing function declaration for 'below'`. Any pack using a
+classification hierarchy or a registered callable — which is every pack the
+`functions/` reference documents — could not be hot-reloaded.
+
 ## Warning: a reload discards all working memory
 
 The new ruleset is compiled into a **fresh** CLIPS environment, and that
@@ -40,6 +80,16 @@ cleared with them.
 
 A failed reload changes nothing: the old environment keeps serving, so working
 memory survives. Only a *successful* swap wipes it.
+
+There are no open sessions to lose. A session holds its own Engine, compiled
+from the ruleset the *caller* named — so on a server that mounts an Engine a
+session would decide under a policy the caller chose, and a reload of the
+mounted Engine would never reach it. `POST /v1/evaluate` therefore refuses
+`session_id` on a mounted server with `400 sessions_unavailable`, and the
+`Evaluate` RPC refuses it with `FAILED_PRECONDITION`. Stateful sessions
+belong to the deployment that mounts no Engine and serves rulesets by path;
+the mounted deployment serves stateless evaluation, which is the shape that
+can honour a reload.
 
 Plan for this. `Engine.subscribe_reload` is the seam: it registers a
 zero-argument callback fired after each successful swap, outside the reload
@@ -104,7 +154,8 @@ Error codes:
 
 - `400 invalid_request` — both or neither of `ruleset_path` /
   `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
-  not valid base64; ruleset failed to compile.
+  not valid base64; ruleset failed to compile. Each emits
+  `ruleset_reload_rejected` to the audit sink.
 - `400 unsigned_ruleset` — `require_signature=true` (the default) and
   either `signature` is missing or Ed25519 verification failed. Also
   emits `ruleset_reload_rejected` to the audit sink.
@@ -246,6 +297,19 @@ FATHOM_ALLOW_UNSIGNED_RULESETS=1); hot-reload will accept unsigned
 rulesets
 ```
 
+Half an escape is no escape, and it says so. `build_app(require_signature=False)`
+without `FATHOM_ALLOW_UNSIGNED_RULESETS=1` keeps verification on and logs:
+
+```
+require_signature=false has no effect without FATHOM_ALLOW_UNSIGNED_RULESETS=1;
+ruleset signature verification stays ON (the dev escape requires both)
+```
+
+That combination used to disable verification outright — the env var decided
+only whether a pubkey was loaded, never whether signatures were checked — so a
+server built with the flag alone accepted a reload payload carrying no
+signature at all.
+
 The WARN line is emitted once per process; scrape for it in your log
 aggregator to detect dev escape accidentally turned on in prod. Every
 unsigned reload that succeeds under the dev escape still writes a
@@ -304,9 +368,13 @@ configured audit sink. Successful reloads emit:
 }
 ```
 
-Rejected reloads emit `event_type: ruleset_reload_rejected` with a
-`reason` field (`missing_signature`, `verification_failed`,
-`unknown_template`, …) and the *unchanged* `ruleset_hash_before`.
+Every rejected reload emits `event_type: ruleset_reload_rejected` with a
+`reason` field and the *unchanged* `ruleset_hash_before`. The reasons are
+`missing_signature`, the verification failure text, `compile_failed`,
+`unreadable_ruleset_path`, `malformed_signature`, `invalid_request` (both or
+neither source named), and `server_misconfigured`. Both transports emit them;
+neither returns the compiler's diagnostic or the resolved server-side path to
+the caller, so the audit sink is where an operator reads what happened.
 
 The `attestation_token` returned from a successful reload is a JWT
 signed by the server's `AttestationService.sign_event()` (C6); you can

@@ -303,3 +303,54 @@ class TestFocusSurvivesASecondPack:
 
         assert engine.focus_order == ["beta"]
         assert engine.evaluate_once([("alpha", {"id": "go"})]).rule_trace == []
+
+
+def _write_shared_template_pack(root: Path, name: str) -> Path:
+    """A pack whose ``request`` template is byte-identical across packs."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "01-templates.yaml").write_text(
+        "templates:\n  - name: request\n    slots:\n      - name: action\n        type: symbol\n"
+    )
+    (root / "02-modules.yaml").write_text(f"modules:\n  - name: {name}\nfocus_order: [{name}]\n")
+    (root / "03-rules.yaml").write_text(
+        f"ruleset: {name}\nmodule: {name}\nrules:\n"
+        f"  - name: deny-{name}\n    when:\n      - template: request\n"
+        "        conditions:\n          - slot: action\n"
+        f'            expression: "equals({name})"\n'
+        f"    then:\n      action: deny\n      reason: {name}\n"
+    )
+    return root
+
+
+class TestTwoPacksMaySharTheSameTemplate:
+    """``packs.py`` allows an identical redefinition; the engine then refused it.
+
+    The collision check rejects only *incompatible* redefinitions -- two packs
+    declaring the same template with the same slots are documented as sharing
+    it. ``load_templates`` rebuilt it anyway, and CLIPS answered "Cannot
+    redefine deftemplate 'request' while it is in use": the raw diagnostic
+    that check exists to replace, on the one pairing it deliberately allows.
+    """
+
+    def test_both_packs_load_and_decide(self, tmp_path: Path) -> None:
+        engine = Engine()
+        engine.load_pack_dir(_write_shared_template_pack(tmp_path / "a", "alpha"))
+        engine.load_pack_dir(_write_shared_template_pack(tmp_path / "b", "beta"))
+
+        assert engine.evaluate_once([("request", {"action": "alpha"})]).reason == "alpha"
+        assert engine.evaluate_once([("request", {"action": "beta"})]).reason == "beta"
+
+    def test_an_incompatible_redefinition_is_still_rejected(self, tmp_path: Path) -> None:
+        """Only the identical case is waved through."""
+        engine = Engine()
+        engine.load_pack_dir(_write_shared_template_pack(tmp_path / "a", "alpha"))
+
+        clashing = tmp_path / "b"
+        _write_shared_template_pack(clashing, "beta")
+        (clashing / "01-templates.yaml").write_text(
+            "templates:\n  - name: request\n    slots:\n"
+            "      - name: action\n        type: string\n"
+        )
+
+        with pytest.raises(CompilationError):
+            engine.load_pack_dir(clashing)

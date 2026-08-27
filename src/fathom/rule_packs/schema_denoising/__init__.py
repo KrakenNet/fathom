@@ -25,6 +25,12 @@ same facts always produce the same promotions.
 Promotion is one-way within a session. Working memory only grows during an
 evaluation, so a relation that clears tau stays stable until the session's
 facts are reset.
+
+The count is retaken as the stream grows, so a relation that reaches tau
+across several ``evaluate()`` calls is promoted on the call that reaches it --
+``promote-stable-schema`` joins the candidate to the facts supporting it
+rather than matching the candidate alone, which was tested once and never
+again.
 """
 
 from __future__ import annotations

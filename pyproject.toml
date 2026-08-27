@@ -93,10 +93,14 @@ crewai = [
     # `chromadb~=1.1.0` and every published chromadb release is inside the
     # advisory range. Fathom imports the chromadb client through crewai but
     # never starts `chromadb.server`, which is the vulnerable component.
-    "crewai>=0.80,<2",
+    # Floor is 1.5, not 0.80: `crewai.hooks` — the `before_tool_call`
+    # registry this adapter targets — did not exist before crewai 1.5.0.
+    "crewai>=1.5,<2",
 ]
 openai-agents = [
-    "openai-agents>=0.1,<1",
+    # Floor is 0.4, not 0.1: `agents.tool_guardrails` — the tool-input
+    # guardrail API this adapter targets — did not exist before 0.4.0.
+    "openai-agents>=0.4,<1",
 ]
 google-adk = [
     "google-adk>=1.0,<3",

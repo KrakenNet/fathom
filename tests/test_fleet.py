@@ -586,3 +586,29 @@ class TestSyncFleetFactsResilience:
 
         assert peer.query("shared_status") == [{"status": "online"}]
         assert any("skipping unsyncable fleet fact" in r.message for r in caplog.records)
+
+
+def test_a_fleet_template_cannot_declare_the_reserved_fact_id_slot() -> None:
+    """`fact_id` is the store's own key, and it wins.
+
+    `FactStore.query` returns `{"fact_id": <row id>, **data}` and the fleet
+    sync then strips `fact_id` before asserting, so a template that declared
+    a slot by that name published a value the peers never received: the
+    publisher decided with it and every peer decided without it. Declaring it
+    is refused instead, where the author can see it.
+    """
+    import pytest
+    from pydantic import ValidationError as PydanticValidationError
+
+    from fathom.models import SlotDefinition, SlotType, TemplateDefinition
+
+    slots = [
+        SlotDefinition(name="fact_id", type=SlotType.STRING, required=True),
+        SlotDefinition(name="agent", type=SlotType.STRING, required=True),
+    ]
+
+    # Session-scoped templates are unaffected: nothing shares them.
+    TemplateDefinition(name="local_note", slots=slots)
+
+    with pytest.raises(PydanticValidationError, match="fact_id"):
+        TemplateDefinition(name="fleet_note", slots=slots, scope="fleet")

@@ -8,7 +8,7 @@ sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
   - src/fathom/facts.py
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 ---
 
 # Template
@@ -38,7 +38,7 @@ construction and re-checked (for emptiness) by `compile_template`.
 |------------------|-----------------------------------|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------|
 | `name`           | `str`                             | —       | yes      | Slot identifier. No regex validator is applied in the current model; the compiler emits it verbatim into `(slot <name> …)`.       |
 | `type`           | `SlotType`                        | —       | yes      | One of `string`, `symbol`, `float`, `integer`. See [SlotType](#slottype-enum).                                                    |
-| `required`       | `bool`                            | `False` | no       | If True, FactManager rejects asserts that omit this slot with a ValidationError (src/fathom/facts.py:274-283). Not emitted to CLIPS; the rule-RHS assert path bypasses this check because it doesn't run through FactManager._validate. |
+| `required`       | `bool`                            | `False` | no       | If True, FactManager rejects asserts that omit this slot with a ValidationError (src/fathom/facts.py:405-414). Not emitted to CLIPS; the rule-RHS assert path bypasses this check because it doesn't run through FactManager._validate. |
 | `allowed_values` | `list[str] \| None`               | `None`  | no       | Emitted only for `string` and `symbol` slots (see [`_CLIPS_ALLOWED_MAP`](#slottype-enum)). Silently ignored for numeric slots.    |
 | `default`        | `str \| float \| int \| None`     | `None`  | no       | Emitted as `(default <value>)`. String defaults are CLIPS-quoted and escaped; numeric defaults are emitted raw.                   |
 
@@ -54,6 +54,11 @@ types — to an allowed-values directive via `_CLIPS_ALLOWED_MAP`.
 | `symbol`   | `SYMBOL`           | `allowed-symbols`        |
 | `float`    | `FLOAT`            | *(none — silently dropped)* |
 | `integer`  | `INTEGER`          | *(none — silently dropped)* |
+
+A `float` slot accepts a Python `int` as well as a `float`; `FactManager`
+widens it before it reaches CLIPS, which types `1` as INTEGER and would
+otherwise reject it. `bool` is refused for both. An `integer` slot takes
+only `int`, or a `float` with no fractional part.
 
 Source: `src/fathom/compiler.py` lines 29–40.
 
@@ -151,7 +156,7 @@ compiled CLIPS `deftemplate`:
   compiler.
 - `SlotDefinition.required` — the flag itself is not emitted to CLIPS.
   Runtime enforcement happens in `FactManager._check_required`
-  (`src/fathom/facts.py:274-283`) on the SDK and REST paths, but it is
+  (`src/fathom/facts.py:405-414`) on the SDK and REST paths, but it is
   not checked on the rule-RHS assert path.
 - `SlotDefinition.allowed_values` on `float` or `integer` slots —
   silently dropped because these types have no entry in

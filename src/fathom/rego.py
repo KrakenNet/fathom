@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fathom.compiler import Compiler
+from fathom.compiler import _ARG_TOKEN_RE, Compiler
 from fathom.errors import CompilationError
 
 if TYPE_CHECKING:
@@ -66,6 +66,25 @@ _COMPARISONS = {
 #: decision whatever it likes; these are the two conventions with an
 #: unambiguous Fathom counterpart.
 _DECISIONS = {"allow": "allow", "deny": "deny"}
+
+#: Salience for a converted `deny`. Fathom is last-write-wins, so the lower
+#: salience is what makes deny beat a matching allow instead of the outcome
+#: depending on the order the Rego file happened to list them in.
+_DENY_SALIENCE = -10
+
+#: What a converted slot holds when the input document leaves the field out.
+#: Rego leaves an absent reference undefined and the rule body simply fails; a
+#: CLIPS slot always has a value, and the type's derived default ("" or 0.0)
+#: happily satisfies `not_equals(delete)` and `less_than(100)` -- so a partial
+#: document was ALLOWED here and denied by OPA. Absence is therefore given a
+#: value of its own, and every converted rule guards the slots it reads
+#: against it. A document that really does carry the sentinel is treated as
+#: not carrying the field, which is the one case this encoding gets wrong.
+_ABSENT: dict[str, str | float] = {
+    "string": "__fathom_absent__",
+    "symbol": "__fathom_absent__",
+    "float": -1.7976931348623157e308,
+}
 
 
 @dataclass(frozen=True)
@@ -217,16 +236,21 @@ def _literal(term: dict[str, Any]) -> str | int | float | bool | None:
     return None
 
 
-def _set_members(term: dict[str, Any]) -> list[str] | None:
-    """The scalar members of a set or array term, as strings."""
+def _set_members(term: dict[str, Any]) -> list[str | int | float | bool] | None:
+    """The scalar members of a set or array term, with their types intact.
+
+    Stringifying them here lost the distinction between the number 1 and the
+    string "1", and the slot type was then inferred from whichever member
+    happened to sort first.
+    """
     if term.get("type") not in ("set", "array"):
         return None
-    members: list[str] = []
+    members: list[str | int | float | bool] = []
     for member in term.get("value", []):
         value = _literal(member)
         if value is None:
             return None
-        members.append(str(value))
+        members.append(value)
     return members
 
 
@@ -235,15 +259,28 @@ def _set_members(term: dict[str, Any]) -> list[str] | None:
 # ---------------------------------------------------------------------------
 
 
+def _escape_segment(segment: str) -> str:
+    """Double any `_` in one path segment so the join stays reversible.
+
+    Without this, `input.user.role` and a literal top-level `input.user_role`
+    flatten to the same slot -- two unrelated paths in Rego, one slot here,
+    and whichever the document mentions last wins. A caller who controlled any
+    string field escalated by naming it `user_role`.
+    """
+    return segment.replace("_", "__")
+
+
 def _slot_name(path: list[str]) -> str:
     """`["input", "user", "role"]` -> `user_role`.
 
     Rego's `input` is an arbitrary nested document and a Fathom template is
     flat, so the nesting is flattened into the slot name. The mapping is
     documented rather than clever: a reader has to be able to look at
-    `user_role` and know which Rego reference it came from.
+    `user_role` and know which Rego reference it came from. A segment that
+    itself contains `_` is escaped to `__`, which keeps the mapping one-to-one
+    (see :func:`_escape_segment`).
     """
-    return "_".join(path[1:])
+    return "_".join(_escape_segment(segment) for segment in path[1:])
 
 
 def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]:
@@ -258,25 +295,43 @@ def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]
     Values Fathom has no slot type for (lists, null, nested nulls) are left
     out. No rule can match on them, so carrying them through would only make
     the assert fail on a field nothing reads.
+
+    Key segments are escaped exactly as :func:`_slot_name` escapes them, so no
+    two input paths can land in the same slot: `{"user": {"role": x}}` fills
+    `user_role` and a top-level `"user_role"` fills `user__role`, which is the
+    slot a policy reading `input.user_role` was converted against.
     """
     flat: dict[str, Any] = {}
     for key, value in document.items():
-        name = f"{_prefix}{key}"
+        name = f"{_prefix}{_escape_segment(key)}"
         if isinstance(value, dict):
             flat.update(flatten_input(value, f"{name}_"))
         elif isinstance(value, bool):
             flat[name] = "true" if value else "false"
-        elif isinstance(value, (str, int, float)):
+        elif isinstance(value, (int, float)):
+            # One Rego number type, one Fathom slot type (see `_slot_type`).
+            # A converted template declares `float`, which rejects a Python
+            # int; an `integer` slot accepts a whole float, so this is safe
+            # in both directions.
+            flat[name] = float(value)
+        elif isinstance(value, str):
             flat[name] = value
     return flat
 
 
 def _slot_type(value: object) -> str:
+    """The Fathom slot type for one Rego scalar.
+
+    Rego has a single `number` type: `1` and `1.5` are the same kind of
+    thing, and `1 == 1.0` is true. Inferring `integer` from a policy that
+    happens to compare against a whole number produced a slot that rejects
+    the very input the policy was written for -- `input.score > 1` refusing
+    to assert `{"score": 1.5}`, which OPA answers `true`. Every Rego number
+    becomes a `float` slot, and :func:`flatten_input` feeds it floats.
+    """
     if isinstance(value, bool):
         return "symbol"
-    if isinstance(value, int):
-        return "integer"
-    if isinstance(value, float):
+    if isinstance(value, (int, float)):
         return "float"
     return "string"
 
@@ -419,14 +474,34 @@ def _string_builtin(
     return path, "matches", f"^{anchored}" if op == "startswith" else f"{anchored}$"
 
 
+def _argument_text(value: object) -> str:
+    """One Rego scalar as a Fathom operator argument.
+
+    A member that is not a bare token has to be quoted or the expression
+    means something else: `{"Paris, France", "Berlin"}` rendered unquoted
+    became a three-member list, two of them nonsense.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    text = str(value)
+    if _ARG_TOKEN_RE.match(text):
+        return text
+    return json.dumps(text)
+
+
 def _expression_text(operator: str, value: object) -> str:
     """Render a Fathom condition expression string."""
     if operator == "in":
         members = value if isinstance(value, list) else [value]
-        return f"in([{', '.join(str(m) for m in members)}])"
-    if isinstance(value, bool):
-        return f"{operator}({'true' if value else 'false'})"
-    return f"{operator}({value})"
+        return f"in([{', '.join(_argument_text(m) for m in members)}])"
+    if operator in ("contains", "matches"):
+        # The argument is a regex or a substring, not a token: it is escaped
+        # and quoted by the compiler, and quoting it here would make the
+        # quotes part of the pattern.
+        return f"{operator}({value})"
+    return f"{operator}({_argument_text(value)})"
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +525,7 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
 
     result = ConversionResult(package=package, module=module)
     slots: dict[str, str] = {}
+    guarded: list[tuple[dict[str, Any], dict[str, str]]] = []
 
     for index, rego_rule in enumerate(ast.get("rules") or []):
         head = rego_rule.get("head") or {}
@@ -460,6 +536,22 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
                 f"`default {name} := {json.dumps(head.get('value', {}).get('value'))}` "
                 "was not converted: Fathom's default decision is set on the "
                 "engine, not in the ruleset."
+            )
+            continue
+
+        if rego_rule.get("else"):
+            # The else branch is a whole second body with its own head value.
+            # Converting only the primary body produces a rule that is silent
+            # where the policy was explicit, which is the mistranslation this
+            # module exists to refuse.
+            result.skipped.append(
+                Skipped(
+                    name or f"rule[{index}]",
+                    f"rule '{name}' else branch",
+                    "an `else` branch is a second rule body with its own "
+                    "value; write it as a separate Fathom rule with a "
+                    "salience that orders it",
+                )
             )
             continue
 
@@ -517,8 +609,29 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
                 )
                 failed = True
                 continue
-            sample = value[0] if operator == "in" and isinstance(value, list) else value
-            inferred = "string" if operator in ("matches", "contains") else _slot_type(sample)
+            if operator in ("matches", "contains"):
+                inferred = "string"
+            elif operator == "in" and isinstance(value, list):
+                member_types = {_slot_type(member) for member in value}
+                if len(member_types) > 1:
+                    # A Fathom slot has one type. `{1, "two"}` is legal Rego
+                    # and there is no slot that holds both, so widening to
+                    # `string` would leave the numbers unmatchable rather
+                    # than merely imprecise.
+                    result.skipped.append(
+                        Skipped(
+                            name,
+                            _expression_text(operator, value),
+                            "the set mixes "
+                            + ", ".join(sorted(member_types))
+                            + " members; a Fathom slot holds one type",
+                        )
+                    )
+                    failed = True
+                    continue
+                inferred = member_types.pop()
+            else:
+                inferred = _slot_type(value)
             rule_slots[slot] = (
                 _widen(rule_slots[slot], inferred) if slot in rule_slots else inferred
             )
@@ -546,23 +659,45 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
         for slot, inferred in rule_slots.items():
             slots[slot] = _widen(slots[slot], inferred) if slot in slots else inferred
 
-        result.rules.append(
-            {
-                "name": f"{name}-{len(result.rules) + 1}",
-                "when": [{"template": template, "conditions": conditions}],
-                "then": {
-                    "action": action,
-                    "reason": f"{package}.{name} (converted from Rego)",
-                },
-            }
-        )
+        rule: dict[str, Any] = {
+            "name": f"{name}-{len(result.rules) + 1}",
+            "when": [{"template": template, "conditions": conditions}],
+            "then": {
+                "action": action,
+                "reason": f"{package}.{name} (converted from Rego)",
+            },
+        }
+        if action == "deny":
+            # Rego keeps `allow` and `deny` in separate documents and leaves
+            # the precedence to whoever queries them. Fathom renders one
+            # decision, last write wins, so without a salience the outcome
+            # for an input matching both came down to which rule happened to
+            # be written first -- a suspended admin was allowed or denied by
+            # file order. Deny fires last and wins.
+            rule["salience"] = _DENY_SALIENCE
+        result.rules.append(rule)
+        guarded.append((rule, dict(rule_slots)))
+
+    # Presence guards go on last, using the slot types as finally widened: a
+    # slot widened to `string` by a later rule needs the string sentinel, not
+    # the one its own rule inferred.
+    for rule, rule_slots in guarded:
+        conditions = rule["when"][0]["conditions"]
+        rule["when"][0]["conditions"] = [
+            {"slot": slot, "expression": _expression_text("not_equals", _ABSENT[slots[slot]])}
+            for slot in sorted(rule_slots)
+            if slots[slot] in _ABSENT
+        ] + conditions
 
     if slots:
         result.templates.append(
             {
                 "name": template,
                 "slots": [
-                    {"name": slot, "type": slot_type} for slot, slot_type in sorted(slots.items())
+                    {"name": slot, "type": slot_type, "default": _ABSENT[slot_type]}
+                    if slot_type in _ABSENT
+                    else {"name": slot, "type": slot_type}
+                    for slot, slot_type in sorted(slots.items())
                 ],
             }
         )
@@ -572,6 +707,23 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
             'boolean slot type, so assert them as the strings "true" / "false"; '
             "a Python `True` is rejected by slot validation rather than silently "
             "failing to match."
+        )
+    if slots:
+        result.notes.append(
+            "Every rule guards the fields it reads against the sentinel each "
+            "slot defaults to, so a document that omits a field decides the "
+            "way OPA decides it -- the rule does not fire. Send the sentinel "
+            f"({_ABSENT['string']!r}, {_ABSENT['float']!r}) as a real value "
+            "and it will be read as the field being absent."
+        )
+    actions = {rule["then"]["action"] for rule in result.rules}
+    if {"allow", "deny"} <= actions:
+        result.notes.append(
+            "The policy has both `allow` and `deny` rules. Rego holds them in "
+            "separate documents and leaves the precedence to the caller; "
+            "Fathom renders one decision, so the converted `deny` rules carry "
+            f"salience {_DENY_SALIENCE} and win over a matching `allow`. "
+            "Change the salience if your caller resolved it the other way."
         )
     if result.rules:
         result.modules.append({"name": module, "description": f"Converted from {package}"})
@@ -619,6 +771,23 @@ class ExportResult:
         return self.rule_count > 0
 
 
+def _unquote(raw: str) -> str:
+    """A Fathom operator argument's value, with its own quoting removed.
+
+    `equals("Paris, France")` reaches here as the eight-and-a-bit characters
+    including the quotes. Re-encoding that whole text as a Rego string put
+    literal quote marks inside the value.
+    """
+    if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+        try:
+            unquoted = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+        if isinstance(unquoted, str):
+            return unquoted
+    return raw
+
+
 def _rego_literal(raw: str, slot_type: str) -> str:
     """Render a Fathom condition argument as a Rego term.
 
@@ -627,16 +796,22 @@ def _rego_literal(raw: str, slot_type: str) -> str:
     A `symbol` slot holding `true` or `false` is the exception -- that is what
     :func:`flatten_input` turns a Rego boolean into, so it goes back.
     """
-    if slot_type == "symbol" and raw in ("true", "false"):
-        return raw
+    value = _unquote(raw)
+    if slot_type == "symbol" and value in ("true", "false"):
+        return value
     if slot_type in ("integer", "float"):
-        return raw
-    return json.dumps(raw)
+        return value
+    return json.dumps(value)
 
 
 def _rego_set(raw: str, slot_type: str) -> str:
     """`[a, b]` -> `{"a", "b"}`."""
-    members = [m.strip() for m in raw.strip("[]").split(",") if m.strip()]
+    inner = raw.strip()
+    if inner.startswith("[") and inner.endswith("]"):
+        inner = inner[1:-1]
+    # Top-level commas only: a member may legitimately contain one, and
+    # splitting on every comma turned `["Paris, France"]` into two members.
+    members = [m for m in Compiler._split_operator_args(inner) if m]
     return "{" + ", ".join(_rego_literal(m, slot_type) for m in members) + "}"
 
 
@@ -649,10 +824,15 @@ def _rego_condition(reference: str, op: str, arg: str, slot_type: str) -> str | 
     if op == "not_in":
         return f"not {reference} in {_rego_set(arg, slot_type)}"
     if op == "contains":
-        return f"contains({reference}, {json.dumps(arg)})"
+        return f"contains({reference}, {json.dumps(_unquote(arg))})"
     if op == "matches":
-        return f"regex.match({json.dumps(arg)}, {reference})"
+        return f"regex.match({json.dumps(_unquote(arg))}, {reference})"
     return None
+
+
+#: The conditions :func:`convert_ast` adds to stand in for "the field is
+#: present". They carry no meaning outside the converted pack.
+_ABSENCE_GUARDS = frozenset(_expression_text("not_equals", value) for value in _ABSENT.values())
 
 
 def _why_not_exportable(op: str) -> str:
@@ -713,6 +893,13 @@ def _export_rule(
 
     body: list[str] = []
     for condition in pattern.conditions:
+        if condition.expression in _ABSENCE_GUARDS:
+            # Bookkeeping, not policy: the guard exists because a CLIPS slot
+            # always holds a value and Rego's `input` field simply may not be
+            # there. Exporting it would write the encoding into a language
+            # that does not need it -- and a round trip would then guard the
+            # guards.
+            continue
         if condition.test is not None:
             return Skipped(name, "test:", "a raw CLIPS conditional element cannot be translated")
         if condition.bind is not None:
@@ -851,7 +1038,11 @@ def _render_rego(package: str, documents: dict[str, list[Any]], flat: bool) -> s
     for document in sorted(documents):
         for rule, body in documents[document]:
             if rule.then.reason:
-                lines.append(f"# {rule.then.reason}")
+                # Every line, not the first. A reason is prose and prose wraps;
+                # the lines after the first used to land in the file as live
+                # Rego, which OPA either rejects outright or -- when the text
+                # happens to parse -- accepts as a rule the ruleset never had.
+                lines.extend(f"# {line}".rstrip() for line in rule.then.reason.splitlines())
             lines.append(f"# fathom rule: {rule.name}")
             lines.append(f"{document} if {{")
             lines.extend(f"\t{expression}" for expression in body)

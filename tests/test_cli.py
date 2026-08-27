@@ -145,7 +145,7 @@ def _mock_engine(**overrides):
     mock_env.facts.return_value = []
     engine._env = mock_env
 
-    # Default evaluate returns a deny decision (no rules fired)
+    # Default evaluate returns a deny decision (nothing rendered one)
     engine.evaluate.return_value = overrides.get(
         "eval_result",
         EvaluationResult(decision="deny", reason="default deny"),
@@ -739,3 +739,107 @@ class TestCompileMatchesTheEngine:
         result = runner.invoke(app, ["compile", str(pack)])
         assert result.exit_code == 0, result.output
         assert '(agent (id "alice@example.com"))' in result.output
+
+
+class TestCompileOutputLoads:
+    """`fathom compile --format raw` promises "valid CLIPS" in its own --help.
+
+    What it printed did not load. Constructs came out in file-walk order --
+    `modules/`, `rules/`, `templates/` -- and CLIPS resolves references when a
+    construct is built, so the first defrule named a deftemplate that did not
+    exist yet. Before that, the first defmodule's `(import MAIN ?ALL)` failed
+    because nothing had exported MAIN, and every rule's RHS referenced
+    `__fathom_decision` and `?*fathom-decision-seq*`, which only the engine
+    was building. Loading the output of a whole shipped pack raised on line 1.
+
+    The one thing the text cannot carry is Fathom's external functions:
+    `fathom-matches` and friends are Python callbacks the engine registers on
+    the environment before compiling any rule. These tests register them the
+    same way and then load the printed text, which is the real contract.
+    """
+
+    @staticmethod
+    def _load(text: str, tmp_path: Path) -> None:
+        """Build *text* into a CLIPS env prepared the way the Engine prepares one."""
+        import clips
+
+        from fathom.engine import Engine
+
+        env = clips.Environment()
+        Engine()._register_external_functions(env=env)
+        out = tmp_path / "out.clp"
+        out.write_text(text, encoding="utf-8")
+        env.load(str(out))
+
+    def test_a_shipped_pack_compiles_to_clips_that_loads(self, tmp_path: Path) -> None:
+        pack = RealPath("src/fathom/rule_packs/owasp_agentic")
+        result = runner.invoke(app, ["compile", str(pack), "--format", "raw"])
+        assert result.exit_code == 0, result.output
+
+        self._load(result.output, tmp_path)
+
+    def test_the_preamble_the_engine_builds_is_emitted_first(self, tmp_path: Path) -> None:
+        pack = TestCompileMatchesTheEngine._pack(tmp_path / "pack")
+        result = runner.invoke(app, ["compile", str(pack), "--format", "raw"])
+        assert result.exit_code == 0, result.output
+
+        lines = [ln for ln in result.output.splitlines() if ln.strip()]
+        assert "?*fathom-decision-seq*" in lines[0]
+        assert "__fathom_decision" in lines[1]
+        assert "(defmodule MAIN (export ?ALL))" in lines[2]
+
+    def test_templates_are_emitted_before_the_rules_that_match_them(self, tmp_path: Path) -> None:
+        """`modules/` sorts before `rules/`, which sorts before `templates/`."""
+        pack = TestCompileMatchesTheEngine._pack(tmp_path / "pack")
+        result = runner.invoke(app, ["compile", str(pack), "--format", "raw"])
+        assert result.exit_code == 0, result.output
+
+        out = result.output
+        assert out.index("(deftemplate MAIN::agent") < out.index("(defmodule gov")
+        assert out.index("(defmodule gov") < out.index("(defrule gov::r1")
+
+    def test_a_unit_that_cannot_stand_alone_is_refused(self, tmp_path: Path) -> None:
+        """A pack that declares a dependency must not print CLIPS that raises."""
+        pack = RealPath("src/fathom/rule_packs/cmmc")
+        result = runner.invoke(app, ["compile", str(pack), "--format", "raw"])
+
+        assert result.exit_code != 0, result.output
+        assert "not self-contained" in result.output
+
+    def test_a_single_file_is_a_fragment_and_is_not_held_to_loading(self, tmp_path: Path) -> None:
+        """Its module and templates live in siblings the file does not emit."""
+        pack = TestCompileMatchesTheEngine._pack(tmp_path / "pack")
+        result = runner.invoke(app, ["compile", str(pack / "rules" / "r.yaml"), "-f", "raw"])
+
+        assert result.exit_code == 0, result.output
+        assert "(defrule gov::r1" in result.output
+
+    def test_focus_is_a_comment_not_a_construct(self, tmp_path: Path) -> None:
+        """`(focus ...)` is a command the evaluator issues; a loader rejects it."""
+        pack = TestCompileMatchesTheEngine._pack(tmp_path / "pack")
+        result = runner.invoke(app, ["compile", str(pack), "--format", "raw"])
+        assert result.exit_code == 0, result.output
+
+        focus_lines = [ln for ln in result.output.splitlines() if "(focus gov)" in ln]
+        assert focus_lines, result.output
+        assert all(ln.lstrip().startswith(";") for ln in focus_lines)
+
+        self._load(result.output, tmp_path)
+
+
+class TestInfoListsFunctions:
+    """`fathom info` reported "Functions (0)" for every pack ever shipped.
+
+    CLIPS enumerates deffunctions in the *current* module, and building a
+    pack's last defmodule leaves that module current — so the twelve
+    `fathom-*` operators the engine registers into MAIN were never listed,
+    and the command silently claimed a pack had no callable operators at all.
+    """
+
+    def test_the_registered_operators_are_listed(self) -> None:
+        result = runner.invoke(app, ["info", "src/fathom/rule_packs/owasp_agentic"])
+        assert result.exit_code == 0, result.output
+
+        assert "Functions (0)" not in result.output
+        assert "fathom-matches" in result.output
+        assert "fathom-count-exceeds" in result.output

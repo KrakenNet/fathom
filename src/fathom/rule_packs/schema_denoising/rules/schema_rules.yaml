@@ -31,6 +31,14 @@ rules:
   # `$c.relation` argument is what makes this one rule rather than one rule
   # per relation: it counts the extracted_fact facts carrying whatever
   # relation this candidate names.
+  #
+  # The extracted_fact pattern is what makes the count re-run. On a
+  # candidate_schema alone the rule matched once, when the candidate was
+  # asserted, and the count test never ran again -- so a stream that reached
+  # tau across two evaluate() calls was never promoted at all. Asserting the
+  # tau-th fact now creates a new activation and the count is retaken.
+  # The rule fires once per supporting fact; stable_schema is a duplicate
+  # after the first, which CLIPS suppresses.
   - name: promote-stable-schema
     salience: 90
     when:
@@ -39,6 +47,11 @@ rules:
         conditions:
           - slot: relation
             expression: "schema_frequency_exceeds(extracted_fact, relation, $c.relation, 3)"
+      - template: extracted_fact
+        alias: $f
+        conditions:
+          - slot: relation
+            expression: "equals($c.relation)"
     then:
       assert:
         - template: stable_schema

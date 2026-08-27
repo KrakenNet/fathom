@@ -134,10 +134,34 @@ class TestTemporalConflict:
         assert _of_kind(engine, "temporal") == []
 
     def test_a_claim_with_no_timestamp_never_pairs(self, engine: Engine) -> None:
-        """`observed_at` defaults to 0, which is 1970 -- old, not now."""
+        """`observed_at` defaults to 0, and absence is not evidence of closeness."""
         engine.assert_fact("claim", {"head": "f", "relation": "role", "tail": "admin"})
         engine.assert_fact("claim", {"head": "f", "relation": "role", "tail": "viewer"})
         assert _of_kind(engine, "temporal") == []
+
+    def test_one_unstamped_claim_never_pairs(self, engine: Engine) -> None:
+        """A zero timestamp is an hour from 1970, not an hour from the other claim."""
+        _claim(engine, "g", "role", "admin")
+        engine.assert_fact("claim", {"head": "g", "relation": "role", "tail": "viewer"})
+        assert _of_kind(engine, "temporal") == []
+
+    def test_a_close_pair_is_a_conflict_however_old_the_pair_is(self, engine: Engine) -> None:
+        """The window is the gap between the claims, not their age.
+
+        Testing `changed_within(W)` on each claim measured recency instead,
+        so two contradictory claims a minute apart stopped being a conflict
+        once they were a day old -- and the same working memory answered
+        differently depending on when it was asked.
+        """
+        _claim(engine, "h", "role", "admin", LONG_AGO)
+        _claim(engine, "h", "role", "viewer", LONG_AGO + 60)
+        assert len(_of_kind(engine, "temporal")) == 1
+
+    def test_a_pair_straddling_the_window_boundary_conflicts(self, engine: Engine) -> None:
+        """Under the old rule the older half fell outside the window alone."""
+        _claim(engine, "i", "role", "admin", DEFAULT_WINDOW_SECONDS * 0.5)
+        _claim(engine, "i", "role", "viewer", DEFAULT_WINDOW_SECONDS * 1.4)
+        assert len(_of_kind(engine, "temporal")) == 1
 
     def test_different_relations_do_not_pair(self, engine: Engine) -> None:
         _claim(engine, "carol", "role", "admin")
@@ -222,7 +246,14 @@ class TestPack:
         _claim(engine, "alice", "status", "active", LONG_AGO)
         _claim(engine, "alice", "status", "terminated", LONG_AGO)
         result = engine.evaluate()
-        assert result.rule_trace == []
+        # The pack's own rules render nothing; "deny" here is the engine's
+        # fail-closed default, and its reason says so.
+        assert result.decision == "deny"
+        assert result.reason == "default decision (no rule rendered a decision)"
+        # The detection rules did fire, and the trace has to say so: an
+        # assert-only rule is the inference step whoever reads the conflict
+        # facts needs to be able to point at.
+        assert any(r.endswith("detect-mutual-exclusion") for r in result.rule_trace)
 
     def test_asserting_alone_detects_nothing(self, engine: Engine) -> None:
         """Detection is host-evaluated, never re-entrant inside an assert."""
@@ -254,13 +285,23 @@ class TestPack:
         assert _of_kind(engine, "mutual_exclusion") != []
 
     def test_default_window_matches_the_shipped_rule(self) -> None:
+        """The window is a gap between the two claims, not recency of each.
+
+        It used to be `changed_within(W)` on both patterns, which measured
+        each claim against the wall clock: a pair ten seconds apart went
+        undetected once it was a day old, and the same working memory
+        answered differently depending on when it was asked.
+        """
         from fathom.rule_packs.conflict_detection import get_rules
 
         rule = next(r for r in get_rules() if r["name"] == "detect-temporal-conflict")
-        windows = [
-            c["expression"]
-            for pattern in rule["when"]
-            for c in pattern["conditions"]
-            if c.get("expression", "").startswith("changed_within")
+        tests = [
+            c["test"] for pattern in rule["when"] for c in pattern["conditions"] if c.get("test")
         ]
-        assert windows == [f"changed_within({DEFAULT_WINDOW_SECONDS})"] * 2
+        assert any(
+            f"(< (abs (- ?a-observed_at ?b-observed_at)) {DEFAULT_WINDOW_SECONDS})" == test
+            for test in tests
+        ), tests
+        assert not any(
+            "changed_within" in str(c) for pattern in rule["when"] for c in pattern["conditions"]
+        )

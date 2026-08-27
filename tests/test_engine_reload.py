@@ -399,3 +399,48 @@ def test_reload_rejects_duplicate_rule_names(tmp_path: Path) -> None:
     ).encode("utf-8")
     with pytest.raises(CompilationError, match="duplicate rule name 'gov::same'"):
         engine.reload_rules(payload)
+
+
+def test_a_reload_cannot_erase_the_facts_of_a_request_already_in_flight(tmp_path: Path) -> None:
+    """`evaluate_once` asserts, then runs. A swap in between emptied the room.
+
+    ``reload_rules`` documents in-flight evaluations as unaffected, and
+    ``Evaluator`` does snapshot the env at ``evaluate()`` entry -- but
+    ``evaluate_once`` asserts the request's facts through a *separate*
+    provider call first. A reload landing in that window left the run reading
+    the new, empty environment: the request was decided by the engine's
+    default rather than by the policy, while the caller's own facts sat in an
+    environment nothing would ever look at again.
+
+    The swap is driven from the fact listener, which fires on the evaluating
+    thread between the assert and the run -- the exact window, with no sleep.
+    """
+    _write_pack(tmp_path)
+
+    engine = Engine(default_decision="deny")
+    engine.load_templates(str(tmp_path / "templates.yaml"))
+    engine.load_modules(str(tmp_path / "modules.yaml"))
+    engine.reload_rules(_ruleset_yaml("allow-alice", "alice"))
+
+    reloads: list[BaseException] = []
+
+    def _reload_now() -> None:
+        try:
+            engine.reload_rules(_ruleset_yaml("allow-bob", "bob"))
+        except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+            reloads.append(exc)
+
+    def _swap_mid_request(template: str, action: str, data: dict) -> None:
+        if action != "assert":
+            return
+        worker = threading.Thread(target=_reload_now)
+        worker.start()
+        worker.join(timeout=30.0)
+        assert not worker.is_alive(), "reload never completed"
+
+    engine.subscribe(_swap_mid_request)
+
+    result = engine.evaluate_once([("agent", {"id": "alice"})])
+
+    assert reloads == []
+    assert result.decision == "allow"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import TYPE_CHECKING
 
 import asyncpg  # type: ignore[import-untyped]
@@ -222,3 +223,100 @@ class TestPostgresNotifyPayload:
 
         assert len(received) == 1
         assert "it's a1" in received[0]
+
+
+class TestPostgresListenRecovery:
+    """The LISTEN connection is an instance too: the second one must work.
+
+    ``_ensure_listen_conn`` cached the first connection forever. A backend that
+    goes away -- server restart, failover, an administrator's
+    ``pg_terminate_backend`` -- left an ``asyncpg.Connection`` object behind
+    that answers ``is_closed()`` and delivers nothing. Notifications stopped
+    with no error anywhere.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_terminated_listen_backend_is_replaced(self, store: PostgresFactStore) -> None:
+        received: list[FactChangeNotification] = []
+
+        async def on_change(notification: FactChangeNotification) -> None:
+            received.append(notification)
+
+        await store.subscribe("agent", on_change)
+        first = store._listen_conn
+        assert first is not None
+
+        assert store._pool is not None
+        async with store._pool.acquire() as conn:
+            await conn.execute("SELECT pg_terminate_backend($1)", first.get_server_pid())
+
+        for _ in range(40):
+            new = store._listen_conn
+            if new is not None and new is not first and not new.is_closed():
+                break
+            await asyncio.sleep(0.25)
+        else:
+            pytest.fail("the LISTEN connection was never replaced")
+
+        # Publish from a connection the store knows nothing about, so the only
+        # route to the subscriber is the LISTEN the reconnect had to re-register.
+        notifier = await asyncpg.connect(dsn=store._dsn)
+        try:
+            await notifier.execute(
+                "SELECT pg_notify($1, $2)",
+                store._channel_for("agent"),
+                json.dumps(
+                    {
+                        "template": "agent",
+                        "fact_id": "a1",
+                        "action": "assert",
+                        "data": {"id": "a1"},
+                    }
+                ),
+            )
+            for _ in range(20):
+                if received:
+                    break
+                await asyncio.sleep(0.25)
+            # Give a duplicate registration time to deliver a second copy.
+            await asyncio.sleep(0.25)
+        finally:
+            await notifier.close()
+
+        assert [n.fact_id for n in received] == ["a1"]
+
+    @pytest.mark.asyncio
+    async def test_a_subscription_taken_out_after_the_backend_died_still_listens(
+        self, store: PostgresFactStore
+    ) -> None:
+        """Handing back the dead connection made ``subscribe`` raise outright."""
+        received: list[FactChangeNotification] = []
+
+        async def on_change(notification: FactChangeNotification) -> None:
+            received.append(notification)
+
+        await store.subscribe("agent", on_change)
+        first = store._listen_conn
+        assert first is not None
+
+        assert store._pool is not None
+        async with store._pool.acquire() as conn:
+            await conn.execute("SELECT pg_terminate_backend($1)", first.get_server_pid())
+        for _ in range(40):
+            if first.is_closed():
+                break
+            await asyncio.sleep(0.25)
+
+        await store.subscribe("tool", on_change)
+        await store.assert_fact("tool", {"id": "t1"})
+
+        # The local dispatch lands first and says nothing about LISTEN; wait
+        # for the out-of-band delivery, which is the one under test.
+        for _ in range(20):
+            if len(received) >= 2:
+                break
+            await asyncio.sleep(0.25)
+
+        assert [n.template for n in received] == ["tool", "tool"], (
+            "the local dispatch and the LISTEN delivery must both arrive"
+        )

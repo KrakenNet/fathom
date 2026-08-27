@@ -46,6 +46,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -65,6 +67,62 @@ from cryptography.hazmat.primitives.serialization import (
 
 from fathom.attestation import AttestationService, verify_token
 from fathom.errors import AttestationError
+
+
+def _claim_exclusive_writer(path: Path) -> int:
+    """Take the writer lock for *path*, or refuse to be the second writer.
+
+    Every writer keeps ``_next_seq`` and ``_head_sha256`` in memory, derived
+    once at construction and never re-read. A second writer on the same path
+    therefore starts from a stale head and appends lines whose ``seq`` and
+    ``prev_sha256`` describe a file that no longer exists: every append
+    succeeds, nothing on the record or the log object says otherwise, and the
+    log verifies as ``malformed line 3: seq 1, expected 2`` — which reads to an
+    auditor as tampering. Failing closed here is the same posture the class
+    already takes on a torn line.
+
+    The lock is taken on a ``<log>.lock`` sidecar, never on the log itself,
+    because the two OS primitives disagree about who a lock binds.
+    ``fcntl.flock`` is advisory: only another locker notices it. Windows
+    ``msvcrt.locking`` maps to ``LockFile``, which is *mandatory* — a locked
+    byte range cannot be read by anyone, so locking byte 0 of the log made
+    every reader and every verifier fail with ``PermissionError``, including
+    ones inside this process. On the sidecar, both primitives behave the same
+    way: writers exclude each other, readers of the log are untouched.
+
+    Returns the sidecar fd. It holds the lock for as long as it stays open, so
+    the caller owns it until :meth:`ChainedAttestationLog.close`. NFS and other
+    network filesystems do not reliably honour either primitive — one writer
+    per path per host is the supported deployment either way.
+    """
+    lock_path = path.with_name(path.name + ".lock")
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        _lock_exclusive_nonblocking(fd)
+    except OSError as exc:
+        os.close(fd)
+        raise AttestationError(
+            f"chained log {path} is already open for writing by another "
+            "process; a second writer would corrupt the chain",
+            operation="append",
+        ) from exc
+    return fd
+
+
+def _lock_exclusive_nonblocking(fd: int) -> None:
+    """Exclusive non-blocking lock on *fd*, raising OSError if held."""
+    try:
+        import fcntl
+    except ImportError:  # Windows
+        import msvcrt
+
+        # LK_NBLCK: non-blocking exclusive lock on one byte, used as a
+        # whole-file mutex. mypy on POSIX has no stubs for the constant.
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+        return
+
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
 
 CHAIN_ISSUER = "fathom-chain"
 CHECKPOINT_RECORD_TYPE = "fathom.checkpoint"
@@ -144,6 +202,11 @@ class ChainVerification:
     log_id: str | None = None
     """The log's identity from its genesis record. Pin it out-of-band to
     detect a whole-chain splice from another log signed by the same key."""
+    key_fingerprint: str | None = None
+    """The genesis record's key fingerprint. A chain verifies against the key
+    it was signed with, whichever key that is, so this is the value to pin
+    out-of-band: it is what distinguishes the real signer from an attacker who
+    re-signed a forged chain with a key of their own."""
 
 
 class _ScanState:
@@ -287,14 +350,26 @@ def write_private_key_atomic(service: AttestationService, path: str | Path) -> P
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # The tmp name must not be predictable and must not be opened by a name
+    # something else may already hold: a planted `<key>.tmp` symlink sent the
+    # private half wherever it pointed, and a planted regular file kept its
+    # own mode, because O_CREAT's mode argument applies only when the open
+    # creates the file. mkstemp is O_CREAT|O_EXCL at 0600 on a fresh name.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    tmp = Path(tmp_name)
     try:
         os.write(fd, service.private_key_pem())
         os.fsync(fd)
-    finally:
         os.close(fd)
-    os.rename(tmp, path)
+    except BaseException:
+        os.close(fd)
+        tmp.unlink(missing_ok=True)
+        raise
+    try:
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     pub_path = path.with_name(path.name + ".pub.pem")
     pub_path.write_bytes(service.public_key_pem())
     return pub_path
@@ -337,6 +412,14 @@ class ChainedAttestationLog:
         self._anchor_callback = anchor_callback
         self._appends_since_checkpoint = 0
         self._fh: IO[bytes] | None = None
+        self._lock_fd: int | None = None
+        # `seq` and `prev_sha256` are read, used and advanced across several
+        # statements in `_append`. Two threads sharing one log — which is what
+        # `Engine(audit_sink=...)` invites, and what the Engine's own
+        # thread-safety promise implies — interleaved there and produced two
+        # lines claiming the same seq. Every evaluation returned normally and
+        # the resulting file verified as tampered.
+        self._write_lock = threading.Lock()
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._fingerprint = key_fingerprint(service.public_key)
@@ -448,6 +531,10 @@ class ChainedAttestationLog:
         return chained
 
     def _append(self, record: dict[str, Any]) -> ChainedRecord:
+        with self._write_lock:
+            return self._append_locked(record)
+
+    def _append_locked(self, record: dict[str, Any]) -> ChainedRecord:
         if self._corruption is not None:
             raise AttestationError(
                 f"chained log {self._path} is corrupt; refusing append: {self._corruption}",
@@ -477,7 +564,13 @@ class ChainedAttestationLog:
             }
         )
         if self._fh is None:
-            fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            lock_fd = _claim_exclusive_writer(self._path)
+            try:
+                fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            except BaseException:
+                os.close(lock_fd)
+                raise
+            self._lock_fd = lock_fd
             self._fh = os.fdopen(fd, "ab")
         self._fh.write(line + b"\n")
         self._fh.flush()
@@ -526,6 +619,9 @@ class ChainedAttestationLog:
         if self._fh is not None:
             self._fh.close()
             self._fh = None
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
 
     def __enter__(self) -> ChainedAttestationLog:
         return self
@@ -581,6 +677,7 @@ def verify_chain(
             error_line=state.error_line,
             anchor_ok=None,
             log_id=state.log_id,
+            key_fingerprint=state.genesis_fingerprint,
         )
 
     if state.count == 0:
@@ -624,4 +721,5 @@ def verify_chain(
         error_line=None,
         anchor_ok=anchor_error is None if anchor_supplied else None,
         log_id=state.log_id,
+        key_fingerprint=state.genesis_fingerprint,
     )

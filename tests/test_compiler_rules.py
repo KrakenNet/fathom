@@ -662,7 +662,9 @@ class TestCompileAssertAction:
             "(defrule MAIN::test-rule "
             "(agent (clearance secret)) "
             "=> "
+            "(bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1)) "
             "(assert (__fathom_decision "
+            "(seq ?*fathom-decision-seq*) "
             "(action allow) "
             '(reason "ok") '
             '(rule "MAIN::test-rule") '
@@ -674,8 +676,14 @@ class TestCompileAssertAction:
         )
         assert normalize_clips(result) == expected
 
-    def test_assert_only_no_decision_line(self, compiler: Compiler) -> None:
-        """AC-1.1, FR-7: assert-only rule (action=None) emits no __fathom_decision."""
+    def test_assert_only_records_the_firing_and_no_action(self, compiler: Compiler) -> None:
+        """AC-1.1, FR-7: assert-only rule (action=None) renders no decision.
+
+        It still asserts a ``__fathom_decision`` -- with ``action`` left at
+        its ``none`` default -- because that fact is what ``rule_trace`` and
+        the audit record are read from, and a forward-chaining rule is
+        exactly the step an auditor needs to see.
+        """
         rule = _make_rule(
             name="assert-rule",
             then=ThenBlock(
@@ -683,7 +691,11 @@ class TestCompileAssertAction:
             ),
         )
         result = compiler.compile_rule(rule, "MAIN")
-        assert "__fathom_decision" not in result
+        assert "(action" not in result
+        assert (
+            "(assert (__fathom_decision (seq ?*fathom-decision-seq*) "
+            '(rule "MAIN::assert-rule")))' in normalize_clips(result)
+        )
         assert "(assert (routing_decision (source_id ?sid)))" in result
 
     def test_empty_asserts_with_action(self, compiler: Compiler) -> None:
@@ -868,7 +880,9 @@ class TestCompileBind:
             "(defrule MAIN::test-rule "
             "(agent (clearance secret)) "
             "=> "
+            "(bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1)) "
             "(assert (__fathom_decision "
+            "(seq ?*fathom-decision-seq*) "
             "(action deny) "
             '(reason "test reason") '
             '(rule "MAIN::test-rule") '

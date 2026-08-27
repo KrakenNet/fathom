@@ -173,7 +173,7 @@ class TestClassificationFunctionsRank:
         hier = self._make_hierarchy("cls", ["low", "high"])
         defn = self._make_defn("cls", "cls.yaml")
         result = compiler.compile_function(defn, hierarchy=hier)
-        assert "(switch ?level" in result
+        assert "(switch (str-cat ?level)" in result
 
     @pytest.mark.parametrize(
         "levels,expected_cases",
@@ -195,7 +195,7 @@ class TestClassificationFunctionsRank:
         defn = self._make_defn("cls", "cls.yaml")
         result = compiler.compile_function(defn, hierarchy=hier)
         for level, idx in expected_cases:
-            assert f"(case {level} then {idx})" in result
+            assert f'(case "{level}" then {idx})' in result
 
     def test_rank_default_minus_one(self, compiler: Compiler) -> None:
         hier = self._make_hierarchy("cls", ["low", "high"])
@@ -217,7 +217,7 @@ class TestClassificationFunctionsRank:
         defn = self._make_defn("cls", "cls.yaml")
         result = compiler.compile_function(defn, hierarchy=hier)
         for level in levels:
-            assert f"(case {level}" in result
+            assert f'(case "{level}"' in result
 
     def test_rank_param_is_level(self, compiler: Compiler) -> None:
         hier = self._make_hierarchy("cls", ["low", "high"])
@@ -406,22 +406,22 @@ class TestClassificationFunctionsFullOutput:
         assert result.count("deffunction") == 7
         # Every level should appear in a case statement
         for level in levels:
-            assert f"(case {level}" in result
+            assert f'(case "{level}"' in result
 
     def test_five_level_hierarchy_correct_indices(self, compiler: Compiler) -> None:
         levels = ["unclassified", "cui", "confidential", "secret", "top-secret"]
         result = self._compile(compiler, "classification", levels)
-        assert "(case unclassified then 0)" in result
-        assert "(case cui then 1)" in result
-        assert "(case confidential then 2)" in result
-        assert "(case secret then 3)" in result
-        assert "(case top-secret then 4)" in result
+        assert '(case "unclassified" then 0)' in result
+        assert '(case "cui" then 1)' in result
+        assert '(case "confidential" then 2)' in result
+        assert '(case "secret" then 3)' in result
+        assert '(case "top-secret" then 4)' in result
 
     def test_ten_level_hierarchy_indices(self, compiler: Compiler) -> None:
         levels = [f"level-{i}" for i in range(10)]
         result = self._compile(compiler, "cls", levels)
         for i, level in enumerate(levels):
-            assert f"(case {level} then {i})" in result
+            assert f'(case "{level}" then {i})' in result
 
     def test_rank_function_comes_first(self, compiler: Compiler) -> None:
         result = self._compile(compiler, "cls", ["low", "high"])
@@ -698,7 +698,7 @@ class TestFunctionCompileIntegration:
             )
         }
         result = compiler.compile_function(functions[0], hierarchy=hier)
-        assert "(case unclassified then 0)" in result
-        assert "(case top-secret then 4)" in result
+        assert '(case "unclassified" then 0)' in result
+        assert '(case "top-secret" then 4)' in result
         # 4 scoped + 3 unscoped shims = 7 for first hierarchy
         assert result.count("deffunction") == 7

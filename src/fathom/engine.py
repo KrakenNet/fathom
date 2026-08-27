@@ -74,10 +74,23 @@ _FATHOM_MATCHES_MAX_LEN = 4096
 _USER_FN_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]*$")
 
 
-# CLIPS deftemplate built on every Engine init (design.md Section 6.1)
+# CLIPS deftemplate built on every Engine init (design.md Section 6.1).
+#
+# Asserted once per firing by every compiled rule, whether or not that rule
+# renders a decision. ``action none`` is the assert-only case: the rule fired,
+# it belongs in ``rule_trace``, and it is not a candidate for the decision.
+# Reading the trace off decision-bearing facts alone dropped every
+# forward-chaining rule, so the step that derived the fact a later rule
+# decided on was missing from the trace and from the signed audit record.
+#
+# ``seq`` makes each fact unique. CLIPS suppresses duplicate asserts, so
+# without it a rule firing twice would be recorded once whenever its other
+# slots happened to match.
 _DECISION_TEMPLATE = (
     "(deftemplate MAIN::__fathom_decision"
-    "    (slot action (type SYMBOL) (allowed-symbols allow deny escalate scope route))"
+    "    (slot seq (type INTEGER) (default 0))"
+    "    (slot action (type SYMBOL)"
+    "        (allowed-symbols none allow deny escalate scope route) (default none))"
     '    (slot reason (type STRING) (default ""))'
     '    (slot rule (type STRING) (default ""))'
     "    (slot log-level (type SYMBOL) (allowed-symbols none summary full) (default summary))"
@@ -85,6 +98,10 @@ _DECISION_TEMPLATE = (
     "    (slot attestation (type SYMBOL) (allowed-symbols TRUE FALSE) (default FALSE))"
     '    (slot metadata (type STRING) (default "")))'
 )
+
+# Source of the ``seq`` above. MAIN exports every construct and each generated
+# module does ``(import MAIN ?ALL)``, so a rule in any module can increment it.
+_DECISION_SEQ_GLOBAL = "(defglobal MAIN ?*fathom-decision-seq* = 0)"
 
 # Built only on an ``Engine(match_evidence=True)``. Lives in MAIN, which every
 # generated module imports with ``(import MAIN ?ALL)``, so a rule in any module
@@ -225,6 +242,16 @@ class Engine:
         self._rule_registry: dict[str, RuleDefinition] = {}
         self._has_asserting_rules: bool = False
         self._hierarchy_registry: dict[str, HierarchyDefinition] = {}
+        # Everything built into the env that is neither a template, a module
+        # nor a rule, kept so a hot reload can replay it onto the fresh
+        # environment: deffunction sources in build order, and the Python
+        # callables bound by `register_function`. Without these the engine had
+        # no record of them at all, and a reload of a pack using either
+        # rebuilt its rules against an env where the functions did not exist
+        # — every such reload was rejected with a raw CLIPS
+        # "Missing function declaration".
+        self._deffunction_sources: list[tuple[str, str]] = []
+        self._python_functions: dict[str, Callable[..., Any]] = {}
         self._focus_order: list[str] = []
         self._reload_lock = threading.Lock()
         self._reload_listeners: list[Callable[[], None]] = []
@@ -232,12 +259,19 @@ class Engine:
 
         self._match_evidence = match_evidence
         self._compiler = Compiler(match_evidence=match_evidence)
+        # A request-scoped evaluation asserts its facts and runs the rules in
+        # two separate provider calls. A reload landing between them used to
+        # hand the run a brand-new, empty environment, so the request was
+        # decided by the default while the caller's facts sat in an env
+        # nothing would read again. `evaluate_once` pins the env it started
+        # on; everything else follows `self._env`.
+        self._pinned_env: clips.Environment | None = None
         self._fact_manager = FactManager(
-            env_provider=lambda: self._env,
+            env_provider=self._current_env,
             template_registry=self._template_registry,
         )
         self._evaluator = Evaluator(
-            env_provider=lambda: self._env,
+            env_provider=self._current_env,
             default_decision=self._default_decision,
             focus_order=self._focus_order,
             fact_manager=self._fact_manager,
@@ -252,6 +286,7 @@ class Engine:
         self._metrics = MetricsCollector(enabled=metrics)
 
         # Build the decision template into the CLIPS environment
+        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision")
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision")
         if match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence")
@@ -280,6 +315,25 @@ class Engine:
     def focus_order(self) -> list[str]:
         """Ordered list of module names that control evaluation focus."""
         return list(self._focus_order)
+
+    @property
+    def attestation_service(self) -> AttestationService | None:
+        """Service signing this engine's decisions, if any.
+
+        Settable because a server can be handed an Engine it did not
+        construct — ``app.state.engine`` in the REST app — and still has to
+        attach the signing service configured alongside it.
+        """
+        return self._attestation_service
+
+    @attestation_service.setter
+    def attestation_service(self, service: AttestationService | None) -> None:
+        self._attestation_service = service
+
+    @property
+    def default_decision(self) -> str | None:
+        """The decision returned when no rule fires (``None`` leaves it unset)."""
+        return self._default_decision
 
     @property
     def ruleset_hash(self) -> str:
@@ -657,6 +711,15 @@ class Engine:
             for file in files:
                 definitions = self._compiler.parse_template_file(file)
                 for defn in definitions:
+                    # Two packs may define the same template identically --
+                    # `packs.py` allows exactly that and only rejects
+                    # *incompatible* redefinitions. Rebuilding it anyway hit
+                    # CLIPS' "cannot redefine deftemplate while it is in use",
+                    # so the pair the collision check waved through failed to
+                    # load with the raw diagnostic that check exists to
+                    # replace.
+                    if self._template_registry.get(defn.name) == defn:
+                        continue
                     clips_str = self._compiler.compile_template(defn)
                     self._safe_build(clips_str, context=f"template:{defn.name}")
                     self._template_registry[defn.name] = defn
@@ -773,6 +836,7 @@ class Engine:
                             block = block.strip()
                             if block:
                                 self._safe_build(block, context=f"function:{defn.name}")
+                                self._deffunction_sources.append((f"function:{defn.name}", block))
                         count += 1
         finally:
             self._lock.release()
@@ -881,6 +945,7 @@ class Engine:
         # corrupts the environment.
         with self._lock:
             self._safe_build(clips_string, context="clips_function")
+            self._deffunction_sources.append(("clips_function", clips_string))
 
     def register_function(
         self,
@@ -927,6 +992,7 @@ class Engine:
         # evaluate() and the fact mutators take.
         with self._lock:
             self._env.define_function(fn, name)
+            self._python_functions[name] = fn
 
     def subscribe(
         self,
@@ -992,10 +1058,17 @@ class Engine:
             CompilationError: If the hierarchy file cannot be found or parsed.
         """
         parent = function_file.parent
+        # The reference documents `hierarchy_ref` as naming the hierarchy, and
+        # its worked example writes `hierarchy_ref: clearance`. Resolution was
+        # strictly by filename, so the documented form searched for a file
+        # literally named `clearance` and raised.
+        names = [hierarchy_ref]
+        if not Path(hierarchy_ref).suffix:
+            names += [f"{hierarchy_ref}.yaml", f"{hierarchy_ref}.yml"]
         candidates = [
-            parent / hierarchy_ref,
-            parent / "hierarchies" / hierarchy_ref,
-            parent.parent / "hierarchies" / hierarchy_ref,
+            directory / name
+            for name in names
+            for directory in (parent, parent / "hierarchies", parent.parent / "hierarchies")
         ]
         for candidate in candidates:
             if candidate.exists():
@@ -1063,6 +1136,10 @@ class Engine:
 
     # --- Atomic-swap ruleset reload (design C5, AC-5.3, NFR-8) ---
 
+    def _current_env(self) -> clips.Environment:
+        """The env this operation belongs to: a pinned request's, else the live one."""
+        return self._pinned_env if self._pinned_env is not None else self._env
+
     def reload_rules(
         self,
         ruleset_yaml: bytes,
@@ -1078,11 +1155,12 @@ class Engine:
         the env pointer, rule registry, and ``_ruleset_yaml_bytes`` in a
         single critical section.
 
-        In-flight evaluations are unaffected: :class:`Evaluator` and
-        :class:`FactManager` snapshot the env via a provider closure at the
-        start of each evaluation, so swapping ``self._env`` does not
-        reach into running evals. CLIPS callbacks registered on the old
-        env keep firing against the old env via their captured closure.
+        In-flight evaluations are unaffected: :class:`Evaluator` snapshots
+        the env at ``evaluate()`` entry and :meth:`evaluate_once` pins the env
+        it started on across its assert *and* its run, so swapping
+        ``self._env`` cannot land between a request's facts and the rules that
+        read them. CLIPS callbacks registered on the old env keep firing
+        against the old env via their captured closure.
 
         The audit sink is intentionally **not** touched here; the REST /
         gRPC layer signs and emits the ``ruleset_reloaded`` event on
@@ -1171,6 +1249,7 @@ class Engine:
         new_env = clips.Environment()
 
         # Decision template — matches what __init__ does on startup.
+        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision", env=new_env)
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision", env=new_env)
         if self._match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence", env=new_env)
@@ -1209,6 +1288,17 @@ class Engine:
             clips_str = self._compiler.compile_module(mdefn)
             self._safe_build(clips_str, context=f"module:{name}", env=new_env)
             new_module_registry[name] = mdefn
+
+        # Replay everything else the rules may call. Nothing in the reload
+        # payload defines these — a reload is a rule-only swap — but a rule
+        # referencing one is compiled here, and CLIPS resolves a function
+        # reference when the rule is built. Order matches the load order that
+        # produced them: user callables, then deffunctions (which may call
+        # them), then rules.
+        for fn_name, fn in self._python_functions.items():
+            new_env.define_function(fn, fn_name)
+        for context, source in self._deffunction_sources:
+            self._safe_build(source, context=context, env=new_env)
 
         # Validate the new ruleset's module is registered — same guard as
         # load_rules(). Raised as CompilationError; new_env is discarded.
@@ -1505,10 +1595,29 @@ class Engine:
         attestation service is configured, the result is signed with
         an Ed25519 JWT token.
 
+        Every rule starts each call un-refracted, so the decision is a
+        function of working memory and not of how many times this engine has
+        been asked before. Without that, a rule whose LHS mentions only facts
+        that outlive one request -- an ``agent`` fact, a ``quarantine`` fact,
+        a policy fact -- matched once and stayed refracted for the life of the
+        engine, while a higher-salience allow rule kept re-firing on each new
+        request fact. A hard deny on call 1 became a permit on calls 2..N, and
+        the attestation service signed both: same ``input_hash``, opposite
+        decisions. It also contradicted the determinism the docs state
+        outright -- same pack, same working memory, same focus stack, same
+        decision.
+
+        The cost is that a rule is no longer fire-once per engine: one that
+        accumulates (a counter, a running total) now advances on every call.
+        Rules that derive facts are unaffected, since CLIPS suppresses a
+        duplicate assert.
+
         Returns:
             :class:`EvaluationResult` with decision, reason, and traces.
         """
         with self._lock:
+            self._refresh_all_rules()
+
             # Pre-snapshot user facts when any loaded rule declares `asserts`,
             # so newly-asserted facts can be captured for the audit record.
             pre_snapshot = self._snapshot_user_facts() if self._has_asserting_rules else None
@@ -1591,8 +1700,11 @@ class Engine:
         (decision D1) — this is an additional entry point, not a change to
         that one.
 
-        Facts asserted by *rules* during evaluation are left in place; only
-        the caller-supplied ones are withdrawn.
+        Facts a *rule* asserts during the run are withdrawn too. They were
+        left in place, which contradicted the promise above: one request that
+        derived a standing grant re-decided every later request on the same
+        engine, and a REST or gRPC server is one engine serving everybody.
+        :meth:`evaluate` is the entry point that accumulates.
 
         Args:
             facts: List of ``(template_name, slot_data)`` tuples, the same
@@ -1617,29 +1729,21 @@ class Engine:
                         f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
                         "so the fact is also written through to the shared FactStore."
                     )
+            # Pin the env for the whole request: the assert below and the run
+            # that follows must happen in the same environment even if a
+            # reload swaps `self._env` between them.
+            outer_pin, self._pinned_env = self._pinned_env, self._env
             handles = self._fact_manager.assert_facts_scoped(facts)
             for template, _ in facts:
                 self._metrics.record_fact_asserted(template)
             self._publish_working_memory(t for t, _ in facts)
-            # Clear refraction BEFORE the run, not after.
-            #
-            # Retracting this request's facts un-matches the rules that
-            # joined against them, but a rule whose LHS references only
-            # longer-lived working memory (an `agent` fact, a policy fact)
-            # matched once and stays refracted forever — it silently stops
-            # firing from the second request onwards. For a deny rule that
-            # is a fail-open, and the shipped owasp/nist/hipaa/cmmc packs
-            # all contain deny rules of exactly that shape.
-            #
-            # Refreshing afterwards does not fix it: CLIPS `refresh` does not
-            # restore an activation that fired during the run just completed,
-            # so the rule was still refracted on the very next call. Doing it
-            # here means every evaluate_once starts from a clean agenda,
-            # which is what "same facts in, same decision out" requires.
-            self._refresh_all_rules()
+            # Refraction is cleared by `evaluate` itself, before the run and
+            # not after: CLIPS `refresh` does not restore an activation that
+            # fired during the run just completed, so a rule refreshed on the
+            # way out is still refracted on the very next call.
             # Fact indices present before inference. Used only on the
             # budget-exhaustion path below.
-            pre_run_indices = {fact.index for fact in self._env.facts()}
+            pre_run_indices = {fact.index for fact in self._current_env().facts()}
             try:
                 return self.evaluate()
             except EvaluationLimitError:
@@ -1654,7 +1758,7 @@ class Engine:
                 # The request produced no decision, so nothing it created has
                 # any value — drop the lot and leave working memory as the
                 # request found it.
-                for fact in list(self._env.facts()):
+                for fact in list(self._current_env().facts()):
                     if fact.index in pre_run_indices:
                         continue
                     with contextlib.suppress(Exception):
@@ -1665,6 +1769,17 @@ class Engine:
                 # budget) must not leak the request's facts into the working
                 # memory of the next request on this session.
                 self._fact_manager.retract_handles(handles)
+                # Facts the rules derived during this run are the request's
+                # too, and outlive it the same way. Internal bookkeeping
+                # (`__fathom_decision`) is left to `evaluate`.
+                for fact in list(self._current_env().facts()):
+                    if fact.index in pre_run_indices:
+                        continue
+                    if str(fact.template.name).startswith("__fathom"):
+                        continue
+                    with contextlib.suppress(Exception):
+                        fact.retract()
+                self._pinned_env = outer_pin
                 if handles:
                     self._metrics.record_facts_retracted(len(handles))
                 self._publish_working_memory(t for t, _ in facts)

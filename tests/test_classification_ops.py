@@ -240,65 +240,6 @@ class TestMultiHierarchyCompilation:
 
 
 # ---------------------------------------------------------------------------
-# Engine-level: hierarchy registry populated + dominates via closure
-# ---------------------------------------------------------------------------
-
-
-class TestEngineHierarchyRegistry:
-    """Tests for Engine hierarchy registry and dominance via CLIPS external fn."""
-
-    def test_hierarchy_registry_populated_after_load(self, tmp_path) -> None:
-        """Loading functions with hierarchy_ref populates _hierarchy_registry."""
-        # Create hierarchy YAML
-        hier_file = tmp_path / "classification.yaml"
-        hier_file.write_text(
-            "name: classification\nlevels:\n  - unclassified\n  - confidential\n  - secret\n"
-        )
-        # Create function YAML referencing the hierarchy
-        func_file = tmp_path / "functions.yaml"
-        func_file.write_text(
-            "functions:\n"
-            "  - name: classification\n"
-            "    type: classification\n"
-            "    params: [a, b]\n"
-            "    hierarchy_ref: classification.yaml\n"
-        )
-        engine = Engine()
-        engine.load_functions(str(func_file))
-        assert "classification" in engine._hierarchy_registry
-        assert engine._hierarchy_registry["classification"].levels == [
-            "unclassified",
-            "confidential",
-            "secret",
-        ]
-
-    def test_multiple_hierarchies_loaded(self, tmp_path) -> None:
-        """Loading two classification functions populates both hierarchies."""
-        # Create two hierarchy YAML files
-        cls_file = tmp_path / "classification.yaml"
-        cls_file.write_text("name: classification\nlevels:\n  - unclassified\n  - secret\n")
-        int_file = tmp_path / "integrity.yaml"
-        int_file.write_text("name: integrity\nlevels:\n  - low\n  - high\n")
-        # Create function YAML with two classification functions
-        func_file = tmp_path / "functions.yaml"
-        func_file.write_text(
-            "functions:\n"
-            "  - name: classification\n"
-            "    type: classification\n"
-            "    params: [a, b]\n"
-            "    hierarchy_ref: classification.yaml\n"
-            "  - name: integrity\n"
-            "    type: classification\n"
-            "    params: [a, b]\n"
-            "    hierarchy_ref: integrity.yaml\n"
-        )
-        engine = Engine()
-        engine.load_functions(str(func_file))
-        assert "classification" in engine._hierarchy_registry
-        assert "integrity" in engine._hierarchy_registry
-
-
-# ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
 
@@ -324,3 +265,104 @@ class TestEdgeCases:
     def test_dominates_unknown_subject_known_object(self) -> None:
         # Unknown subject rank -1 < known object rank 0, so fails
         assert dominates("cosmic", "", "unclassified", "", "classification", _REGISTRY) is False
+
+
+# ---------------------------------------------------------------------------
+# What the reference says a hierarchy is called, and where it lives
+# ---------------------------------------------------------------------------
+
+
+_HIER_TEMPLATES = """
+templates:
+  - name: agent
+    slots:
+      - name: id
+        type: string
+        required: true
+      - name: trust
+        type: symbol
+        required: true
+"""
+
+_HIER_MODULES = """
+modules:
+  - name: gate
+focus_order:
+  - gate
+"""
+
+_TRUST_HIERARCHY = """
+name: trust
+levels: [untrusted, basic, verified]
+"""
+
+_SCOPED_CALL_RULES = """
+module: gate
+ruleset: scoped-call
+version: "1.0"
+
+rules:
+  - name: deny-below-basic
+    when:
+      - template: agent
+        conditions:
+          - slot: trust
+            bind: "?t"
+          - test: "(trust-below ?t basic)"
+    then:
+      action: deny
+      reason: "below basic trust"
+"""
+
+
+def _hierarchy_pack(root, *, hierarchy_ref: str, rules: str):
+    """A pack whose classification function is named for the function, not the
+    hierarchy -- which is the normal way to write one."""
+    for subdir, name, body in (
+        ("templates", "templates.yaml", _HIER_TEMPLATES),
+        ("modules", "modules.yaml", _HIER_MODULES),
+        ("rules", "rules.yaml", rules),
+        ("hierarchies", "trust.yaml", _TRUST_HIERARCHY),
+        (
+            "functions",
+            "functions.yaml",
+            "functions:\n"
+            "  - name: rank_trust\n"
+            "    type: classification\n"
+            "    params: [a, b]\n"
+            f"    hierarchy_ref: {hierarchy_ref}\n",
+        ),
+    ):
+        (root / subdir).mkdir(parents=True, exist_ok=True)
+        (root / subdir / name).write_text(body, encoding="utf-8")
+    return root
+
+
+class TestHierarchyNamingAndResolution:
+    """`<hier>-below` and a bare `hierarchy_ref` are both documented."""
+
+    def test_a_rule_can_call_the_hierarchys_own_deffunction(self, tmp_path) -> None:
+        """The emitted family is documented as `<hier>-rank`, `<hier>-below`...
+
+        It was emitted under the *function's* name instead, so a `test:` CE
+        calling the documented name failed to compile.
+        """
+        pack = _hierarchy_pack(
+            tmp_path / "pack", hierarchy_ref="trust.yaml", rules=_SCOPED_CALL_RULES
+        )
+        engine = Engine.from_rules(str(pack), default_decision="allow")
+        engine.assert_fact("agent", {"id": "a-1", "trust": "untrusted"})
+
+        assert engine.evaluate().decision == "deny"
+
+    def test_a_bare_hierarchy_ref_resolves(self, tmp_path) -> None:
+        """`hierarchy_ref: clearance` is the reference page's worked example.
+
+        Resolution was strictly by filename, so the documented form looked for
+        a file literally named `trust` and raised CompilationError.
+        """
+        pack = _hierarchy_pack(tmp_path / "pack", hierarchy_ref="trust", rules=_SCOPED_CALL_RULES)
+        engine = Engine.from_rules(str(pack), default_decision="allow")
+        engine.assert_fact("agent", {"id": "a-1", "trust": "untrusted"})
+
+        assert engine.evaluate().decision == "deny"

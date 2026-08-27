@@ -4,7 +4,7 @@ summary: Why every Fathom evaluation is recorded, and how the optional Ed25519 J
 audience: [app-developers, rule-authors]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 sources:
   - src/fathom/audit.py
   - src/fathom/chained_log.py
@@ -94,9 +94,16 @@ Field by field:
 - **`modules_traversed`** / **`rules_fired`** — copied from
   `EvaluationResult.module_trace` and `rule_trace`. The modules active
   during inference and the fully-qualified `module::rule` names in fire
-  order.
+  order. *Every* firing is listed, including rules whose `then` is only an
+  `assert` block: the forward-chaining step that derived the fact a later
+  rule decided on is the part of the chain an auditor most needs. A rule
+  that fires twice appears twice. Each compiled rule asserts one
+  `__fathom_decision` per firing to record this; an assert-only rule's
+  carries `action none`.
 - **`decision`** / **`reason`** — the `action` and `reason` read off the
-  last `__fathom_decision` fact. `None` if no rule asserted a decision.
+  last `__fathom_decision` fact. `None` if no rule asserted a decision, and
+  the engine's `default_decision` (with the reason `default decision (no
+  rule rendered a decision)`) when one is configured.
 - **`duration_us`** — microseconds spent in the inference loop.
 - **`metadata`** — arbitrary string key/value pairs propagated from the
   decision's rule.
@@ -151,6 +158,26 @@ Three implementations ship with Fathom:
   ```
 
   Verify it later with `fathom verify-chain <log> --pubkey <log>.pub.pem`.
+  That sidecar is only a convenience: it lives in the same trust domain as
+  the log, so a writer who forges the chain can forge the key beside it. Pin
+  the `key_fingerprint` the verification reports out-of-band, and verify
+  against a copy of the public key kept where the log's writer cannot reach
+  it. The private half is written through a fresh 0600 temporary file, so a
+  planted `<key>.tmp` can neither capture it nor relax its mode.
+
+  **One writer per path.** The chain's `seq` and `prev_sha256` are held in the
+  writer's memory, derived when it opens the log. Sharing one log object across
+  threads is fine — appends serialise on the log's own lock — but a *second*
+  `ChainedAttestationLog` on the same path, in this process or another, would
+  start from a stale head and write lines describing a file that no longer
+  exists. Every append would succeed and the log would verify as
+  `malformed line 3: seq 1, expected 2`, which reads as tampering. The second
+  writer is therefore refused: its first append raises `AttestationError`.
+  The lock is OS-level and lives on a `<log>.lock` file beside the log, never
+  on the log itself — Windows locks are mandatory, so locking the log would
+  make it unreadable to `verify()` and `fathom verify-chain` while a writer
+  held it. Readers are unaffected; network filesystems do not honour the lock
+  reliably.
 
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
@@ -249,7 +276,8 @@ One `MatchEvidence` entry per firing — a rule that fires twice on different
 facts appears twice — and one `AssertedFact` per condition element on the
 rule's left-hand side, in the order the conditions were written. Rules with
 no `then.action` are covered too, so an assert-only rule that quietly seeded
-a fact still explains itself.
+a fact still explains itself. `rules_fired` already names those firings; the
+evidence adds the facts behind each one.
 
 The same list is copied onto the `AuditRecord`, so evidence survives to the
 sink and through JSON serialization.

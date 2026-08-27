@@ -189,3 +189,52 @@ class TestRulesetLessRpcCannotPoisonASessionId:
         _evaluate(svc, ctx2, "strict", "X")
         assert ctx2.aborted is None
         assert len(svc._session_store) == 1
+
+
+class TestGrpcSessionsOnAMountedServer:
+    """A servicer constructed with an engine serves *that* policy, or nothing.
+
+    The REST rule, on the sibling transport: a session compiled the caller's
+    own ``ruleset`` off disk, so one extra request field chose which policy
+    decided -- and `Reload` on the constructed engine never reached that
+    traffic. Refused here the way REST refuses it with 400.
+    """
+
+    def test_a_session_is_refused_when_the_servicer_carries_an_engine(
+        self, ruleset_root: Path
+    ) -> None:
+        from fathom.engine import Engine
+
+        svc = FathomServicer(default_engine=Engine.from_rules(str(ruleset_root / "strict")))
+        ctx = _FakeContext()
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            _evaluate(svc, ctx, "loose", "s1")
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.FAILED_PRECONDITION
+        assert "sessions_unavailable" in ctx.aborted[1]
+        assert len(svc._session_store) == 0
+
+    def test_a_stateless_call_still_runs_the_mounted_policy(self, ruleset_root: Path) -> None:
+        """Refusing sessions must not touch the stateless path."""
+        from fathom.engine import Engine
+
+        svc = FathomServicer(default_engine=Engine.from_rules(str(ruleset_root / "strict")))
+        ctx = _FakeContext()
+
+        response = _evaluate(svc, ctx, "loose", "")
+
+        assert ctx.aborted is None
+        assert response.decision
+        assert "LOOSE-POLICY-FIRED" not in response.reason
+
+    def test_sessions_still_work_without_a_mounted_engine(self, ruleset_root: Path) -> None:
+        """The multi-ruleset deployment is the one sessions are for."""
+        svc = FathomServicer()
+        ctx = _FakeContext()
+
+        _evaluate(svc, ctx, "loose", "s1")
+
+        assert ctx.aborted is None
+        assert len(svc._session_store) == 1

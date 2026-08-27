@@ -4,7 +4,7 @@ summary: Assert facts incrementally across multiple evaluate() calls and learn h
 audience: [app-developers, rule-authors]
 diataxis: tutorial
 status: stable
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 sources:
   - src/fathom/engine.py
   - src/fathom/models.py
@@ -79,7 +79,7 @@ RULES_YAML = """
 module: access
 rules:
   - name: allow-requester-alone
-    salience: 10
+    salience: 20
     when:
       - template: agent
         conditions:
@@ -89,8 +89,10 @@ rules:
       action: allow
       reason: "requester present"
 
+  # Lower salience, so it fires *after* allow-requester-alone and its
+  # decision is the one left standing under last-write-wins.
   - name: allow-dual-approval
-    salience: 20
+    salience: 10
     when:
       - template: agent
         conditions:
@@ -145,6 +147,13 @@ asserted in the first step, never retracted, and therefore still present when
 the second evaluation runs. A stateless system would see only the approver fact
 on the second call and the combined rule would never fire.
 
+`allow-requester-alone` fires on the second call too — every rule starts each
+`evaluate()` un-refracted, so a rule that fired before is eligible again. Which
+of the two decisions the caller gets is settled by salience and last-write-wins:
+`allow-dual-approval` carries the lower salience, so it fires last and its
+reason is the one left standing. See
+[Fail-closed salience and last-write-wins](../concepts/runtime-and-working-memory.md#fail-closed-salience-and-last-write-wins).
+
 ## Contrast with stateless systems
 
 | | Fathom | OPA / Cedar |
@@ -174,9 +183,11 @@ result = engine.evaluate()  # No facts → default decision ("deny")
 ### `engine.reset()`
 
 Calls the underlying `clips.Environment.reset()`, which clears **all** facts
-(including internal ones) and re-asserts `(initial-fact)`. The `__fathom_decision`
-template is rebuilt automatically. Deftemplates, defmodules, and defrules survive
-the reset — only facts are cleared.
+(including internal ones) and re-asserts `(initial-fact)`. Deftemplates,
+defmodules, defrules and defglobals survive the reset — only facts are
+cleared, and nothing is rebuilt. (`__fathom_decision` in particular cannot be
+rebuilt: every compiled rule asserts it, which makes the template permanently
+"in use", and CLIPS refuses to redefine one a loaded rule references.)
 
 Use this for a full session reset that mirrors starting a new CLIPS environment
 while keeping compiled constructs.

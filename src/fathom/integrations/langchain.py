@@ -125,6 +125,12 @@ class FathomCallbackHandler(BaseCallbackHandler):
         session_id: Optional session identifier for stateful evaluation.
     """
 
+    # LangChain's callback manager swallows handler exceptions and logs a
+    # warning unless the handler opts in to propagation. Without this the
+    # PolicyViolation raised below never reaches the caller and the denied
+    # tool runs anyway — a fail-open.
+    raise_error = True
+
     def __init__(
         self,
         engine: Engine,
@@ -165,8 +171,7 @@ class FathomAsyncCallbackHandler(AsyncCallbackHandler):
     """Asynchronous LangChain callback handler for Fathom policy enforcement.
 
     Provides the same fact-mapping and evaluation logic as
-    :class:`FathomCallbackHandler` but implements the async
-    ``on_tool_start`` interface for use with async LangChain chains.
+    :class:`FathomCallbackHandler`, for use with async LangChain chains.
 
     Args:
         engine: A configured :class:`~fathom.engine.Engine` instance with
@@ -174,6 +179,12 @@ class FathomAsyncCallbackHandler(AsyncCallbackHandler):
         agent_id: Identifier for the agent making tool calls.
         session_id: Optional session identifier for stateful evaluation.
     """
+
+    # LangChain's callback manager swallows handler exceptions and logs a
+    # warning unless the handler opts in to propagation. Without this the
+    # PolicyViolation raised below never reaches the caller and the denied
+    # tool runs anyway — a fail-open.
+    raise_error = True
 
     def __init__(
         self,
@@ -186,17 +197,37 @@ class FathomAsyncCallbackHandler(AsyncCallbackHandler):
         self._agent_id = agent_id
         self._session_id = session_id
 
-    async def on_tool_start(
+    # Deliberately `def`, not `async def`, on an AsyncCallbackHandler.
+    #
+    # `raise_error` is honoured by langchain_core's async dispatcher
+    # (`_ahandle_event_for_handler`) and by its sync one (`handle_event`) --
+    # but only for a handler method that *runs* there. A coroutine method is
+    # not run by the sync dispatcher: `handle_event` calls the method, sees a
+    # coroutine come back, and defers it to `_run_coros`, which catches every
+    # exception, logs "Error in callback coroutine: %s", and never consults
+    # `raise_error`. The PolicyViolation vanished into a log line and the
+    # denied tool ran.
+    #
+    # The sync dispatcher is not an exotic path: `StructuredTool.ainvoke`
+    # falls back to `run_in_executor(config, self.invoke, ...)` for any tool
+    # with no `coroutine=`, which is every plain `@tool`-decorated function.
+    # So `ainvoke` on an ordinary tool routed this handler straight into the
+    # hole.
+    #
+    # A synchronous method is run inline by `handle_event` and, on the async
+    # side, handed to `run_in_executor` by `_ahandle_event_for_handler` --
+    # both of which propagate under `raise_error`. The underlying CLIPS
+    # engine is synchronous anyway, so nothing is lost by not awaiting.
+    def on_tool_start(  # type: ignore[override]
         self,
         serialized: dict[str, Any],
         input_str: str,
         **kwargs: Any,
     ) -> None:
-        """Evaluate a tool call against Fathom policy rules (async).
+        """Evaluate a tool call against Fathom policy rules.
 
         Shares the same fact-mapping and evaluation logic as the
-        synchronous handler.  The underlying CLIPS engine is synchronous,
-        so this delegates to the shared helper directly.
+        synchronous handler.
 
         Args:
             serialized: Serialized tool metadata from LangChain.

@@ -4,7 +4,7 @@ summary: Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTT
 audience: [app-developers]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 sources:
   - src/fathom/engine.py
   - src/fathom/integrations/rest.py
@@ -73,6 +73,12 @@ engine.evaluate()  # second call — the fact is still there
 
 engine.reset()     # clear all facts and reinitialise the environment
 ```
+
+The second call returns the same decision as the first. Every rule starts each
+`evaluate()` un-refracted, so a standing `deny` keyed on a long-lived fact goes
+on denying instead of falling silent after its first firing — see
+[Runtime & Working Memory](../concepts/runtime-and-working-memory.md#the-evaluation-loop).
+One rule shape is affected: a rule that accumulates advances once per call.
 
 Use `engine.clear_facts()` to drop user facts without rebuilding
 templates and rules.
@@ -149,6 +155,14 @@ func main() {
 string evaluates against the root itself. `SessionID` is optional for
 stateless evaluation — passing one creates a server-side session that
 later `AssertFact` / `Query` / `Retract` calls can reuse.
+
+Sessions need a server that mounts no Engine — the shipped
+`uvicorn fathom.integrations.rest:app` deployment, or `serve_grpc()` called
+without one. A server that mounts an Engine serves that Engine and only that
+Engine, so it refuses `session_id` (`400 sessions_unavailable`, or
+`FAILED_PRECONDITION` over gRPC) rather than open a session under a ruleset
+the caller chose. See
+[Hot-reloading rulesets](hot-reload.md#a-reload-only-reaches-a-server-that-mounts-its-engine).
 
 ### Working memory across calls
 

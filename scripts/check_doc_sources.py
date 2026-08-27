@@ -13,11 +13,14 @@ Honors `.git-blame-ignore-revs` (the standard git convention used by
 or otherwise non-content commits don't trip the gate. Add a SHA to
 that file to declare a commit irrelevant for source-doc drift.
 
-Mechanical dependency bumps are also ignored automatically: commits
-authored by Dependabot or whose subject is a conventional
-`build(deps)` / `chore(deps)` change don't count as content changes,
-so routine version bumps to a cited manifest or workflow file no
-longer re-trip the gate on every PR. The most recent *meaningful*
+Mechanical commits are also ignored automatically: commits authored
+by Dependabot or whose subject is a conventional `build(deps)` /
+`chore(deps)` bump, and release-please's own `chore(main): release`
+and `chore(release):` commits, don't count as content changes. Both
+rewrite cited files -- a manifest, a workflow, the version lines in
+pyproject.toml / __init__.py / README.md / docs/index.md -- without
+changing any documented behavior, and without this the gate aged
+every page citing them on every release. The most recent *meaningful*
 commit to a cited source is what's compared against last_verified.
 
 Exit codes: 0 clean; 1 drift or missing source; 2 misconfig.
@@ -34,16 +37,21 @@ from typing import Any
 
 import yaml
 
-# Conventional-commit subjects for mechanical dependency bumps, e.g.
-# "build(deps): bump actions/checkout from 6 to 7" or
-# "chore(deps-dev): bump typescript". These touch cited manifest and
-# workflow files without changing the documented behavior.
-_DEP_BUMP_SUBJECT = re.compile(r"^(build|chore)\(deps(-dev)?\)", re.IGNORECASE)
+# Conventional-commit subjects for mechanical commits, e.g.
+# "build(deps): bump actions/checkout from 6 to 7",
+# "chore(deps-dev): bump typescript",
+# "chore(main): release 0.11.0" (release-please's own version bump) and
+# "chore(release): regenerate docs artifacts". These touch cited manifest,
+# workflow and version files without changing the documented behavior.
+_MECHANICAL_SUBJECT = re.compile(
+    r"^(?:(?:build|chore)\(deps(?:-dev)?\)|chore\((?:main|release)\): *(?:release|regenerate))",
+    re.IGNORECASE,
+)
 
 
 def _is_mechanical(author: str, subject: str) -> bool:
-    """True if a commit is a bot dependency bump, not a content change."""
-    return "dependabot[bot]" in author or bool(_DEP_BUMP_SUBJECT.match(subject))
+    """True if a commit is a bot bump or a release chore, not a content change."""
+    return "dependabot[bot]" in author or bool(_MECHANICAL_SUBJECT.match(subject))
 
 
 def _read_frontmatter(path: Path) -> dict[str, Any]:

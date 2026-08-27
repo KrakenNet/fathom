@@ -25,6 +25,10 @@ from fathom.models import (
     ThenBlock,
 )
 
+#: Classification operators whose CLIPS function is per-hierarchy. The rest of
+#: `_CLASSIFICATION_OPS` map to `fathom-*` externals, which take no hierarchy.
+_HIERARCHY_SCOPED_OPS = frozenset({"below", "meets_or_exceeds", "within_scope"})
+
 # Mapping from SlotType to CLIPS type strings
 _CLIPS_TYPE_MAP: dict[SlotType, str] = {
     SlotType.STRING: "STRING",
@@ -73,6 +77,10 @@ class Compiler:
     def __init__(self, match_evidence: bool = False) -> None:
         # Track the first hierarchy loaded for backward-compat unscoped shims
         self._first_hierarchy_name: str | None = None
+        # Every hierarchy compiled so far, name -> its ordered levels. A
+        # classification operator picks its hierarchy out of this by the level
+        # it names; see `_scoped_classification_fn`.
+        self._hierarchy_levels: dict[str, list[str]] = {}
         self._match_evidence = match_evidence
 
     @staticmethod
@@ -92,7 +100,7 @@ class Compiler:
         return value.replace("\\", "\\\\").replace('"', '\\"')
 
     @staticmethod
-    def _emit_slot_value(value: str) -> str:
+    def _emit_slot_value(value: str, slot_type: SlotType | None = None) -> str:
         """Emit a slot value for a user-declared assert per FR-6.
 
         Emission rules:
@@ -101,17 +109,32 @@ class Compiler:
           reference, e.g. ``?sid``).
         * Values starting with ``(`` are emitted verbatim (CLIPS expression,
           e.g. ``(f ?a)``).
-        * All other values are emitted as CLIPS-quoted string literals with
-          backslashes and double-quotes escaped.
+        * All other values are emitted in the declared slot type: bare for a
+          ``symbol`` slot, numeric for ``integer``/``float``, and as a
+          CLIPS-quoted string literal otherwise (backslashes and
+          double-quotes escaped).
+
+        The declared type matters because CLIPS type-checks assert literals.
+        Everything used to be quoted, so ``assert:`` into any non-string slot
+        failed the build outright — the whole ``then.assert`` feature only
+        ever worked against ``string`` slots.
 
         Args:
             value: The raw slot value from an ``AssertSpec``.
+            slot_type: Declared type of the target slot, when the template
+                registry knows it.
 
         Returns:
             The CLIPS token to embed inside a slot expression.
         """
         if value.startswith("?") or value.startswith("("):
             return value
+        if slot_type is SlotType.SYMBOL and _ARG_TOKEN_RE.match(value):
+            return value
+        if slot_type in (SlotType.FLOAT, SlotType.INTEGER):
+            numeric = Compiler._numeric_literal(value, slot_type)
+            if numeric is not None:
+                return numeric
         return f'"{Compiler._escape_clips_string(value)}"'
 
     def compile_template(self, defn: TemplateDefinition) -> str:
@@ -265,15 +288,17 @@ class Compiler:
         lines.append("    =>")
 
         # RHS: action assertion
-        rhs = self._compile_action(defn.then, full_name)
+        escaped_name = self._escape_clips_string(full_name)
+        rhs = self._compile_action(defn.then, full_name, templates)
         lines.append(rhs)
 
         # Evidence is emitted for every firing rule, including the
         # assert-only ones that never produce a ``__fathom_decision``.
         if self._match_evidence:
             indices = " ".join(f"(fact-index ?{_EVIDENCE_VAR}{i})" for i in range(len(defn.when)))
-            escaped = self._escape_clips_string(full_name)
-            lines.append(f'    (assert (__fathom_evidence (rule "{escaped}") (facts {indices})))')
+            lines.append(
+                f'    (assert (__fathom_evidence (rule "{escaped_name}") (facts {indices})))'
+            )
 
         lines.append(")")
         return "\n".join(lines)
@@ -308,7 +333,10 @@ class Compiler:
             if tmpl_def is not None:
                 slot_types = {slot.name: slot.type for slot in tmpl_def.slots}
 
-        slot_parts: list[str] = []
+        # (slot, compiled constraint, bind, tests emitted for that constraint).
+        # Kept together because merging two conditions on one slot renames a
+        # constraint variable, and every test that names it has to follow.
+        entries: list[tuple[str, str, str | None, list[str]]] = []
         test_ces: list[str] = []
         for cond in pattern.conditions:
             # Slot is guaranteed empty here — model validator rejects slot+test-only.
@@ -324,13 +352,18 @@ class Compiler:
                 pattern_index,
                 slot_types.get(cond.slot),
             )
+            own_tests: list[str] = []
             if isinstance(result, tuple):
-                slot_parts.append(result[0])
-                test_ces.append(result[1])
+                part = result[0]
+                own_tests.append(result[1])
             else:
-                slot_parts.append(result)
+                part = result
             if cond.test is not None:
-                test_ces.append(f"(test {cond.test.strip()})")
+                own_tests.append(f"(test {cond.test.strip()})")
+            entries.append((cond.slot, part, cond.bind, own_tests))
+
+        slot_parts, merged_tests = self._merge_slot_constraints(entries, pattern_index)
+        test_ces.extend(merged_tests)
         if join_slots:
             slot_parts, join_tests = self._bind_join_slots(
                 slot_parts, join_slots, (pattern.alias or "").lstrip("$")
@@ -340,6 +373,87 @@ class Compiler:
             return f"({pattern.template})", test_ces
         slots_str = " ".join(slot_parts)
         return f"({pattern.template} {slots_str})", test_ces
+
+    @staticmethod
+    def _merge_slot_constraints(
+        entries: list[tuple[str, str, str | None, list[str]]],
+        pattern_index: int,
+    ) -> tuple[list[str], list[str]]:
+        """Fold every condition on one slot into a single CLIPS constraint.
+
+        A CLIPS pattern may name each slot only once — a second ``(score ...)``
+        is a hard ``PRNTUTIL5`` build error — so two conditions on one slot,
+        which is simply how a range check is written, could not compile at
+        all. They are joined here into one conjunctive constraint
+        (``?v&:(> ?v 5)&:(< ?v 10)``) sharing a single binding variable.
+
+        The shared variable is the author's ``bind:`` when one is present, so
+        their name survives; otherwise it is the first variable the
+        expressions produced, or a fresh namespaced one when none did. Every
+        other constraint on that slot — and every test that references it —
+        is rewritten onto that name.
+
+        Args:
+            entries: ``(slot, constraint, bind, tests)`` in condition order.
+            pattern_index: The pattern's position in the rule, used to
+                namespace a generated variable.
+
+        Returns:
+            ``(slot_parts, test_ces)``, both in first-appearance order.
+        """
+        order: list[str] = []
+        grouped: dict[str, list[tuple[str, str, str | None, list[str]]]] = {}
+        for entry in entries:
+            slot = entry[0]
+            if slot not in grouped:
+                grouped[slot] = []
+                order.append(slot)
+            grouped[slot].append(entry)
+
+        slot_parts: list[str] = []
+        test_ces: list[str] = []
+        for slot in order:
+            group = grouped[slot]
+            if len(group) == 1:
+                slot_parts.append(group[0][1])
+                test_ces.extend(group[0][3])
+                continue
+
+            canonical = next((bind for _, _, bind, _ in group if bind), None)
+            if canonical is None:
+                leading = next(
+                    (
+                        var
+                        for var in (
+                            Compiler._leading_slot_var(slot, part) for _, part, _, _ in group
+                        )
+                        if var is not None
+                    ),
+                    None,
+                )
+                canonical = f"?{leading}" if leading else f"?s_{pattern_index}_{slot}"
+
+            prefix = f"({slot} "
+            bodies: list[str] = []
+            for _, part, _, tests in group:
+                body = (
+                    part[len(prefix) : -1]
+                    if part.startswith(prefix) and part.endswith(")")
+                    else part
+                )
+                lead = Compiler._leading_slot_var(slot, part)
+                if lead is not None and f"?{lead}" != canonical:
+                    body = body.replace(f"?{lead}", canonical)
+                    tests = [test.replace(f"?{lead}", canonical) for test in tests]
+                if body.startswith(canonical):
+                    body = body[len(canonical) :].lstrip("&")
+                if body:
+                    bodies.append(body)
+                test_ces.extend(tests)
+
+            joined = "".join(f"&{body}" for body in bodies)
+            slot_parts.append(f"({slot} {canonical}{joined})")
+        return slot_parts, test_ces
 
     @staticmethod
     def _compile_reason(reason: str) -> str:
@@ -379,22 +493,46 @@ class Compiler:
 
         return "(str-cat " + " ".join(str_cat_args) + ")"
 
-    def _compile_action(self, then: ThenBlock, rule_name: str) -> str:
+    def _compile_action(
+        self,
+        then: ThenBlock,
+        rule_name: str,
+        templates: dict[str, TemplateDefinition] | None = None,
+    ) -> str:
         """Compile a ThenBlock into a CLIPS RHS assert string.
 
         Args:
             then: The ThenBlock from the rule definition.
             rule_name: The fully-qualified rule name (module::rulename).
+            templates: Optional registry of template definitions, keyed by
+                template name. When supplied, ``then.assert`` slot values are
+                emitted in the declared slot type.
 
         Returns:
             A CLIPS assert statement string for ``__fathom_decision``.
         """
         indent = "    "
-        lines: list[str] = []
+        rule_name_escaped = self._escape_clips_string(rule_name)
+        # Every firing is recorded, so ``rule_trace`` and the audit record
+        # name the forward-chaining rules too -- reading the trace off
+        # decision-bearing facts alone lost the step that derived the fact
+        # the deciding rule matched on. ``seq`` is what keeps a rule that
+        # fires twice from collapsing into one fact under CLIPS duplicate
+        # suppression.
+        lines: list[str] = [
+            f"{indent}(bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))",
+        ]
 
-        # Emit __fathom_decision only when an action is declared (FR-7).
-        # Assert-only rules (action=None) skip this block entirely.
-        if then.action is not None:
+        # An assert-only rule (action=None) records the firing and nothing
+        # else: ``action`` defaults to ``none``, which never wins a decision
+        # (FR-7).
+        if then.action is None:
+            lines.append(
+                f"{indent}(assert (__fathom_decision "
+                f"(seq ?*fathom-decision-seq*) "
+                f'(rule "{rule_name_escaped}")))'
+            )
+        else:
             # Action is a SYMBOL (unquoted), reason is a STRING (quoted)
             action_str = then.action.value
             reason_expr = self._compile_reason(then.reason)
@@ -406,11 +544,11 @@ class Compiler:
                 if then.metadata
                 else ""
             )
-            rule_name_escaped = self._escape_clips_string(rule_name)
 
             lines.extend(
                 [
                     f"{indent}(assert (__fathom_decision",
+                    f"{indent}    (seq ?*fathom-decision-seq*)",
                     f"{indent}    (action {action_str})",
                     f"{indent}    (reason {reason_expr})",
                     f'{indent}    (rule "{rule_name_escaped}")',
@@ -427,8 +565,14 @@ class Compiler:
         # get quoted and escaped (FR-6).
         # AC-1.3: __fathom_decision MUST precede user asserts in YAML doc order.
         for spec in then.asserts:
+            slot_types: dict[str, SlotType] = {}
+            if templates is not None:
+                tmpl_def = templates.get(spec.template)
+                if tmpl_def is not None:
+                    slot_types = {slot.name: slot.type for slot in tmpl_def.slots}
             slot_parts = [
-                f"({slot} {self._emit_slot_value(value)})" for slot, value in spec.slots.items()
+                f"({slot} {self._emit_slot_value(value, slot_types.get(slot))})"
+                for slot, value in spec.slots.items()
             ]
             if slot_parts:
                 lines.append(f"{indent}(assert ({spec.template} " + " ".join(slot_parts) + "))")
@@ -512,7 +656,13 @@ class Compiler:
         hier_def = hierarchy[hier_name]
         levels = hier_def.levels
 
-        return self._compile_classification_functions(defn.name, levels)
+        # Named for the hierarchy, not for `defn.name`: the emitted family is
+        # documented as `<hier>-rank` / `<hier>-below` / `<hier>-meets-or-
+        # exceeds` / `<hier>-within-scope`, and a rule's `test:` CE can call
+        # those directly. Under the function's name those documented calls did
+        # not exist. `compile_all_classification_functions` already keys on the
+        # hierarchy, so this also makes the two emission paths agree.
+        return self._compile_classification_functions(hier_name, levels)
 
     def compile_all_classification_functions(
         self,
@@ -552,16 +702,25 @@ class Compiler:
             A string containing CLIPS deffunctions (scoped + optional unscoped shims).
         """
         rank_name = f"{name}-rank"
+        self._hierarchy_levels[name] = list(levels)
 
-        # Build rank deffunction with switch cases
+        # Build rank deffunction with switch cases.
+        #
+        # Cases are quoted and the operand is normalised through `str-cat`
+        # because CLIPS `switch` compares with `eq`, which holds a symbol and
+        # a string to be unequal. A bare `(case secret ...)` therefore ranked
+        # every STRING slot at the -1 default, so `meets_or_exceeds` on a
+        # string slot was always false and the rule silently never fired — a
+        # fail-open. `str-cat` collapses both representations to the string
+        # form, so one rank function serves symbol and string slots alike.
         cases: list[str] = []
         for idx, level in enumerate(levels):
-            cases.append(f"        (case {level} then {idx})")
+            cases.append(f'        (case "{Compiler._escape_clips_string(level)}" then {idx})')
         cases_str = "\n".join(cases)
 
         rank_fn = (
             f"(deffunction MAIN::{rank_name} (?level)\n"
-            f"    (switch ?level\n"
+            f"    (switch (str-cat ?level)\n"
             f"{cases_str}\n"
             f"        (default -1)))"
         )
@@ -1017,7 +1176,10 @@ class Compiler:
                 "List arguments must contain at least one item",
                 detail="List arguments must contain at least one item",
             )
-        return [item.strip() for item in inner.split(",")]
+        # Top-level commas only. A plain split shredded any quoted member
+        # holding one, so `in(["Paris, France", Berlin])` silently became a
+        # three-member list, two of them nonsense.
+        return Compiler._split_operator_args(inner)
 
     @staticmethod
     def _resolve_cross_refs(arg: str) -> str | None:
@@ -1168,6 +1330,52 @@ class Compiler:
                 tests.append(f"(test (eq ?{existing} {var}))")
         return parts, tests
 
+    def _scoped_classification_fn(self, op: str, unscoped: str, level: str, slot: str) -> str:
+        """Pick the hierarchy a classification operator meant, by the level it names.
+
+        ``below`` / ``meets-or-exceeds`` / ``within-scope`` are emitted once as
+        unscoped shims that delegate to the *first* hierarchy compiled. A pack
+        with two of them -- a sensitivity ladder and a trust ladder, both
+        authored exactly as the reference documents -- therefore ranked every
+        level of the second one through the first one's table, where nothing
+        matches and the rank is the ``-1`` default. ``meets_or_exceeds(X)``
+        became ``-1 >= -1``, true for every value, and ``below(X)`` became
+        ``-1 < -1``, false for every value: the allow rule fired
+        unconditionally and the deny rule never fired at all.
+
+        There is no YAML syntax for naming a hierarchy, and adding one would
+        not repair the packs already written. The level itself is the
+        discriminator -- ``verified`` belongs to the trust ladder and to
+        nothing else -- so this resolves it and emits that hierarchy's scoped
+        deffunction. When the level is ambiguous or unknown the answer would
+        be a silent always-true, so it is a compile error instead.
+
+        Falls back to the unscoped shim when no hierarchy has been compiled
+        into this Compiler: the deffunction may have been supplied directly
+        through ``load_clips_function``.
+        """
+        if op not in _HIERARCHY_SCOPED_OPS or not self._hierarchy_levels:
+            return unscoped
+
+        owners = [name for name, levels in self._hierarchy_levels.items() if level in levels]
+        if len(owners) == 1:
+            return f"{owners[0]}-{unscoped}"
+
+        known = ", ".join(
+            f"{name} ({', '.join(levels)})"
+            for name, levels in sorted(self._hierarchy_levels.items())
+        )
+        if not owners:
+            raise CompilationError(
+                f"{op}({level}) on slot '{slot}': no loaded hierarchy has a level "
+                f"named '{level}'. Loaded: {known}.",
+            )
+        raise CompilationError(
+            f"{op}({level}) on slot '{slot}': '{level}' is a level of "
+            f"{' and '.join(sorted(owners))}, so the hierarchy to rank it in is "
+            f"ambiguous. Rename the level in one of them. Loaded: {known}.",
+        )
+
     # Classification operators that produce a slot binding + test CE
     _CLASSIFICATION_OPS: dict[str, str] = {
         "below": "below",
@@ -1254,10 +1462,46 @@ class Compiler:
         """
         if slot_type is SlotType.STRING and not _QUOTED_ARG_RE.match(arg):
             return f'"{Compiler._escape_clips_string(arg)}"'
+        if slot_type in (SlotType.FLOAT, SlotType.INTEGER):
+            numeric = Compiler._numeric_literal(arg, slot_type)
+            if numeric is not None:
+                return numeric
         return Compiler._validate_operator_arg(arg, op)
 
     @staticmethod
-    def _inject_bind_into_pattern(slot: str, pattern: str, bind: str) -> str:
+    def _numeric_literal(arg: str, slot_type: SlotType) -> str | None:
+        """Render *arg* in the CLIPS numeric type *slot_type* declares.
+
+        CLIPS is type-strict about numbers exactly where it hurts most: it
+        rejects ``(score 5)`` against a FLOAT slot outright, and holds
+        ``(eq 5 5.0)`` to be false. So ``equals(5)`` on a float slot failed
+        the build, ``in([1, 2])`` never matched, and ``not_equals(5)`` matched
+        *everything* — each one an integer literal an author would reasonably
+        write. Re-rendering the literal in the declared type fixes all four
+        operators that reach this helper.
+
+        Returns:
+            The re-rendered literal, or ``None`` when *arg* is not a finite
+            number or cannot be represented in the declared type — in which
+            case the caller falls back to emitting it verbatim and CLIPS
+            reports the mismatch.
+        """
+        try:
+            value = float(arg)
+        except ValueError:
+            return None
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        if slot_type is SlotType.FLOAT:
+            return repr(value)
+        if value.is_integer():
+            return str(int(value))
+        return None
+
+    @staticmethod
+    def _inject_bind_into_pattern(
+        slot: str, pattern: str, bind: str, generated: set[str] | None = None
+    ) -> str:
         """Inject a CLIPS bind variable into a compiled slot pattern.
 
         Transforms ``(slot <body>)`` into ``(slot <bind>&<body>)`` so the bind
@@ -1265,15 +1509,29 @@ class Compiler:
         whatever constraint the expression already emitted. See design
         §LHS Bind Emission.
 
-        When the expression already emitted its own constraint variable, the
-        author's bind *replaces* it rather than joining it: CLIPS binds only
+        When the expression emitted its *own* constraint variable, the
+        author's bind replaces it rather than joining it: CLIPS binds only
         the leading variable of a conjunctive slot constraint and rejects any
         later one as referenced-before-defined. The generated name is an
         implementation detail (see the Stability note in
         ``docs/reference/yaml/rule.md``), so it is the one that gives way.
+
+        A leading variable this pattern did *not* generate is a cross-fact
+        reference — ``equals($other.field)`` compiles the slot down to the
+        other pattern's join variable — and renaming that silently deletes
+        the join, leaving a rule that matches everything. Those are joined
+        with ``&`` instead, which keeps the author's bind leading (so CLIPS
+        binds it) and turns the already-bound reference into a test.
+
+        Args:
+            slot: Name of the slot being constrained.
+            pattern: The compiled ``(slot ...)`` constraint.
+            bind: The author's bind variable, including its ``?``.
+            generated: Variable names (without ``?``) this pattern emitted
+                itself and may therefore rename. ``None`` means none are.
         """
         existing = Compiler._leading_slot_var(slot, pattern)
-        if existing is not None:
+        if existing is not None and existing in (generated or set()):
             return pattern.replace(f"?{existing}", bind)
         prefix = f"({slot} "
         if pattern.startswith(prefix) and pattern.endswith(")"):
@@ -1331,9 +1589,27 @@ class Compiler:
             inner = self._compile_condition(
                 slot, expr, aliases, pattern_alias, None, pattern_index, slot_type
             )
+            # Names this pattern emits for itself: the namespaced constraint
+            # variable, and the classification/temporal slot binding. Anything
+            # else leading the constraint came from another pattern.
+            own_prefix = (pattern_alias or f"p{pattern_index}").lstrip("$")
+            generated = {f"s_{pattern_index}_{slot}", f"{own_prefix}-{slot}"}
             if isinstance(inner, tuple):
-                return self._inject_bind_into_pattern(slot, inner[0], bind), inner[1]
-            return self._inject_bind_into_pattern(slot, inner, bind)
+                pattern, test_ce = inner
+                # The classification and temporal operators bind the slot to
+                # their own variable and reference it from a test CE. Injecting
+                # the author's bind replaces that variable in the pattern, so
+                # the test CE has to be rewritten with it too — otherwise the
+                # test names a variable nothing defines and the rule fails to
+                # build.
+                leading = self._leading_slot_var(slot, pattern)
+                if leading is not None and leading in generated:
+                    test_ce = test_ce.replace(f"?{leading}", bind)
+                return (
+                    self._inject_bind_into_pattern(slot, pattern, bind, generated),
+                    test_ce,
+                )
+            return self._inject_bind_into_pattern(slot, inner, bind, generated)
 
         # Case C: expression only -> existing path unchanged.
         op, arg = self._parse_operator(expr)
@@ -1347,6 +1623,8 @@ class Compiler:
             # Resolve the argument (cross-ref or literal)
             cross_ref = self._resolve_cross_refs(arg)
             arg_var = cross_ref if cross_ref is not None else self._validate_operator_arg(arg, op)
+            if cross_ref is None:
+                clips_fn = self._scoped_classification_fn(op, clips_fn, arg, slot)
             slot_binding = f"({slot} {slot_var})"
             test_ce = f"(test ({clips_fn} {slot_var} {arg_var}))"
             return slot_binding, test_ce
@@ -1387,6 +1665,10 @@ class Compiler:
             return f"({slot} {slot_var}&:(< {slot_var} {arg}))"
         elif op == "in":
             items = [self._literal(i, op, slot_type) for i in self._parse_list_arg(arg)]
+            # CLIPS `or` needs two or more arguments, so a one-member list has
+            # to compile to the bare equality test instead of `(or (eq ...))`.
+            if len(items) == 1:
+                return f"({slot} {slot_var}&:(eq {slot_var} {items[0]}))"
             or_clauses = " ".join(f"(eq {slot_var} {item})" for item in items)
             return f"({slot} {slot_var}&:(or {or_clauses}))"
         elif op == "not_in":
@@ -1406,6 +1688,51 @@ class Compiler:
                 f"Supported operators: {', '.join(self._supported_operators())}",
                 detail=f"Expression: {expr}",
             )
+
+    @staticmethod
+    def _split_operator_args(arg: str) -> list[str]:
+        """Split an operator argument list on top-level commas only.
+
+        A plain ``arg.split(",")`` shredded any argument that legitimately
+        contains a comma. ``sequence_detected`` takes a JSON array of event
+        descriptors as its first argument, so *every* YAML use of it failed
+        to compile — the operator only ever worked when called as a raw CLIPS
+        function from a test.
+
+        Commas inside brackets, braces, parentheses or a double-quoted string
+        belong to the argument, not to the list.
+        """
+        args: list[str] = []
+        current: list[str] = []
+        depth = 0
+        in_string = False
+        escaped = False
+        for char in arg:
+            if in_string:
+                current.append(char)
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+                current.append(char)
+            elif char in "[{(":
+                depth += 1
+                current.append(char)
+            elif char in "]})":
+                depth -= 1
+                current.append(char)
+            elif char == "," and depth == 0:
+                args.append("".join(current).strip())
+                current = []
+            else:
+                current.append(char)
+        args.append("".join(current).strip())
+        return args
 
     @staticmethod
     def _compile_temporal_condition(
@@ -1453,7 +1780,7 @@ class Compiler:
         slot_binding = f"({slot} {slot_var})"
 
         # Parse comma-separated args and check arity before unpacking
-        args = [a.strip() for a in arg.split(",")]
+        args = Compiler._split_operator_args(arg)
         required = Compiler._TEMPORAL_ARITY[op]
         if len(args) < required:
             raise CompilationError(

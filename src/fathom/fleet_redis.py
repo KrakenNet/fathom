@@ -244,14 +244,14 @@ class RedisFactStore:
         return result
 
     async def count(self, template: str, fact_filter: dict[str, Any] | None = None) -> int:
-        """Count facts matching the template and optional filter."""
-        if not fact_filter:
-            count_result: int = await self._retry(
-                "count",
-                lambda: self._client.scard(self._index_key(template)),
-            )
-            return count_result
-        # With a filter we must inspect each fact
+        """Count facts matching the template and optional filter.
+
+        Counts what :meth:`query` would return. The unfiltered path used to
+        answer ``SCARD`` on the index set, which outlives the hashes it points
+        at: once the TTL expired a fact, ``query`` no longer returned it while
+        ``count`` still counted it -- and quota and capacity checks read
+        ``count``. Reading through ``query`` also prunes those index entries.
+        """
         facts = await self.query(template, fact_filter)
         return len(facts)
 

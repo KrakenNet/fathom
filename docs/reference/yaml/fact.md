@@ -9,7 +9,7 @@ sources:
   - src/fathom/engine.py
   - src/fathom/facts.py
   - src/fathom/integrations/rest.py
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 ---
 
 # Fact
@@ -130,15 +130,19 @@ the assertion.
    `SlotDefinition.required` as "not currently enforced" — that is
    accurate for the compiler and CLIPS emission, but `FactManager`
    enforces it at assertion time on the SDK and REST paths.
-5. **Type coercion** (`_coerce_types`, lines 255–272):
+5. **Type coercion** (`_coerce_types`, lines 386–415):
    - `INTEGER` slot with a `float` value where `value == int(value)` →
      coerced to `int` (excluding `bool`).
+   - `FLOAT` slot with an `int` value → widened to `float` (excluding
+     `bool`). CLIPS types a bare `3` as INTEGER and would reject it
+     against a FLOAT slot, so without this the assert failed after
+     validation had already passed it. JSON has one number type, so a
+     REST or TypeScript caller cannot send `3.0` at all.
    - `STRING` slot with a non-`str` value → coerced via `str(value)`.
-   `FLOAT` slots accept `int` without coercion (type check allows
-   both). `SYMBOL` slots are wrapped later — see
+   `SYMBOL` slots are wrapped later — see
    [CLIPS coercion](#clips-coercion).
-6. **Type check** (`_check_types`, lines 285–320). Validates against
-   `_PYTHON_TYPE_MAP` (facts.py lines 18–23):
+6. **Type check** (`_check_types`, lines 428–464). Validates against
+   `_PYTHON_TYPE_MAP` (facts.py lines 30–35):
 
    | `SlotType` | Accepted Python types |
    |------------|------------------------|
@@ -148,7 +152,7 @@ the assertion.
    | `INTEGER`  | `int`                 |
 
    `bool` is **explicitly rejected** for `INTEGER` and `FLOAT` slots
-   (facts.py lines 296–312) even though Python's `bool` is a subclass
+   (facts.py lines 438–450) even though Python's `bool` is a subclass
    of `int` — the check runs before the `isinstance` comparison.
 7. **Allowed-values check** (`_check_allowed_values`, lines 322–337).
    When `SlotDefinition.allowed_values` is set, the value is coerced
@@ -226,9 +230,10 @@ it explicitly.
 
 ## What is not surfaced
 
-- **Internal decision facts.** Rules assert a `__fathom_decision` fact
-  to carry the outcome; the template is built by `Engine.__init__`
-  (engine.py lines 51–60, 198) and deliberately kept out of
+- **Internal decision facts.** Every compiled rule asserts a
+  `__fathom_decision` fact per firing, carrying the outcome when it
+  declared one; the template is built by `Engine.__init__` (engine.py
+  lines 89–104, 272–273) and deliberately kept out of
   `_template_registry`, so it never appears in `query`, `retract`, or
   the audit fact-snapshot.
 - **`initial-fact`.** Asserted by `env.reset()`; excluded by the same

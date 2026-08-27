@@ -152,7 +152,27 @@ def _session_engine(
     A session is bound to the ruleset it was created with; addressing it
     with a different one is 409 rather than a silent evaluation under the
     wrong policy.
+
+    Refused outright on a server that mounts an Engine. A session needs its
+    own working memory -- ``/v1/facts`` accumulates into it -- so it cannot
+    *be* the mounted Engine without every session reading every other
+    session's facts; and any other Engine is compiled from the ``ruleset``
+    the caller named, which is the caller choosing the deciding policy and
+    escaping ``POST /v1/rules/reload`` at the same time. Neither is
+    acceptable, so the mounted deployment serves stateless evaluation only.
     """
+    if getattr(app.state, "engine", None) is not None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "sessions_unavailable",
+                "detail": (
+                    "this server serves the ruleset mounted on app.state.engine; "
+                    "omit session_id, or run a server with no Engine mounted to "
+                    "use sessions"
+                ),
+            },
+        )
     try:
         return session_store.get_or_create(session_id, rules_path, attestation_service)
     except SessionRulesetMismatchError as exc:
@@ -173,6 +193,47 @@ def _require_session_engine(session_id: str) -> Engine:
     if engine is None:
         raise HTTPException(status_code=404, detail="session not found")
     return engine
+
+
+def _data_plane_engine(
+    resolved: str,
+    attestation_service: AttestationService | None,
+) -> Engine:
+    """Return the Engine a stateless evaluation should run against.
+
+    When an Engine is mounted on ``app.state.engine`` it *is* the served
+    policy: it is the one ``POST /v1/rules/reload`` swaps, and a reload the
+    data plane cannot see is not a reload. Every stateless request used to
+    compile a fresh Engine off disk instead, so a successful hot-reload
+    changed the reported ruleset hash and nothing else — the endpoint
+    reported success while traffic kept being decided by the old ruleset.
+
+    Without a mounted Engine the request's own ``ruleset`` is compiled from
+    disk, which is what makes multi-ruleset serving work. The caller's path
+    is resolved and jailed either way, so a traversal attempt is still
+    rejected before this point.
+
+    Raises:
+        HTTPException: 400 when the named ruleset cannot be loaded. The
+            underlying diagnostic names server-side absolute paths, so it is
+            logged rather than returned.
+    """
+    mounted: Engine | None = getattr(app.state, "engine", None)
+    if mounted is not None:
+        # The mounted Engine is usually constructed before the attestation
+        # service is injected onto app.state, so attach it here rather than
+        # publish an `attestation_token` field that is always null.
+        if mounted.attestation_service is None and attestation_service is not None:
+            mounted.attestation_service = attestation_service
+        return mounted
+    try:
+        return Engine.from_rules(resolved, attestation_service=attestation_service)
+    except (CompilationError, FathomValidationError, OSError) as exc:
+        logger.warning("evaluate: unable to load ruleset", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_ruleset", "detail": "ruleset could not be loaded"},
+        ) from exc
 
 
 # Maximum accepted request body on the data-plane routes. POST /v1/evaluate
@@ -381,6 +442,17 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     withdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the
     same session can never change this one's decision.
 
+    ``ruleset`` names a path under ``FATHOM_RULESET_ROOT`` and is always
+    resolved and jailed. It selects the policy only on a server with no
+    Engine mounted on ``app.state.engine`` — the shipped
+    ``uvicorn fathom.integrations.rest:app`` deployment. A server that
+    mounts one serves *that* Engine, because it is the one
+    ``POST /v1/rules/reload`` swaps and a reload the data plane cannot see
+    is not a reload. ``session_id`` is refused there with 400
+    ``sessions_unavailable`` for the same reason: a session's Engine is
+    compiled from the ruleset the caller named, so opening one would hand
+    policy selection back to the data plane.
+
     Declared ``def`` (not ``async def``) on purpose: CLIPS evaluation is
     blocking CPU work, so Starlette must run it in the threadpool rather
     than on the event loop, where one large request stalls every other
@@ -395,7 +467,7 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     if request.session_id:
         engine = _session_engine(request.session_id, resolved, attestation)
     else:
-        engine = Engine.from_rules(resolved, attestation_service=attestation)
+        engine = _data_plane_engine(resolved, attestation)
 
     try:
         result = engine.evaluate_once(
@@ -704,14 +776,36 @@ async def reload_rules(
             "engine or attestation not configured",
         )
 
+    def _rejected(status: int, error: str, detail: str, reason: str) -> JSONResponse:
+        """Every way a reload can be refused is an audited event.
+
+        Only the two signature rejections wrote to the sink, so an operator
+        reading the audit trail saw nothing for a compile failure -- the
+        reason the how-to names -- or for an unreadable path, a malformed
+        signature, or a request that named both sources. A reload attempt
+        that leaves no trace is the one an attacker wants.
+        """
+        _write_audit(
+            audit_sink,
+            {
+                "event_type": "ruleset_reload_rejected",
+                "reason": reason,
+                "ruleset_hash_before": engine.ruleset_hash if engine is not None else None,
+                "timestamp": _now_iso(),
+                "actor": "bearer-token",
+            },
+        )
+        return _make_error_response(status, error, detail)
+
     # --- exactly-one-of ruleset_path / ruleset_yaml ---
     has_path = payload.ruleset_path is not None
     has_yaml = payload.ruleset_yaml is not None
     if has_path == has_yaml:
-        return _make_error_response(
+        return _rejected(
             400,
             "invalid_request",
             "exactly one of ruleset_path or ruleset_yaml must be provided",
+            "invalid_request",
         )
 
     # --- materialise raw YAML bytes ---
@@ -730,10 +824,11 @@ async def reload_rules(
             # which must never reach a remote caller -- the same rule the
             # ruleset path jail follows. Log it, answer with a fixed string.
             logger.warning("reload: unable to read ruleset_path", exc_info=True)
-            return _make_error_response(
+            return _rejected(
                 400,
                 "invalid_request",
                 "unable to read ruleset_path",
+                "unreadable_ruleset_path",
             )
 
     # --- decode signature (base64 string → bytes) ---
@@ -742,10 +837,11 @@ async def reload_rules(
         try:
             sig_bytes = base64.b64decode(payload.signature, validate=True)
         except (binascii.Error, ValueError):
-            return _make_error_response(
+            return _rejected(
                 400,
                 "invalid_request",
                 "signature must be valid base64",
+                "malformed_signature",
             )
 
     # --- signature verification (fail-closed when required) ---
@@ -753,10 +849,11 @@ async def reload_rules(
     if require_signature:
         if pubkey is None:
             # Should have failed at build_app; defensive 500.
-            return _make_error_response(
+            return _rejected(
                 500,
                 "server_misconfigured",
                 "require_signature=true but ruleset pubkey is not loaded",
+                "server_misconfigured",
             )
         if sig_bytes is None:
             # Missing signature is a signature-rejection, not a request shape
@@ -814,11 +911,20 @@ async def reload_rules(
         # the ruleset through POST /v1/compile, which compiles inline YAML and
         # touches no server paths.
         logger.warning("reload: ruleset failed to compile", exc_info=True)
-        return _make_error_response(
+        return _rejected(
             400,
             "invalid_ruleset",
             "ruleset failed to compile",
+            "compile_failed",
         )
+
+    # Sessions hold their own Engine, compiled when the session opened, so
+    # they would keep deciding on the pre-reload ruleset for as long as they
+    # stayed alive — an admin tightening policy would not reach them. Drop
+    # them: a reload already discards working memory by design (see
+    # docs/how-to/hot-reload.md), so surviving with stale *policy* is the
+    # worse of the two.
+    session_store.clear()
 
     timestamp = _now_iso()
     attestation_token = attestation.sign_event(
@@ -950,6 +1056,29 @@ def _opa_facts(engine: Engine, template: str, document: dict[str, Any]) -> dict[
     return {k: v for k, v in flatten_input(document).items() if k in declared}
 
 
+def _opa_undefined(engine: Engine, document_name: str) -> JSONResponse:
+    """The answer for a document no rule can be evaluated against.
+
+    Shaped exactly like the happy path so an OPA client cannot tell the two
+    apart -- which is the point: OPA answers `false` for an undefined `allow`,
+    not an error.
+    """
+    decision = engine.default_decision
+    if document_name:
+        return JSONResponse(content={"result": decision == document_name})
+    return JSONResponse(
+        content={
+            "result": {
+                "allow": decision == "allow",
+                "deny": decision == "deny",
+                "decision": decision,
+                "reason": None,
+                "rule_trace": [],
+            }
+        }
+    )
+
+
 def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONResponse:
     """Shared body of the GET and POST forms of the Data API."""
     segments = [segment for segment in path.split("/") if segment]
@@ -975,9 +1104,15 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
 
     attestation = getattr(app.state, "attestation", None)
     try:
-        engine = Engine.from_rules(resolved, attestation_service=attestation)
-    except (CompilationError, FathomValidationError, OSError) as exc:
-        return _opa_error(400, "invalid_parameter", f"ruleset {ruleset_path!r}: {exc}")
+        engine = _data_plane_engine(resolved, attestation)
+    except HTTPException as exc:
+        # The loader's own text names the resolved server-side absolute path
+        # ("/srv/rules/x is not a directory"), which must never reach a remote
+        # caller — the same rule the ruleset path jail follows. Echo back only
+        # the path the caller sent.
+        return _opa_error(
+            exc.status_code, "invalid_parameter", f"ruleset {ruleset_path!r} could not be loaded"
+        )
 
     if template not in engine.template_registry:
         return _opa_error(
@@ -989,7 +1124,17 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
 
     try:
         result = engine.evaluate_once(facts=[(template, _opa_facts(engine, template, document))])
-    except (EvaluationError, FathomValidationError) as exc:
+    except FathomValidationError:
+        # The document does not fit the templates -- a missing required slot,
+        # a value of the wrong type. In Rego that is not an error: the
+        # reference is undefined, the rule body fails, and the policy falls to
+        # its default. Answer the same way rather than reporting a caller's
+        # partial document as a server fault (it used to be a 500, which is
+        # what orchestrators and circuit-breakers read as "the policy engine
+        # is broken"). The engine's default decision is fail-closed.
+        logger.debug("opa data: document does not fit template %r", template, exc_info=True)
+        return _opa_undefined(engine, document_name)
+    except EvaluationError as exc:
         return _opa_error(500, "internal_error", str(exc))
 
     if document_name:
@@ -1088,11 +1233,23 @@ def build_app(*, require_signature: bool = True) -> FastAPI:
     app.state.engine = None
     app.state.attestation = None
     app.state.audit_sink = None
-    app.state.require_signature = require_signature
+    # Both halves or neither. Assigning the flag verbatim here made
+    # `require_signature=False` alone switch verification off, while the env
+    # var below decided only whether a pubkey was loaded -- so a single stray
+    # flag lowered the floor the docs promise takes two.
+    dev_escape = not require_signature and allow_unsigned
+    app.state.require_signature = not dev_escape
     app.state.last_reload_iso = None
     app.state.boot_time_iso = _now_iso()
 
-    if not require_signature and allow_unsigned:
+    if not require_signature and not allow_unsigned:
+        logger.warning(
+            "require_signature=false has no effect without "
+            "FATHOM_ALLOW_UNSIGNED_RULESETS=1; ruleset signature verification "
+            "stays ON (the dev escape requires both)"
+        )
+
+    if dev_escape:
         logger.warning(
             "ruleset signature verification disabled "
             "(require_signature=false + FATHOM_ALLOW_UNSIGNED_RULESETS=1); "

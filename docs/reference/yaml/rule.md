@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 ---
 
 # Rule
@@ -208,7 +208,25 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
 call to the generated `below` / `meets-or-exceeds` / `within-scope`
-CLIPS deffunction. Temporal operators emit `(test …)` CEs that call
+CLIPS deffunction.
+
+**Which hierarchy is decided by the level you name.** `meets_or_exceeds(verified)`
+compiles to `trust-meets-or-exceeds` because `verified` is a level of the
+`trust` hierarchy and of no other one loaded. There is no syntax for naming a
+hierarchy, and none is needed: the level is the discriminator. Two
+consequences, both compile errors rather than a silently wrong answer:
+
+- a level no loaded hierarchy defines — a typo, or a hierarchy the bundle
+  forgot — fails to compile, naming the level and every loaded ladder;
+- a level two hierarchies both define is ambiguous and fails to compile.
+  Rename it in one of them.
+
+When the argument is a cross-fact reference (`$other.level`) rather than a
+literal, the hierarchy cannot be resolved at compile time and the call goes to
+the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
+within one hierarchy.
+
+Temporal operators emit `(test …)` CEs that call
 external functions registered at runtime.
 
 Any other operator raises `CompilationError` from `_compile_condition`.
@@ -219,7 +237,7 @@ For worked examples of each operator see
 
 | Field         | Type                      | Default             | Description                                                                                                                |
 |---------------|---------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
-| `action`      | `ActionType \| None`      | `None`              | One of `allow`, `deny`, `escalate`, `scope`, `route`. Emitted as an unquoted symbol on the `__fathom_decision` fact.        |
+| `action`      | `ActionType \| None`      | `None`              | One of `allow`, `deny`, `escalate`, `scope`, `route`. Emitted as an unquoted symbol on the `__fathom_decision` fact; `None` leaves the slot at its `none` default, which never wins a decision. |
 | `reason`      | `str`                     | `""`                | Free text. `{placeholder}` refs compile via `_compile_reason` to `(str-cat "…" ?placeholder "…")`; otherwise a quoted literal. |
 | `log`         | `LogLevel`                | `LogLevel.SUMMARY`  | One of `none`, `summary`, `full`. Emitted as the `log-level` slot on the decision fact.                                    |
 | `notify`      | `list[str]`               | `[]`                | Notification targets. Joined with `", "` and emitted as a single quoted string in the `notify` slot.                        |
@@ -231,8 +249,11 @@ For worked examples of each operator see
 ### `ThenBlock` validator
 
 `_require_action_or_asserts` enforces that at least one of `action` or a
-non-empty `assert` list is provided. Rules may assert-only (no
-`__fathom_decision` fact is emitted), decide-only, or do both.
+non-empty `assert` list is provided. Rules may assert-only, decide-only, or
+do both. An assert-only rule still emits a `__fathom_decision` with `action`
+left at its `none` default: that fact is what `rule_trace` and the audit
+record are read from, so the rule's firing stays visible without becoming a
+candidate for the decision.
 
 ## `AssertSpec` fields
 
@@ -273,8 +294,8 @@ the decision fact. Mechanics in
 `compile_rule` composes the rule in this fixed order: header,
 `(declare (salience N))` (only when non-zero), pattern CEs in `when`
 order, test CEs collected from every pattern, the `=>` arrow, the
-`__fathom_decision` assert (only when `action` is set), then user
-asserts in declared order. Indentation is four spaces.
+`?*fathom-decision-seq*` increment, the `__fathom_decision` assert, then
+user asserts in declared order. Indentation is four spaces.
 
 ### YAML input
 
@@ -310,7 +331,9 @@ asserts in declared order. Indentation is four spaces.
     (transfer (amount ?amt&?s_0_amount&:(> ?s_0_amount 100)) (currency ?ccy))
     (test (blocked-country ?amt))
     =>
+    (bind ?*fathom-decision-seq* (+ ?*fathom-decision-seq* 1))
     (assert (__fathom_decision
+        (seq ?*fathom-decision-seq*)
         (action deny)
         (reason (str-cat "Transfer of " ?amt " " ?ccy " exceeds limit"))
         (rule "finance::deny_large_transfer")
@@ -334,8 +357,11 @@ Notes on the shape:
   `json.dumps(metadata, sort_keys=True)`.
 - The `__fathom_decision` assert precedes user asserts in document
   order (AC-1.3).
-- When `action` is `None`, the decision assert is skipped entirely and
-  only user asserts are emitted.
+- When `action` is `None` the assert shrinks to
+  `(assert (__fathom_decision (seq ?*fathom-decision-seq*) (rule "…")))`,
+  which records the firing for `rule_trace` without rendering a decision.
+- `seq` exists to defeat CLIPS duplicate-fact suppression, so a rule that
+  fires twice is traced twice instead of collapsing into one fact.
 
 ## Validators — what is rejected
 

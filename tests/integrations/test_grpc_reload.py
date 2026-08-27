@@ -262,3 +262,60 @@ def test_grpc_reload_admin_token_unset_data_plane_works(
         resp = stub.Reload(req, metadata=_AUTH_META, timeout=5.0)
 
     assert resp.ruleset_hash_after.startswith("sha256:")
+
+
+def test_grpc_reload_rejections_leak_no_server_paths_and_are_audited(
+    grpc_server: tuple[str, Ed25519PrivateKey, _ListAuditSink], tmp_path: Path
+) -> None:
+    """REST answers both of these with a fixed string and an audit record.
+
+    gRPC echoed the OSError -- which carries the resolved absolute path the
+    jail exists to hide -- and the compiler's first diagnostic line, which
+    names the files it was reading. Neither wrote anything to the audit sink.
+    """
+    target, priv, sink = grpc_server
+    root = str(tmp_path)
+
+    broken = yaml.safe_dump(
+        {
+            "ruleset": "rs-broken",
+            "module": "gov",
+            "rules": [
+                {
+                    "name": "rule-unknown-slot",
+                    "when": [
+                        {
+                            "template": "agent",
+                            "conditions": [{"slot": "nonesuch", "expression": "equals(bob)"}],
+                        }
+                    ],
+                    "then": {"action": "allow", "reason": "ok"},
+                }
+            ],
+        }
+    ).encode("utf-8")
+
+    cases = [
+        (
+            "unreadable_ruleset_path",
+            fathom_pb2.ReloadRequest(ruleset_path="nonesuch.yaml", signature=priv.sign(b"")),
+        ),
+        (
+            "compile_failed",
+            fathom_pb2.ReloadRequest(
+                ruleset_yaml=broken.decode("utf-8"), signature=priv.sign(broken)
+            ),
+        ),
+    ]
+
+    with grpc.insecure_channel(target) as channel:
+        stub = fathom_pb2_grpc.FathomServiceStub(channel)
+        for reason, req in cases:
+            before = len(sink.records)
+            with pytest.raises(grpc.RpcError) as excinfo:
+                stub.Reload(req, metadata=_AUTH_META, timeout=5.0)
+
+            assert root not in excinfo.value.details(), (reason, excinfo.value.details())
+            new = sink.records[before:]
+            assert [r.get("reason") for r in new] == [reason], (reason, new)
+            assert new[0]["event_type"] == "ruleset_reload_rejected"

@@ -234,6 +234,24 @@ class TemplateDefinition(BaseModel):
     def _name_must_be_clips_ident(cls, v: str) -> str:
         return _validate_clips_ident(v, "TemplateDefinition.name")
 
+    @model_validator(mode="after")
+    def _fleet_slots_must_not_shadow_store_metadata(self) -> TemplateDefinition:
+        """``fact_id`` belongs to the FactStore on a shared template.
+
+        A store row is ``{"fact_id": <row id>, **data}`` and the fleet sync
+        strips ``fact_id`` before asserting into a peer, so a template that
+        declared a slot by that name published a value no peer ever received:
+        the publisher decided with it, every peer decided without it. Refuse
+        the declaration where the author can see it.
+        """
+        if self.scope == "fleet" and any(slot.name == "fact_id" for slot in self.slots):
+            raise ValueError(
+                f"TemplateDefinition {self.name!r}: 'fact_id' is reserved on a "
+                "fleet-scoped template — it is the FactStore's own row key and "
+                "is removed before the fact reaches a peer. Rename the slot."
+            )
+        return self
+
 
 class ConditionEntry(BaseModel):
     """A single slot condition within a fact pattern."""

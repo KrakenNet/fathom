@@ -92,6 +92,14 @@
     };
   }
 
+  // The caption shown when the ruleset supplied no reason. Only an allow
+  // means every policy was satisfied.
+  function defaultReason(decision) {
+    if (decision === "allow") return "All policies satisfied — request permitted";
+    if (!decision) return "No decision returned by the ruleset";
+    return "No reason supplied by the ruleset (decision: " + decision + ")";
+  }
+
   // Build the SPA result object the Bench/Audit views expect from a real
   // /evaluate response. Per-rule timings are NOT fabricated (the engine only
   // reports a total duration); the trace shows each rule's salience instead.
@@ -105,9 +113,13 @@
     }));
     const firedNodes = trace.filter((n) => n.matched && n.severity !== "log");
     const rec = res.audit ? adaptAuditRecord(res.audit, trace, factsSpa, res) : null;
+    // A missing decision is not an allow, and a deny that carried no reason
+    // was captioned "All policies satisfied — request permitted": the view
+    // read deny and the caption read permitted, on the same result.
+    const decision = res.decision || "deny";
     return {
-      decision: res.decision || "allow",
-      reason: res.reason || "All policies satisfied — request permitted",
+      decision: decision,
+      reason: res.reason || defaultReason(decision),
       durationUs: res.duration_us,
       moduleTrace: res.module_trace || [],
       trace, fired: firedNodes,
@@ -120,7 +132,7 @@
   function adaptAuditRecord(a, trace, factsSpa, res) {
     return {
       seq: a.seq, ts: Date.parse(a.ts) || Date.now(),
-      decision: a.decision || "allow", reason: a.reason || "",
+      decision: a.decision || "deny", reason: a.reason || "",
       durationUs: a.duration_us != null ? a.duration_us : (res ? res.duration_us : 0),
       prevHash: a.prev_hash, hash: a.hash,
       sig: a.signature || "(attestation extra not installed)",
