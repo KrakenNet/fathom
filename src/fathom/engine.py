@@ -1547,10 +1547,29 @@ class Engine:
         attestation service is configured, the result is signed with
         an Ed25519 JWT token.
 
+        Every rule starts each call un-refracted, so the decision is a
+        function of working memory and not of how many times this engine has
+        been asked before. Without that, a rule whose LHS mentions only facts
+        that outlive one request -- an ``agent`` fact, a ``quarantine`` fact,
+        a policy fact -- matched once and stayed refracted for the life of the
+        engine, while a higher-salience allow rule kept re-firing on each new
+        request fact. A hard deny on call 1 became a permit on calls 2..N, and
+        the attestation service signed both: same ``input_hash``, opposite
+        decisions. It also contradicted the determinism the docs state
+        outright -- same pack, same working memory, same focus stack, same
+        decision.
+
+        The cost is that a rule is no longer fire-once per engine: one that
+        accumulates (a counter, a running total) now advances on every call.
+        Rules that derive facts are unaffected, since CLIPS suppresses a
+        duplicate assert.
+
         Returns:
             :class:`EvaluationResult` with decision, reason, and traces.
         """
         with self._lock:
+            self._refresh_all_rules()
+
             # Pre-snapshot user facts when any loaded rule declares `asserts`,
             # so newly-asserted facts can be captured for the audit record.
             pre_snapshot = self._snapshot_user_facts() if self._has_asserting_rules else None
@@ -1663,22 +1682,10 @@ class Engine:
             for template, _ in facts:
                 self._metrics.record_fact_asserted(template)
             self._publish_working_memory(t for t, _ in facts)
-            # Clear refraction BEFORE the run, not after.
-            #
-            # Retracting this request's facts un-matches the rules that
-            # joined against them, but a rule whose LHS references only
-            # longer-lived working memory (an `agent` fact, a policy fact)
-            # matched once and stays refracted forever — it silently stops
-            # firing from the second request onwards. For a deny rule that
-            # is a fail-open, and the shipped owasp/nist/hipaa/cmmc packs
-            # all contain deny rules of exactly that shape.
-            #
-            # Refreshing afterwards does not fix it: CLIPS `refresh` does not
-            # restore an activation that fired during the run just completed,
-            # so the rule was still refracted on the very next call. Doing it
-            # here means every evaluate_once starts from a clean agenda,
-            # which is what "same facts in, same decision out" requires.
-            self._refresh_all_rules()
+            # Refraction is cleared by `evaluate` itself, before the run and
+            # not after: CLIPS `refresh` does not restore an activation that
+            # fired during the run just completed, so a rule refreshed on the
+            # way out is still refracted on the very next call.
             # Fact indices present before inference. Used only on the
             # budget-exhaustion path below.
             pre_run_indices = {fact.index for fact in self._env.facts()}

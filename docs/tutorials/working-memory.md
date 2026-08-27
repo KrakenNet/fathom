@@ -79,7 +79,7 @@ RULES_YAML = """
 module: access
 rules:
   - name: allow-requester-alone
-    salience: 10
+    salience: 20
     when:
       - template: agent
         conditions:
@@ -89,8 +89,10 @@ rules:
       action: allow
       reason: "requester present"
 
+  # Lower salience, so it fires *after* allow-requester-alone and its
+  # decision is the one left standing under last-write-wins.
   - name: allow-dual-approval
-    salience: 20
+    salience: 10
     when:
       - template: agent
         conditions:
@@ -144,6 +146,13 @@ both a requester fact **and** an approver fact exist. The requester fact was
 asserted in the first step, never retracted, and therefore still present when
 the second evaluation runs. A stateless system would see only the approver fact
 on the second call and the combined rule would never fire.
+
+`allow-requester-alone` fires on the second call too — every rule starts each
+`evaluate()` un-refracted, so a rule that fired before is eligible again. Which
+of the two decisions the caller gets is settled by salience and last-write-wins:
+`allow-dual-approval` carries the lower salience, so it fires last and its
+reason is the one left standing. See
+[Fail-closed salience and last-write-wins](../concepts/runtime-and-working-memory.md#fail-closed-salience-and-last-write-wins).
 
 ## Contrast with stateless systems
 

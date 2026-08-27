@@ -74,6 +74,12 @@ engine.evaluate()  # second call — the fact is still there
 engine.reset()     # clear all facts and reinitialise the environment
 ```
 
+The second call returns the same decision as the first. Every rule starts each
+`evaluate()` un-refracted, so a standing `deny` keyed on a long-lived fact goes
+on denying instead of falling silent after its first firing — see
+[Runtime & Working Memory](../concepts/runtime-and-working-memory.md#the-evaluation-loop).
+One rule shape is affected: a rule that accumulates advances once per call.
+
 Use `engine.clear_facts()` to drop user facts without rebuilding
 templates and rules.
 

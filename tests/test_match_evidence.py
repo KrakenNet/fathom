@@ -199,13 +199,21 @@ class TestEvidenceDoesNotLeakBetweenEvaluations:
     """Evidence facts are retracted with the decision facts."""
 
     def test_a_second_evaluate_reports_its_own_evidence(self, tmp_path: Path) -> None:
+        """One entry per call, not the previous call's entries carried over.
+
+        `evaluate` clears refraction, so the rule fires again on unchanged
+        working memory and renders the same decision -- which is the point:
+        a rule that stopped firing stopped enforcing. What must not happen is
+        the second call reporting two entries because the first call's
+        evidence facts survived it.
+        """
         engine = Engine.from_rules(str(_write_pack(tmp_path / "pack")), match_evidence=True)
         engine.assert_fact("agent", {"id": "bravo", "clearance": "none"})
         first = engine.evaluate()
         second = engine.evaluate()
+
         assert len(first.match_evidence) == 1
-        # Refraction: the rule does not re-fire on unchanged working memory.
-        assert second.match_evidence == []
+        assert second.match_evidence == first.match_evidence
 
 
 class TestAssertOnlyRulesAreCovered:

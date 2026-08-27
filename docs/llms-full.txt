@@ -674,7 +674,7 @@ RULES_YAML = """
 module: access
 rules:
   - name: allow-requester-alone
-    salience: 10
+    salience: 20
     when:
       - template: agent
         conditions:
@@ -684,8 +684,10 @@ rules:
       action: allow
       reason: "requester present"
 
+  # Lower salience, so it fires *after* allow-requester-alone and its
+  # decision is the one left standing under last-write-wins.
   - name: allow-dual-approval
-    salience: 20
+    salience: 10
     when:
       - template: agent
         conditions:
@@ -739,6 +741,13 @@ both a requester fact **and** an approver fact exist. The requester fact was
 asserted in the first step, never retracted, and therefore still present when
 the second evaluation runs. A stateless system would see only the approver fact
 on the second call and the combined rule would never fire.
+
+`allow-requester-alone` fires on the second call too — every rule starts each
+`evaluate()` un-refracted, so a rule that fired before is eligible again. Which
+of the two decisions the caller gets is settled by salience and last-write-wins:
+`allow-dual-approval` carries the lower salience, so it fires last and its
+reason is the one left standing. See
+[Fail-closed salience and last-write-wins](../concepts/runtime-and-working-memory.md#fail-closed-salience-and-last-write-wins).
 
 ## Contrast with stateless systems
 
@@ -2270,6 +2279,12 @@ engine.evaluate()  # second call — the fact is still there
 engine.reset()     # clear all facts and reinitialise the environment
 ```
 
+The second call returns the same decision as the first. Every rule starts each
+`evaluate()` un-refracted, so a standing `deny` keyed on a long-lived fact goes
+on denying instead of falling silent after its first firing — see
+[Runtime & Working Memory](../concepts/runtime-and-working-memory.md#the-evaluation-loop).
+One rule shape is affected: a rule that accumulates advances once per call.
+
 Use `engine.clear_facts()` to drop user facts without rebuilding
 templates and rules.
 
@@ -3484,7 +3499,28 @@ snapshots.
 ## The evaluation loop
 
 `Engine.evaluate()` is short; the work is delegated to
-`src/fathom/evaluator.py`. The sequence inside `Evaluator.evaluate()` is:
+`src/fathom/evaluator.py`. Before it delegates, it clears CLIPS *refraction*:
+every rule starts each call with a clean agenda, so a rule that fired on the
+previous call is eligible to fire again on this one.
+
+That matters more than it sounds. CLIPS refraction is per-activation — a rule
+that has fired on a given combination of facts will not fire on that same
+combination again. A rule whose left-hand side mentions only facts that outlive
+one request (an `agent` fact, a `quarantine` fact, a policy fact) therefore
+matched once and then went quiet for the life of the engine, while a
+higher-salience `allow` rule kept re-firing on each newly asserted request
+fact. A hard deny on call 1 became a permit on calls 2..N with nothing in
+working memory having changed. Clearing refraction first is what makes the
+determinism this documentation states — same pack, same working memory, same
+focus stack, same decision — true across repeated calls rather than only on
+the first one.
+
+The consequence to know about: a rule is not fire-once per engine. One that
+accumulates — increments a counter, adds to a running total — advances on every
+`evaluate()`. Rules that derive facts are unaffected, because CLIPS suppresses
+a duplicate assert.
+
+The sequence inside `Evaluator.evaluate()` is then:
 
 1. **Set the focus.** `_setup_focus_stack()` emits a single `(focus ...)`
    eval listing the modules in `focus_order`. `(focus A B C)` gives A the

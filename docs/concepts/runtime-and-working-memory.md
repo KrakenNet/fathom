@@ -88,7 +88,28 @@ snapshots.
 ## The evaluation loop
 
 `Engine.evaluate()` is short; the work is delegated to
-`src/fathom/evaluator.py`. The sequence inside `Evaluator.evaluate()` is:
+`src/fathom/evaluator.py`. Before it delegates, it clears CLIPS *refraction*:
+every rule starts each call with a clean agenda, so a rule that fired on the
+previous call is eligible to fire again on this one.
+
+That matters more than it sounds. CLIPS refraction is per-activation — a rule
+that has fired on a given combination of facts will not fire on that same
+combination again. A rule whose left-hand side mentions only facts that outlive
+one request (an `agent` fact, a `quarantine` fact, a policy fact) therefore
+matched once and then went quiet for the life of the engine, while a
+higher-salience `allow` rule kept re-firing on each newly asserted request
+fact. A hard deny on call 1 became a permit on calls 2..N with nothing in
+working memory having changed. Clearing refraction first is what makes the
+determinism this documentation states — same pack, same working memory, same
+focus stack, same decision — true across repeated calls rather than only on
+the first one.
+
+The consequence to know about: a rule is not fire-once per engine. One that
+accumulates — increments a counter, adds to a running total — advances on every
+`evaluate()`. Rules that derive facts are unaffected, because CLIPS suppresses
+a duplicate assert.
+
+The sequence inside `Evaluator.evaluate()` is then:
 
 1. **Set the focus.** `_setup_focus_stack()` emits a single `(focus ...)`
    eval listing the modules in `focus_order`. `(focus A B C)` gives A the
