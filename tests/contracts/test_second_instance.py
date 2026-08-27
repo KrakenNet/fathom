@@ -361,3 +361,30 @@ def test_a_second_writer_on_one_path_is_refused(tmp_path: Path) -> None:
     verification = first.verify()
     assert verification.ok, verification.error
     assert verification.count == 1
+
+
+def test_the_log_stays_readable_while_its_writer_holds_the_lock(tmp_path: Path) -> None:
+    """The writer lock must exclude writers, not readers.
+
+    The lock was taken on byte 0 of the log itself. `fcntl.flock` is advisory,
+    so POSIX never noticed; Windows `msvcrt.locking` maps to `LockFile`, which
+    is *mandatory* — the locked byte cannot be read by anyone, including this
+    process. Every read of an open log raised `PermissionError: [Errno 13]`:
+    `verify()`, `records()`, and `fathom verify-chain`, which reported the
+    live log as unreadable. The lock lives on a `<log>.lock` sidecar now.
+    """
+    from fathom.attestation import AttestationService
+    from fathom.chained_log import ChainedAttestationLog
+
+    path = tmp_path / "audit.jsonl"
+    log = ChainedAttestationLog(path, AttestationService.generate_keypair())
+    try:
+        log.append({"n": 1})
+        log.append({"n": 2})
+
+        assert path.read_bytes().count(b"\n") == 3  # genesis + two records
+        assert [r.record["n"] for r in log.records() if "n" in r.record] == [1, 2]
+        verification = log.verify()
+        assert verification.ok, verification.error
+    finally:
+        log.close()

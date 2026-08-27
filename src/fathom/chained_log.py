@@ -69,8 +69,8 @@ from fathom.attestation import AttestationService, verify_token
 from fathom.errors import AttestationError
 
 
-def _claim_exclusive_writer(fd: int, path: Path) -> None:
-    """Take the whole-file writer lock, or refuse to be the second writer.
+def _claim_exclusive_writer(path: Path) -> int:
+    """Take the writer lock for *path*, or refuse to be the second writer.
 
     Every writer keeps ``_next_seq`` and ``_head_sha256`` in memory, derived
     once at construction and never re-read. A second writer on the same path
@@ -81,36 +81,47 @@ def _claim_exclusive_writer(fd: int, path: Path) -> None:
     auditor as tampering. Failing closed here is the same posture the class
     already takes on a torn line.
 
-    Advisory and OS-level, so a reader or a verifier is unaffected; it holds
-    for the writer's lifetime and is released when the handle closes. NFS and
-    other network filesystems do not reliably honour either primitive — one
-    writer per path per host is the supported deployment either way.
+    The lock is taken on a ``<log>.lock`` sidecar, never on the log itself,
+    because the two OS primitives disagree about who a lock binds.
+    ``fcntl.flock`` is advisory: only another locker notices it. Windows
+    ``msvcrt.locking`` maps to ``LockFile``, which is *mandatory* — a locked
+    byte range cannot be read by anyone, so locking byte 0 of the log made
+    every reader and every verifier fail with ``PermissionError``, including
+    ones inside this process. On the sidecar, both primitives behave the same
+    way: writers exclude each other, readers of the log are untouched.
+
+    Returns the sidecar fd. It holds the lock for as long as it stays open, so
+    the caller owns it until :meth:`ChainedAttestationLog.close`. NFS and other
+    network filesystems do not reliably honour either primitive — one writer
+    per path per host is the supported deployment either way.
     """
+    lock_path = path.with_name(path.name + ".lock")
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        import fcntl
-    except ImportError:  # Windows
-        import msvcrt
-
-        try:
-            # LK_NBLCK: non-blocking exclusive lock on one byte, used as a
-            # whole-file mutex. mypy on POSIX has no stubs for the constant.
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
-        except OSError as exc:
-            raise AttestationError(
-                f"chained log {path} is already open for writing by another "
-                "process; a second writer would corrupt the chain",
-                operation="append",
-            ) from exc
-        return
-
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_exclusive_nonblocking(fd)
     except OSError as exc:
+        os.close(fd)
         raise AttestationError(
             f"chained log {path} is already open for writing by another "
             "process; a second writer would corrupt the chain",
             operation="append",
         ) from exc
+    return fd
+
+
+def _lock_exclusive_nonblocking(fd: int) -> None:
+    """Exclusive non-blocking lock on *fd*, raising OSError if held."""
+    try:
+        import fcntl
+    except ImportError:  # Windows
+        import msvcrt
+
+        # LK_NBLCK: non-blocking exclusive lock on one byte, used as a
+        # whole-file mutex. mypy on POSIX has no stubs for the constant.
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+        return
+
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 CHAIN_ISSUER = "fathom-chain"
@@ -401,6 +412,7 @@ class ChainedAttestationLog:
         self._anchor_callback = anchor_callback
         self._appends_since_checkpoint = 0
         self._fh: IO[bytes] | None = None
+        self._lock_fd: int | None = None
         # `seq` and `prev_sha256` are read, used and advanced across several
         # statements in `_append`. Two threads sharing one log — which is what
         # `Engine(audit_sink=...)` invites, and what the Engine's own
@@ -552,12 +564,13 @@ class ChainedAttestationLog:
             }
         )
         if self._fh is None:
-            fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            lock_fd = _claim_exclusive_writer(self._path)
             try:
-                _claim_exclusive_writer(fd, self._path)
-            except AttestationError:
-                os.close(fd)
+                fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            except BaseException:
+                os.close(lock_fd)
                 raise
+            self._lock_fd = lock_fd
             self._fh = os.fdopen(fd, "ab")
         self._fh.write(line + b"\n")
         self._fh.flush()
@@ -606,6 +619,9 @@ class ChainedAttestationLog:
         if self._fh is not None:
             self._fh.close()
             self._fh = None
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
 
     def __enter__(self) -> ChainedAttestationLog:
         return self

@@ -173,8 +173,11 @@ Three implementations ship with Fathom:
   exists. Every append would succeed and the log would verify as
   `malformed line 3: seq 1, expected 2`, which reads as tampering. The second
   writer is therefore refused: its first append raises `AttestationError`.
-  The lock is advisory and OS-level, so readers and `fathom verify-chain` are
-  unaffected; network filesystems do not honour it reliably.
+  The lock is OS-level and lives on a `<log>.lock` file beside the log, never
+  on the log itself — Windows locks are mandatory, so locking the log would
+  make it unreadable to `verify()` and `fathom verify-chain` while a writer
+  held it. Readers are unaffected; network filesystems do not honour the lock
+  reliably.
 
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to

@@ -1380,8 +1380,18 @@ fathom verify-chain audit/chain.jsonl --pubkey audit/chain.jsonl.pub.pem
 ```
 
 The `--pubkey` option is required and takes the Ed25519 public key PEM
-that the log exports beside itself as `<log>.pub.pem`. Two optional
-checks detect truncation, which a self-contained log cannot reveal:
+that the log exports beside itself as `<log>.pub.pem`.
+
+**The sidecar is a convenience, not a trust anchor.** It sits in the same
+trust domain as the log: whoever can rewrite `audit/chain.jsonl` can replace
+`audit/chain.jsonl.pub.pem` with a key of their own and re-sign a wholly
+forged chain that verifies clean. Passing it makes the command say so.
+The value to keep out-of-band is the `key_fingerprint` the run prints (and
+reports in `--json`) — record it when the key is created, and verify against
+a copy of the public key held somewhere the log's writer cannot reach.
+
+Two optional checks detect truncation, which a self-contained log cannot
+reveal:
 
 - `--expected-head` — a line hash mirrored out-of-band; verification
   fails if it no longer appears in the log.
@@ -2721,7 +2731,8 @@ Error codes:
 
 - `400 invalid_request` — both or neither of `ruleset_path` /
   `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
-  not valid base64; ruleset failed to compile.
+  not valid base64; ruleset failed to compile. Each emits
+  `ruleset_reload_rejected` to the audit sink.
 - `400 unsigned_ruleset` — `require_signature=true` (the default) and
   either `signature` is missing or Ed25519 verification failed. Also
   emits `ruleset_reload_rejected` to the audit sink.
@@ -2934,9 +2945,13 @@ configured audit sink. Successful reloads emit:
 }
 ```
 
-Rejected reloads emit `event_type: ruleset_reload_rejected` with a
-`reason` field (`missing_signature`, `verification_failed`,
-`unknown_template`, …) and the *unchanged* `ruleset_hash_before`.
+Every rejected reload emits `event_type: ruleset_reload_rejected` with a
+`reason` field and the *unchanged* `ruleset_hash_before`. The reasons are
+`missing_signature`, the verification failure text, `compile_failed`,
+`unreadable_ruleset_path`, `malformed_signature`, `invalid_request` (both or
+neither source named), and `server_misconfigured`. Both transports emit them;
+neither returns the compiler's diagnostic or the resolved server-side path to
+the caller, so the audit sink is where an operator reads what happened.
 
 The `attestation_token` returned from a successful reload is a JWT
 signed by the server's `AttestationService.sign_event()` (C6); you can
@@ -4219,6 +4234,12 @@ Three implementations ship with Fathom:
   ```
 
   Verify it later with `fathom verify-chain <log> --pubkey <log>.pub.pem`.
+  That sidecar is only a convenience: it lives in the same trust domain as
+  the log, so a writer who forges the chain can forge the key beside it. Pin
+  the `key_fingerprint` the verification reports out-of-band, and verify
+  against a copy of the public key kept where the log's writer cannot reach
+  it. The private half is written through a fresh 0600 temporary file, so a
+  planted `<key>.tmp` can neither capture it nor relax its mode.
 
   **One writer per path.** The chain's `seq` and `prev_sha256` are held in the
   writer's memory, derived when it opens the log. Sharing one log object across
@@ -4228,8 +4249,11 @@ Three implementations ship with Fathom:
   exists. Every append would succeed and the log would verify as
   `malformed line 3: seq 1, expected 2`, which reads as tampering. The second
   writer is therefore refused: its first append raises `AttestationError`.
-  The lock is advisory and OS-level, so readers and `fathom verify-chain` are
-  unaffected; network filesystems do not honour it reliably.
+  The lock is OS-level and lives on a `<log>.lock` file beside the log, never
+  on the log itself — Windows locks are mandatory, so locking the log would
+  make it unreadable to `verify()` and `fathom verify-chain` while a writer
+  held it. Readers are unaffected; network filesystems do not honour the lock
+  reliably.
 
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
