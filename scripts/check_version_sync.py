@@ -1,6 +1,6 @@
 """Fail if the versions that ship together have drifted apart.
 
-Sources, all of which release-please writes on a release:
+Sources, all of which are written automatically on a release:
 
 - ``pyproject.toml`` ``[project].version`` — the authority
 - ``src/fathom/__init__.py`` ``__version__``
@@ -9,10 +9,15 @@ Sources, all of which release-please writes on a release:
   ``npm-publish.yml`` fires on the same ``v*.*.*`` tag. It sat at 0.1.0 across
   every release before that was wired up, so each tag would have republished
   the same version.
-- ``CHANGELOG.md`` — the newest version heading. release-please runs with
-  ``skip-changelog``, so nothing writes this file automatically and it had
-  stopped at 0.3.0 while 0.7.4 was on PyPI. Requiring a heading for the
-  version being released turns that silent gap into a red release PR.
+- ``CHANGELOG.md`` — the newest version heading. It had stopped at 0.3.0 while
+  0.7.4 was on PyPI, so this gate requires a heading for the version being
+  released. release-please runs with ``skip-changelog`` — its generated
+  ``## [x](compare-link) (date)`` heading is not the Keep-a-Changelog form
+  ``changelog_to_json.py`` parses, so letting it write the file would drop the
+  release from the docs. ``promote_changelog.py`` writes the heading instead,
+  from the ``## [Unreleased]`` section, and ``release-please-docs.yml`` runs it
+  on the release branch. Until that existed this gate had never once passed on
+  a release PR: 0.9.0 and 0.11.0 both merged red and were backfilled by hand.
 - ``README.md`` and ``docs/index.md`` — prose, but the first version number a
   reader sees on GitHub and on the docs site. Both carried 0.7.0 while 0.7.4
   was on PyPI. release-please rewrites them through the
@@ -25,11 +30,16 @@ against synthetic trees in the tests, and a missing file is not version skew.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import sys
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def read_pyproject_version(root: Path) -> str:
@@ -86,16 +96,25 @@ def read_prose_version(root: Path, name: str) -> str | None:
     return match.group(1)
 
 
+#: Every file this gate holds to pyproject.toml's version, mapped to its reader.
+#: Each one must be written automatically when the version is bumped, or the
+#: release PR is red the moment release-please opens it -- which is what
+#: happened to every release through 0.11.0, because release-please runs with
+#: ``skip-changelog`` and nothing else wrote CHANGELOG.md. The pairing is
+#: enforced by test_every_checked_source_is_written_on_a_release.
+VERSION_SOURCES: dict[str, Callable[[Path], str | None]] = {
+    "src/fathom/__init__.py": read_init_version,
+    "packages/fathom-ts/package.json": read_ts_sdk_version,
+    "CHANGELOG.md": read_changelog_version,
+    **{name: functools.partial(read_prose_version, name=name) for name in PROSE_SOURCES},
+}
+
+
 def main() -> int:
     root = Path.cwd()
     expected = read_pyproject_version(root)
 
-    others = {
-        "src/fathom/__init__.py": read_init_version(root),
-        "packages/fathom-ts/package.json": read_ts_sdk_version(root),
-        "CHANGELOG.md": read_changelog_version(root),
-        **{name: read_prose_version(root, name) for name in PROSE_SOURCES},
-    }
+    others = {name: read(root) for name, read in VERSION_SOURCES.items()}
     skewed = {
         name: found for name, found in others.items() if found is not None and found != expected
     }
