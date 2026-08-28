@@ -3,9 +3,14 @@ name: release-please-docs
 # release-please bumps the version in pyproject.toml + __init__.py, which
 # stales the generated docs artifacts that embed it (openapi.json,
 # llms-full.txt, ...). The docs drift gate would then fail on every
-# release PR. This workflow regenerates the artifacts and pushes them to
-# the release branch. The push uses RELEASE_PLEASE_TOKEN so CI re-runs on
-# the new commit (GITHUB_TOKEN pushes would not trigger workflows).
+# release PR. It also runs with skip-changelog, so it never writes the
+# CHANGELOG.md heading that check_version_sync.py requires -- which failed
+# every release PR ever opened, 0.9.0 and 0.11.0 included, until the entry
+# was hand-written after the merge. This workflow promotes the curated
+# `## [Unreleased]` section to the released version, regenerates the
+# artifacts, and pushes both to the release branch. The push uses
+# RELEASE_PLEASE_TOKEN so CI re-runs on the new commit (GITHUB_TOKEN pushes
+# would not trigger workflows).
 #
 # No infinite loop: the run triggered by our own push finds no diff and
 # exits without committing. release-please force-pushes over this commit
@@ -71,6 +76,12 @@ jobs:
         uses: pnpm/action-setup@v6
         with:
           version: 9
+
+      # Before docs-gen: it runs changelog_to_json.py, so the promoted entry
+      # has to be in CHANGELOG.md by then or docs/changelog.json ships without
+      # the release it is documenting.
+      - name: Promote the Unreleased changelog section to this version
+        run: uv run python scripts/promote_changelog.py
 
       - name: Regenerate docs artifacts
         run: |

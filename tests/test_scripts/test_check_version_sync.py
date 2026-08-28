@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -162,3 +163,58 @@ def test_unreleased_heading_is_not_the_newest_release(tmp_path: Path) -> None:
     result = run_script(tree)
     assert result.returncode == 1
     assert "CHANGELOG.md=1.2.2" in result.stderr
+
+
+def _load_gate():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_check_version_sync", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def files_written_on_a_release(root: Path) -> set[str]:
+    """Every file some automation rewrites when the version is bumped.
+
+    Derived from the config and the workflow rather than listed by hand, so
+    dropping an ``extra-files`` entry or unwiring the promotion step shows up
+    here instead of on the next release PR.
+    """
+    config = json.loads((root / "release-please-config.json").read_text(encoding="utf-8"))
+    package = config["packages"]["."]
+    written = {entry["path"] for entry in package.get("extra-files", [])}
+    written.add("pyproject.toml")  # the release-type python updater
+    if not config.get("skip-changelog"):
+        written.add("CHANGELOG.md")
+    workflow = (root / ".github" / "workflows" / "release-please-docs.yml").read_text(
+        encoding="utf-8"
+    )
+    if "scripts/promote_changelog.py" in workflow:
+        written.add("CHANGELOG.md")
+    return written
+
+
+def test_every_checked_source_is_written_on_a_release() -> None:
+    """A file this gate checks that nothing writes on a release is a red release
+    PR, guaranteed, and no earlier PR can go red first.
+
+    That is exactly what CHANGELOG.md was: release-please runs with
+    ``skip-changelog``, so it bumped pyproject.toml and left the changelog at
+    the previous version. Every release PR through 0.11.0 opened with this
+    check failing, and 0.9.0 and 0.11.0 were merged red and backfilled by hand.
+
+    The lists are derived from the gate and from the release config, so adding a
+    source to one without the other fails here -- on the PR that does it.
+    """
+    root = SCRIPT.parent.parent
+    checked = set(_load_gate().VERSION_SOURCES)
+    unwritten = checked - files_written_on_a_release(root)
+    assert not unwritten, (
+        f"check_version_sync.py holds {sorted(unwritten)} to pyproject.toml's version, "
+        "but nothing writes them when the version is bumped. Every release PR will "
+        "open with this gate red. Either release-please must write the file "
+        "(extra-files in release-please-config.json) or a step in "
+        ".github/workflows/release-please-docs.yml must."
+    )

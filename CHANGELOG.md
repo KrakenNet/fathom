@@ -11,6 +11,65 @@ commit list on its
 gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
+## [Unreleased]
+
+### Changed
+- **`Engine.evaluate_once` retracts the facts rules asserted during the call**,
+  not only the caller's own. Code that relied on a derived fact outliving the
+  request must use `Engine.evaluate`.
+- **A rule is no longer fire-once per engine.** Every rule starts each
+  `evaluate()` un-refracted, so a rule that accumulates -- increments a counter,
+  adds to a running total -- advances on every call rather than only the first.
+  Rules that derive facts are unaffected: CLIPS suppresses a duplicate assert.
+- **Classification deffunctions are emitted under the hierarchy's name** rather
+  than the function's, so a `test:` CE calling `<function>-below` must now call
+  `<hierarchy>-below`.
+- **A classification operator naming a level no loaded hierarchy defines is a
+  `CompilationError`** instead of an expression silently true for every value.
+  A level that two loaded hierarchies both define is a `CompilationError` for
+  ambiguity; rename it in one of them.
+- **The owasp-agentic pack's `tool_call` template is renamed `tool_request`**,
+  matching every framework adapter and the `Engine.evaluate_once` examples.
+- **Sessions are refused rather than silently reinvented.** `POST /v1/evaluate`
+  with `session_id` returns 400 `sessions_unavailable` on a server that mounts
+  an Engine on `app.state.engine`, and the `Evaluate` RPC aborts
+  `FAILED_PRECONDITION` when the servicer was built with `default_engine`. Both
+  used to open a session compiled from the caller's own `ruleset`.
+- **The CrewAI and OpenAI Agents SDK adapters take the framework's own context
+  object** instead of `(tool_name, arguments)`, and block by return value rather
+  than by raising. `fathom_tool_guardrail` returns a `ToolInputGuardrail` rather
+  than a bare coroutine function, and the `crewai` and `openai-agents` extras
+  raise their floors to `>=1.5` and `>=0.4`.
+- **`FathomAsyncCallbackHandler.on_tool_start` is no longer a coroutine.** Code
+  that awaits it directly must drop the `await`; handlers attached to a
+  LangChain tool are unaffected.
+- **`fathom convert rego` emits slot defaults and per-rule presence guards**, and
+  flattens `_` in a key segment to `__`. Re-run the converter rather than
+  hand-merging a pack: one converted by an older version still decides `allow`
+  for documents OPA denies. `POST /v1/data/...` now answers a document that does
+  not fit the ruleset's templates with the default decision and 200, not 500.
+
+### Fixed
+- **Standing denials hold on every entry point**, not just the framework
+  adapters, and a denied tool is blocked on every dispatch path a framework can
+  take.
+- **Every rule that fires is traced**, not only the ones that render a decision.
+- **The shipped rule packs work through the surfaces that drive them**, and two
+  shipped rules detect what they claim to detect.
+- **A hot reload is safe for the request it lands on**, leaves a trace when it is
+  refused, and replays the functions it used to drop. The REST server serves the
+  mounted Engine so a hot reload reaches the data plane.
+- **The chained log refuses a second writer** instead of forging a broken chain,
+  and holds its lock on a sidecar file so readers and `fathom verify-chain` keep
+  working on Windows. The signing key is kept out of a planted temporary
+  directory.
+- **`fathom compile` output is loadable**, `fathom info` lists functions, and
+  `fathom verify-chain` exits with the right status.
+- **An int widens to a float on a float slot**, as the docs already promised.
+- **The fleet LISTEN connection is replaced when its backend goes away**, a store
+  key no longer shadows a slot, a count no longer outlives its facts, and Studio
+  no longer captions a denial as permitted.
+
 ## [0.11.0] - 2026-08-26
 
 ### Added
