@@ -73,6 +73,18 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: uv run python scripts/check_doc_sources.py --changed-vs "$BASE_SHA"
 
+      # A branch whose commits release something must say what, while its
+      # author still knows. Without this the omission surfaced only on the
+      # release PR days later, as version skew naming a file nobody on the
+      # releasing branch had touched -- and every release PR to date shipped
+      # with that check red.
+      - name: Changelog entry for releasable commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: uv run python scripts/check_changelog_entry.py "$BASE_SHA" "$PR_TITLE"
+
       - name: Docstring coverage
         run: uv run python scripts/check_docstrings.py
 
