@@ -13,6 +13,7 @@ gaps between 0.3.1 and 0.5.0 are explained under
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-28
 ### Changed
 - **`Engine.evaluate_once` retracts the facts rules asserted during the call**,
   not only the caller's own. Code that relied on a derived fact outliving the

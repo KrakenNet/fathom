@@ -854,7 +854,7 @@ wheels = [
 
 [[package]]
 name = "fathom-rules"
-version = "0.11.0"
+version = "0.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "clipspy" },
@@ -955,7 +955,7 @@ dev = [
 requires-dist = [
     { name = "asyncpg", marker = "extra == 'fleet-pg'", specifier = ">=0.29,<1" },
     { name = "clipspy", specifier = ">=1.0.6,<1.1" },
-    { name = "crewai", marker = "extra == 'crewai'", specifier = ">=0.80,<2" },
+    { name = "crewai", marker = "extra == 'crewai'", specifier = ">=1.5,<2" },
     { name = "cryptography", marker = "extra == 'attestation'", specifier = ">=42.0,<51" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.100,<1" },
     { name = "fathom-rules", extras = ["attestation"], marker = "extra == 'all'" },
@@ -980,7 +980,7 @@ requires-dist = [
     { name = "mkdocs-redirects", marker = "extra == 'docs'", specifier = ">=1.2,<2" },
     { name = "mkdocs-swagger-ui-tag", marker = "extra == 'docs'", specifier = ">=0.6,<1" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.24,<2" },
-    { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.1,<1" },
+    { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.4,<1" },
     { name = "pdoc", marker = "extra == 'docs'", specifier = ">=14.0,<17" },
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.20,<1" },
     { name = "prometheus-fastapi-instrumentator", marker = "extra == 'metrics'", specifier = ">=7,<9" },

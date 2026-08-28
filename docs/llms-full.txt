@@ -6,7 +6,7 @@ Fathom is a deterministic reasoning runtime for AI agents, built on CLIPS via
 clipspy. Rules are authored in YAML, compiled to CLIPS constructs, and
 evaluated in microseconds with auditable traces.
 
-Current release: `fathom-rules` 0.11.0 (requires Python 3.12+). <!-- x-release-please-version -->
+Current release: `fathom-rules` 0.12.0 (requires Python 3.12+). <!-- x-release-please-version -->
 
 ## Start here
 
@@ -6300,7 +6300,7 @@ OWASP LLM Top 10 agentic safety rule pack.
 **Pack version:** `1.0`  
 **Rule count:** 4  
 **Modules:** `owasp`  
-**Templates:** `agent_input`, `agent_output`, `tool_call`
+**Templates:** `agent_input`, `agent_output`, `tool_request`
 
 ## Rules
 
