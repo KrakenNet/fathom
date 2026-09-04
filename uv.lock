@@ -955,7 +955,7 @@ dev = [
 requires-dist = [
     { name = "asyncpg", marker = "extra == 'fleet-pg'", specifier = ">=0.29,<1" },
     { name = "clipspy", specifier = ">=1.0.6,<1.1" },
-    { name = "crewai", marker = "extra == 'crewai'", specifier = ">=0.80,<2" },
+    { name = "crewai", marker = "extra == 'crewai'", specifier = ">=1.5,<2" },
     { name = "cryptography", marker = "extra == 'attestation'", specifier = ">=42.0,<51" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.100,<1" },
     { name = "fathom-rules", extras = ["attestation"], marker = "extra == 'all'" },
@@ -980,7 +980,7 @@ requires-dist = [
     { name = "mkdocs-redirects", marker = "extra == 'docs'", specifier = ">=1.2,<2" },
     { name = "mkdocs-swagger-ui-tag", marker = "extra == 'docs'", specifier = ">=0.6,<1" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.24,<2" },
-    { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.1,<1" },
+    { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.4,<1" },
     { name = "pdoc", marker = "extra == 'docs'", specifier = ">=14.0,<17" },
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.20,<1" },
     { name = "prometheus-fastapi-instrumentator", marker = "extra == 'metrics'", specifier = ">=7,<9" },
@@ -2111,7 +2111,7 @@ wheels = [
 
 [[package]]
 name = "mkdocs-material"
-version = "9.7.6"
+version = "9.7.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "babel" },
@@ -2126,9 +2126,9 @@ dependencies = [
     { name = "pymdown-extensions" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/45/29/6d2bcf41ae40802c4beda2432396fff97b8456fb496371d1bc7aad6512ec/mkdocs_material-9.7.6.tar.gz", hash = "sha256:00bdde50574f776d328b1862fe65daeaf581ec309bd150f7bff345a098c64a69", size = 4097959, upload-time = "2026-03-19T15:41:58.161Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/cd/c05d3a530ba7934f144fb45f7203cd236adc25c7bdcc34673d202f4b0278/mkdocs_material-9.7.7.tar.gz", hash = "sha256:c0649c065b1b0512d60aad8c10f947f8e455284475239b364b610f2deb4d0855", size = 4097923, upload-time = "2026-07-17T16:21:33.156Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/01/bc663630c510822c95c47a66af9fa7a443c295b47d5f041e5e6ae62ef659/mkdocs_material-9.7.6-py3-none-any.whl", hash = "sha256:71b84353921b8ea1ba84fe11c50912cc512da8fe0881038fcc9a0761c0e635ba", size = 9305470, upload-time = "2026-03-19T15:41:55.217Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/21/17c1bc9e6f47c972ad66fb2ac2568f99f90f1207eeb6fc3b34d094dba7b5/mkdocs_material-9.7.7-py3-none-any.whl", hash = "sha256:8ea9bb1737a5b524a5f9dcf2e1b4ebda8274ae3008aa7845720a97083bef708f", size = 9305438, upload-time = "2026-07-17T16:21:30.017Z" },
 ]
 
 [[package]]
