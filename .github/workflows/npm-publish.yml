@@ -46,7 +46,7 @@ jobs:
       - name: Check publish credential
         working-directory: .
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${NPM_TOKEN}" ]; then
