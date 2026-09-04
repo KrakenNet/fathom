@@ -1,0 +1,55 @@
+# Fathom
+
+Deterministic reasoning runtime for AI agents
+
+## Pages
+
+- [Fathom](https://fathom.krakn.ai/latest/)
+- [Getting Started](https://fathom.krakn.ai/latest/getting-started/)
+- [Tutorials](https://fathom.krakn.ai/latest/tutorials/) — Progressive, hands-on tutorials that walk you through building policy engines with Fathom.
+- [Hello-world policy](https://fathom.krakn.ai/latest/tutorials/hello-world/) — Install Fathom, write a template and a rule in YAML, evaluate a fact, and inspect the evaluation result.
+- [Modules & salience](https://fathom.krakn.ai/latest/tutorials/modules-and-salience/) — Use modules and salience to build a fail-closed policy where deny always overrides allow.
+- [Working memory across evaluations](https://fathom.krakn.ai/latest/tutorials/working-memory/) — Assert facts incrementally across multiple evaluate() calls and learn how to clear working memory when a session ends.
+- [How-to Guides](https://fathom.krakn.ai/latest/how-to/) — Task-oriented recipes for common Fathom operations.
+- [Writing rules](https://fathom.krakn.ai/latest/how-to/writing-rules/) — How to author a Fathom ruleset in YAML, covering patterns, conditions, actions, and salience.
+- [Integrating with FastAPI](https://fathom.krakn.ai/latest/how-to/fastapi/) — Mount the bundled Fathom REST app or wrap Engine directly to add rule evaluation to your FastAPI service.
+- [Using the CLI](https://fathom.krakn.ai/latest/how-to/cli/) — One-line purpose + worked example for every fathom CLI command.
+- [Registering a Python function](https://fathom.krakn.ai/latest/how-to/register-function/) — Expose a Python callable to CLIPS rules via Engine.register_function and call it with a raw-CLIPS test clause.
+- [Loading a rule pack](https://fathom.krakn.ai/latest/how-to/load-rule-pack/) — Load rules from a directory or a distributed Python package via Engine.from_rules, Engine.load_pack_dir and Engine.load_pack.
+- [Converting a Rego policy](https://fathom.krakn.ai/latest/how-to/convert-rego/) — Translate the stateless subset of an OPA Rego policy into Fathom YAML with fathom convert rego, and read what it refused to translate.
+- [Serving an OPA client](https://fathom.krakn.ai/latest/how-to/opa-data-api/) — Answer OPA Data API requests from Fathom, so an existing OPA caller keeps working against a converted policy.
+- [Exporting rules as Rego](https://fathom.krakn.ai/latest/how-to/export-rego/) — Export the stateless subset of a Fathom ruleset to Rego with fathom convert to-rego, and read what it refused to export.
+- [Embedding via SDK](https://fathom.krakn.ai/latest/how-to/embed-sdk/) — Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTTP clients to the REST server).
+- [Hot-reloading rulesets in a running server](https://fathom.krakn.ai/latest/how-to/hot-reload/) — Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed default and dev escape, rotate the runtime pubkey, and confirm the live ruleset with `fathom status`.
+- [Verifying release signatures](https://fathom.krakn.ai/latest/how-to/release-signing/) — Install minisign, verify a Fathom wheel or sdist, and understand the custody + rotation policy for the release key.
+- [Running Policy Studio](https://fathom.krakn.ai/latest/how-to/policy-studio/) — Start the Studio from a checkout, get past its token gate, and know what its five views drive — the real engine, mounted in the same process.
+- [Concepts](https://fathom.krakn.ai/latest/concepts/) — Understanding-oriented pages on Fathom's primitives, runtime model, and deferred CLIPS features.
+- [Five Primitives](https://fathom.krakn.ai/latest/concepts/five-primitives/) — Templates, Facts, Rules, Modules, Functions — the author-level vocabulary Fathom compiles to CLIPS.
+- [Runtime & Working Memory](https://fathom.krakn.ai/latest/concepts/runtime-and-working-memory/) — How the Fathom engine runs — sessions, the evaluation loop, module focus, and why deny rules take lower salience under last-write-wins.
+- [YAML Compilation](https://fathom.krakn.ai/latest/concepts/yaml-compilation/) — How authored YAML becomes CLIPS source — parse, validate, compile — and why Pydantic sits in the middle as the safety boundary.
+- [Audit & Attestation](https://fathom.krakn.ai/latest/concepts/audit-attestation/) — Why every Fathom evaluation is recorded, and how the optional Ed25519 JWT turns a log entry into portable proof.
+- [CLIPS Features Not In v1](https://fathom.krakn.ai/latest/concepts/not-in-v1/) — The CLIPS features Fathom deliberately omits from its authored surface in v1, and what to use instead.
+- [Reference](https://fathom.krakn.ai/latest/reference/) — Generated reference for every Fathom SDK, API, and tooling surface.
+- [Configuration](https://fathom.krakn.ai/latest/reference/configuration/) — Every FATHOM_* environment variable the runtime reads, what it defaults to, and the gRPC TLS and token setup the servers require.
+- [Python SDK](https://fathom.krakn.ai/latest/reference/python-sdk/)
+- [Go SDK](https://fathom.krakn.ai/latest/reference/go-sdk/) — Fathom Go client reference (generated from godoc via gomarkdoc)
+- [TypeScript SDK](https://fathom.krakn.ai/latest/reference/typescript-sdk/) — Fathom TS client reference (generated from TSDoc via typedoc)
+- [REST API](https://fathom.krakn.ai/latest/reference/rest/) — Fathom REST API reference, try-it console, and client exports
+- [REST API — Try It](https://fathom.krakn.ai/latest/reference/rest/try/) — Interactive Swagger UI against the Fathom REST API
+- [gRPC API](https://fathom.krakn.ai/latest/reference/grpc/) — Fathom gRPC service reference, generated from protos/fathom.proto
+- [MCP Tool Manifest](https://fathom.krakn.ai/latest/reference/mcp/) — Machine-readable index of Fathom MCP tools
+- [YAML Reference](https://fathom.krakn.ai/latest/reference/yaml/)
+- [Template](https://fathom.krakn.ai/latest/reference/yaml/template/) — YAML reference for TemplateDefinition — the deftemplate authoring surface.
+- [Rule](https://fathom.krakn.ai/latest/reference/yaml/rule/) — YAML reference for RuleDefinition — the defrule authoring surface.
+- [Module](https://fathom.krakn.ai/latest/reference/yaml/module/) — YAML reference for ModuleDefinition — the defmodule authoring surface.
+- [Function](https://fathom.krakn.ai/latest/reference/yaml/function/) — YAML reference for FunctionDefinition and HierarchyDefinition — the deffunction authoring surface.
+- [Fact](https://fathom.krakn.ai/latest/reference/yaml/fact/) — Reference for Fact assertion and query — the runtime surface for CLIPS working memory.
+- [CLI Reference](https://fathom.krakn.ai/latest/reference/cli/) — Index of `fathom` CLI commands
+- [VSCode Tooling](https://fathom.krakn.ai/latest/reference/tooling/vscode/) — Snippets and JSON Schema association for Fathom YAML files
+- [owasp-agentic](https://fathom.krakn.ai/latest/reference/rule-packs/owasp-agentic/) — Rule pack — owasp-agentic
+- [nist-800-53](https://fathom.krakn.ai/latest/reference/rule-packs/nist-800-53/) — Rule pack — nist-800-53
+- [hipaa](https://fathom.krakn.ai/latest/reference/rule-packs/hipaa/) — Rule pack — hipaa
+- [cmmc](https://fathom.krakn.ai/latest/reference/rule-packs/cmmc/) — Rule pack — cmmc
+- [schema-denoising](https://fathom.krakn.ai/latest/reference/rule-packs/schema-denoising/) — Rule pack — schema-denoising
+- [conflict-detection](https://fathom.krakn.ai/latest/reference/rule-packs/conflict-detection/) — Rule pack — conflict-detection
+- [Planned Integrations](https://fathom.krakn.ai/latest/reference/planned-integrations/) — Reference catalog of scaffolded, partial, and planned Fathom integrations — what exists in-tree, what is missing, and what the original v1 design promised.
