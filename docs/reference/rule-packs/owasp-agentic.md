@@ -14,7 +14,7 @@ OWASP LLM Top 10 agentic safety rule pack.
 **Pack version:** `1.0`  
 **Rule count:** 4  
 **Modules:** `owasp`  
-**Templates:** `agent_input`, `agent_output`, `tool_call`
+**Templates:** `agent_input`, `agent_output`, `tool_request`
 
 ## Rules
 
