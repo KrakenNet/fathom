@@ -12,6 +12,8 @@ gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
 ## [Unreleased]
+
+## [0.13.0] - 2026-09-09
 ### Added
 - **`Engine.reload_rules(..., preserve_facts=True)`** carries working memory
   into the new environment instead of discarding it, TTL ages included, so the

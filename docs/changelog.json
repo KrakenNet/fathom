@@ -1,5 +1,22 @@
 [
   {
+    "version": "0.13.0",
+    "date": "2026-09-09",
+    "added": [
+      "**`Engine.reload_rules(..., preserve_facts=True)`** carries working memory",
+      "**`Engine.step(facts)`**, an incremental evaluation primitive for streams.",
+      "**`Engine.agenda()`** returns the activations waiting to fire \u2014 rule, module,",
+      "**`Engine.rule_matches(rule)`** reports how far a rule got toward firing:",
+      "**`Engine.trace()`**, a context manager that records each rule firing as CLIPS",
+      "**Three MCP tools**: `fathom.agenda`, `fathom.rule_matches`, and"
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
     "version": "0.12.1",
     "date": "2026-09-09",
     "added": [],
