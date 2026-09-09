@@ -11,9 +11,14 @@ from fathom.engine import Engine
 class FathomMCPServer:
     """MCP tool server backed by a single process-wide Engine.
 
-    Wraps a :class:`~mcp.server.fastmcp.FastMCP` instance and registers
-    four tools: ``fathom.evaluate``, ``fathom.assert_fact``,
-    ``fathom.query``, and ``fathom.retract``.
+    Wraps the MCP server class the installed SDK provides and registers
+    seven tools: ``fathom.evaluate``, ``fathom.assert_fact``,
+    ``fathom.query``, ``fathom.retract``, ``fathom.agenda``,
+    ``fathom.rule_matches``, and ``fathom.trace``.
+
+    The first four consult a policy. The last three debug one: what is about
+    to fire, how far a rule that did not fire got, and what actually fired.
+    A model writing rules cannot fix what it cannot see.
 
     There is **no** per-connection isolation and **no** authentication on
     the tools: every caller shares one Engine and can read, inject, or
@@ -69,6 +74,25 @@ class FathomMCPServer:
         """Retract facts from working memory."""
         count = self._get_engine().retract(template, fact_filter)
         return {"retracted": count}
+
+    def agenda(self) -> list[dict[str, Any]]:
+        """List the activations waiting to fire."""
+        return [activation.model_dump() for activation in self._get_engine().agenda()]
+
+    def rule_matches(self, rule: str) -> dict[str, Any]:
+        """Report how far a rule got toward firing."""
+        return self._get_engine().rule_matches(rule).model_dump()
+
+    def trace(self) -> dict[str, Any]:
+        """Evaluate with rule firings recorded, and return both."""
+        engine = self._get_engine()
+        with engine.trace() as firings:
+            result = engine.evaluate()
+        return {
+            "decision": result.decision,
+            "reason": result.reason,
+            "firings": firings,
+        }
 
     def run(self, transport: str = "stdio") -> None:
         """Start the MCP server (blocking).
@@ -144,5 +168,23 @@ def _create_mcp_app(server: FathomMCPServer) -> Any:
     @mcp.tool(name="fathom.retract", description="Retract facts from working memory")
     def tool_retract(template: str, fact_filter: dict[str, Any] | None = None) -> dict[str, int]:
         return server.retract(template, fact_filter)
+
+    @mcp.tool(name="fathom.agenda", description="List the activations waiting to fire")
+    def tool_agenda() -> list[dict[str, Any]]:
+        return server.agenda()
+
+    @mcp.tool(
+        name="fathom.rule_matches",
+        description="Report how far a rule got toward firing: matches, partials, activations",
+    )
+    def tool_rule_matches(rule: str) -> dict[str, Any]:
+        return server.rule_matches(rule)
+
+    @mcp.tool(
+        name="fathom.trace",
+        description="Evaluate and return the decision with every rule firing in order",
+    )
+    def tool_trace() -> dict[str, Any]:
+        return server.trace()
 
     return mcp

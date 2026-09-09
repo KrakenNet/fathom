@@ -1,6 +1,15 @@
 {
   "tools": [
     {
+      "description": "List the activations waiting to fire",
+      "input_schema": {
+        "properties": {},
+        "title": "tool_agendaArguments",
+        "type": "object"
+      },
+      "name": "fathom.agenda"
+    },
+    {
       "description": "Assert a fact into working memory",
       "input_schema": {
         "properties": {
@@ -91,6 +100,32 @@
         "type": "object"
       },
       "name": "fathom.retract"
+    },
+    {
+      "description": "Report how far a rule got toward firing: matches, partials, activations",
+      "input_schema": {
+        "properties": {
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule"
+        ],
+        "title": "tool_rule_matchesArguments",
+        "type": "object"
+      },
+      "name": "fathom.rule_matches"
+    },
+    {
+      "description": "Evaluate and return the decision with every rule firing in order",
+      "input_schema": {
+        "properties": {},
+        "title": "tool_traceArguments",
+        "type": "object"
+      },
+      "name": "fathom.trace"
     }
   ],
   "version": "1.0"
