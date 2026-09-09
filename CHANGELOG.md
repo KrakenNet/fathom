@@ -13,6 +13,13 @@ gaps between 0.3.1 and 0.5.0 are explained under
 
 ## [Unreleased]
 ### Added
+- **`Engine.step(facts)`**, an incremental evaluation primitive for streams.
+  It runs the same evaluation as `evaluate()` *without* clearing CLIPS
+  refraction, so each rule fires once per new match rather than once per call
+  — which is what lets a rule count, accumulate, or watch for a sequence over
+  a feed. `evaluate()` is unchanged, and a step is never attested and never
+  audited: both bind a decision to the inputs it was computed from, and a
+  step's result also depends on what fired in earlier steps.
 - **`Engine.agenda()`** returns the activations waiting to fire — rule, module,
   salience, and the facts that matched — so you can ask what *would* run before
   running it. Closes the gap `rule_trace` leaves: it reports firings only after

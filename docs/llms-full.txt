@@ -3650,6 +3650,22 @@ accumulates — increments a counter, adds to a running total — advances on ev
 `evaluate()`. Rules that derive facts are unaffected, because CLIPS suppresses
 a duplicate assert.
 
+### When you want the opposite: `Engine.step()`
+
+That refraction clear is right for a decision and wrong for a stream. Over a
+feed of events, a rule that counts should advance once per *event*, and under
+`evaluate()` it advances once per *call* instead.
+
+`Engine.step(facts)` is the same run without the clear: refraction holds, so
+each rule fires once per new match. Facts persist and TTLs still expire, so a
+stream of steps accumulates state the way a stream should.
+
+A step is never attested and never audited, even on an engine configured for
+both. An attestation binds a decision to the inputs it was computed from, and
+a step's result depends on what fired in earlier steps as well — signing one
+would assert something untrue. Use `evaluate()` or `evaluate_once()` where a
+decision has to be defensible.
+
 The sequence inside `Evaluator.evaluate()` is then:
 
 1. **Set the focus.** `_setup_focus_stack()` emits a single `(focus ...)`
