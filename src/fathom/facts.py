@@ -35,6 +35,22 @@ _PYTHON_TYPE_MAP: dict[SlotType, tuple[type, ...]] = {
 }
 
 
+def _plain(value: Any) -> Any:
+    """Convert a CLIPS value back to the Python it was asserted from.
+
+    Reading a fact hands back ``clips.Symbol``, which is a ``str`` subclass
+    that cannot be re-interned: ``clips.Symbol(Symbol("a"))`` raises. Anything
+    that reads working memory and asserts it again -- carrying facts across a
+    reload -- has to come back through plain values first, the same way
+    :meth:`FactManager.query` already does for its callers.
+    """
+    if isinstance(value, clips.Symbol):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    return value
+
+
 class FactManager:
     """Validates and asserts facts into CLIPS working memory."""
 
@@ -91,11 +107,23 @@ class FactManager:
         env: clips.Environment,
         template_name: str,
         validated: dict[str, Any],
+        *,
+        notify: bool = True,
     ) -> Any:
         """Coerce + assert a pre-validated slot dict, recording the timestamp.
 
         Returns the CLIPS fact handle so callers that need to withdraw
         exactly what they asserted can hold on to it.
+
+        Args:
+            env: Environment to assert into.
+            template_name: Template the slots belong to.
+            validated: Slot values that have already passed :meth:`_validate`.
+            notify: Whether to fire change listeners. :meth:`import_facts`
+                passes ``False``: carrying working memory across a reload
+                re-asserts facts a subscriber already knows about, and a
+                burst of "new fact" events for facts that did not change
+                would be a lie.
         """
         coerced = self._coerce_for_clips(template_name, validated)
         tpl = env.find_template(template_name)
@@ -109,7 +137,8 @@ class FactManager:
                 template=template_name,
             ) from exc
         self._fact_timestamps[fact.index] = time.time()
-        self._notify(template_name, "assert", validated)
+        if notify:
+            self._notify(template_name, "assert", validated)
         return fact
 
     def assert_fact(self, template_name: str, data: dict[str, Any]) -> None:
@@ -283,6 +312,50 @@ class FactManager:
         do not mis-attribute to newly-asserted facts.
         """
         self._fact_timestamps.clear()
+
+    def export_facts(self) -> list[tuple[str, dict[str, Any], float | None]]:
+        """Snapshot every registered-template fact with its TTL timestamp.
+
+        Backs ``Engine.reload_rules(preserve_facts=True)``. The timestamp
+        travels with the fact because :attr:`_fact_timestamps` is keyed by
+        CLIPS fact index, and re-asserting into a fresh environment produces
+        new indices: without carrying it, every restored fact would silently
+        reset its age to zero and outlive its TTL.
+
+        Internal templates -- the decision and evidence facts -- are skipped:
+        they are per-evaluation bookkeeping, not working memory.
+        """
+        env = self._env_provider()
+        return [
+            (
+                fact.template.name,
+                {slot: _plain(value) for slot, value in dict(fact).items()},
+                self._fact_timestamps.get(fact.index),
+            )
+            for fact in env.facts()
+            if fact.template.name in self._template_registry
+        ]
+
+    def import_facts(self, facts: list[tuple[str, dict[str, Any], float | None]]) -> int:
+        """Re-assert exported *facts* into the current environment.
+
+        The slots come straight out of working memory, so they were validated
+        on the way in and are not re-validated here. Change listeners are not
+        fired: the facts are the same ones subscribers already have.
+
+        Returns:
+            How many facts were restored. CLIPS de-duplicates working memory,
+            so this can be lower than ``len(facts)`` only if the export held
+            duplicates, which working memory cannot.
+        """
+        env = self._env_provider()
+        restored = 0
+        for template_name, slots, timestamp in facts:
+            fact = self._assert_validated(env, template_name, slots, notify=False)
+            if timestamp is not None:
+                self._fact_timestamps[fact.index] = timestamp
+            restored += 1
+        return restored
 
     def cleanup_expired(self) -> int:
         """Retract facts whose TTL has expired. Returns count retracted."""

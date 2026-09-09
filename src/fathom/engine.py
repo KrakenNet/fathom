@@ -1145,6 +1145,8 @@ class Engine:
         ruleset_yaml: bytes,
         signature: bytes | None = None,
         pubkey_pem: bytes | None = None,
+        *,
+        preserve_facts: bool = False,
     ) -> tuple[str, str]:
         """Atomically swap the rule environment with a new ruleset.
 
@@ -1167,10 +1169,11 @@ class Engine:
         successful return (design C5 / C6).
 
         .. warning::
-           This **discards all working memory**. The rules are compiled onto
-           a brand-new :class:`clips.Environment`, so every fact asserted
-           before the reload is gone afterwards, and TTL timestamps are
-           cleared. Callers holding session state must re-assert it.
+           By default this **discards all working memory**. The rules are
+           compiled onto a brand-new :class:`clips.Environment`, so every
+           fact asserted before the reload is gone afterwards, and TTL
+           timestamps are cleared. Callers holding session state must
+           re-assert it, or pass ``preserve_facts=True``.
 
         Args:
             ruleset_yaml: Raw YAML bytes containing a ruleset document
@@ -1183,6 +1186,15 @@ class Engine:
                 bad signature never mutates CLIPS state.
             pubkey_pem: PEM-encoded Ed25519 public key. Required when
                 ``signature`` is supplied.
+            preserve_facts: Carry working memory into the new environment
+                instead of discarding it, TTL ages included, so the new rules
+                re-match the facts already there. Off by default, because it
+                costs the property the default path has: the swap stops being
+                a pointer assignment and becomes a copy proportional to
+                working memory, taken with the engine lock held, so
+                concurrent :meth:`evaluate` and :meth:`assert_fact` calls wait
+                on it. The lock is the point -- without it a fact asserted
+                mid-copy would land in the environment being discarded.
 
         Returns:
             Tuple ``(hash_before, hash_after)`` of
@@ -1335,33 +1347,45 @@ class Engine:
         # only — no I/O, no compilation — so any reader holding the old
         # env snapshot sees a consistent view and the lock is held for
         # microseconds, not the compile duration.
-        with self._reload_lock:
-            self._env = new_env
-            # Replace rule registry by identity; Engine is the sole reader.
-            self._rule_registry = new_rule_registry
-            # Template/module registries are held by reference in
-            # FactManager (template_registry=...). To honour the swap
-            # without a reader-side refactor, rebuild contents in place
-            # so the shared reference stays valid. Contents are identical
-            # today (rule-only reload) but we keep the pattern so future
-            # template-reload work has a stable seam.
-            self._template_registry.clear()
-            self._template_registry.update(new_template_registry)
-            self._module_registry.clear()
-            self._module_registry.update(new_module_registry)
-            self._has_asserting_rules = new_has_asserting_rules
-            self._ruleset_yaml_bytes = ruleset_yaml
-            # The new env starts empty, so the reload discards ALL working
-            # memory. The TTL timestamps are keyed by old-env fact index and
-            # would otherwise expire unrelated facts in the new one.
-            self._fact_manager.clear_timestamps()
-            # The reload also discards the rule registry, so any pack loaded
-            # into this engine no longer has rules here. Forget the "already
-            # loaded" record, or a later load_pack() returns success while
-            # silently restoring nothing.
-            from fathom.packs import forget_packs
+        # Hold the engine lock across the copy when carrying facts over, so
+        # nothing can assert into the old env between the snapshot and the
+        # swap. The default path keeps its pointer-only critical section.
+        with contextlib.ExitStack() as stack:
+            if preserve_facts:
+                stack.enter_context(self._lock)
+            carried = self._fact_manager.export_facts() if preserve_facts else []
+            with self._reload_lock:
+                self._env = new_env
+                # Replace rule registry by identity; Engine is the sole reader.
+                self._rule_registry = new_rule_registry
+                # Template/module registries are held by reference in
+                # FactManager (template_registry=...). To honour the swap
+                # without a reader-side refactor, rebuild contents in place
+                # so the shared reference stays valid. Contents are identical
+                # today (rule-only reload) but we keep the pattern so future
+                # template-reload work has a stable seam.
+                self._template_registry.clear()
+                self._template_registry.update(new_template_registry)
+                self._module_registry.clear()
+                self._module_registry.update(new_module_registry)
+                self._has_asserting_rules = new_has_asserting_rules
+                self._ruleset_yaml_bytes = ruleset_yaml
+                # The new env starts empty. The TTL timestamps are keyed by
+                # old-env fact index and would otherwise expire unrelated
+                # facts in the new one; the carried snapshot holds the ages
+                # that survive, and re-keys them as it restores.
+                self._fact_manager.clear_timestamps()
+                # The reload also discards the rule registry, so any pack
+                # loaded into this engine no longer has rules here. Forget the
+                # "already loaded" record, or a later load_pack() returns
+                # success while silently restoring nothing.
+                from fathom.packs import forget_packs
 
-            forget_packs(self)
+                forget_packs(self)
+
+            if carried:
+                self._fact_manager.import_facts(carried)
+                self._publish_working_memory({name for name, _, _ in carried})
 
         # Notify reload listeners outside the lock — listeners may do
         # I/O (e.g. wake gRPC change streams) and must never extend the

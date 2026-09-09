@@ -70,7 +70,7 @@ a raw CLIPS `Missing function declaration for 'below'`. Any pack using a
 classification hierarchy or a registered callable — which is every pack the
 `functions/` reference documents — could not be hot-reloaded.
 
-## Warning: a reload discards all working memory
+## Warning: a reload discards all working memory by default
 
 The new ruleset is compiled into a **fresh** CLIPS environment, and that
 environment starts empty. Every fact in working memory at the moment of the
@@ -106,6 +106,34 @@ unsubscribe = engine.subscribe_reload(reseed)
 Re-run `FleetEngine.sync_fleet_facts` from the same callback for fleet-scoped
 state, and expect session callers to re-seed anything they asserted before the
 reload.
+
+### Or carry the facts across: `preserve_facts=True`
+
+When the state is something the caller cannot reconstruct — accumulated
+quarantine facts, agent registrations, anything that took a week to build up —
+pass `preserve_facts=True` and the reload carries working memory into the new
+environment, TTL ages included. The incoming rules re-match those facts
+immediately.
+
+```python
+engine.reload_rules(ruleset_yaml, preserve_facts=True)
+```
+
+Nothing else about the swap changes: the new environment is still built and
+compiled outside the lock, and a failed compile still leaves the old one
+serving.
+
+What it costs is the property the default has. The swap stops being a pointer
+assignment and becomes a copy proportional to working memory, taken with the
+engine lock held, so concurrent `evaluate()` and `assert_fact()` calls wait on
+it. The lock is the point — without it a fact asserted mid-copy would land in
+the environment being thrown away. That is why the flag is opt-in.
+
+Change listeners registered through `Engine.subscribe` are **not** fired for
+carried facts. Subscribers already hold them, and a burst of "new fact" events
+for facts that did not change would be a lie. `subscribe_reload` still fires,
+so a callback that re-seeds unconditionally would now duplicate what the carry
+already restored.
 
 This how-to covers how to sign a ruleset, wire up the deployment
 config, use the dev escape during development, monitor the live
