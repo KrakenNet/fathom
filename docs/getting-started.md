@@ -5,7 +5,7 @@ sources:
   - src/fathom/engine.py
   - src/fathom/evaluator.py
   - src/fathom/models.py
-last_verified: 2026-08-27
+last_verified: 2026-09-09
 ---
 
 # Fathom -- Getting Started
