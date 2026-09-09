@@ -12,6 +12,12 @@ gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
 ## [Unreleased]
+### Fixed
+- **The MCP server works on `mcp` 2.x as well as 1.x.** The `mcp` extra allows
+  `>=1.0`, but the server imported `FastMCP` from `mcp.server.fastmcp`, which 2.x
+  replaced with `MCPServer` in `mcp.server.mcpserver`. Any install that resolved
+  to 2.x raised `ImportError` on import. The server now resolves whichever class
+  the installed SDK provides.
 
 ## [0.12.0] - 2026-08-28
 ### Changed

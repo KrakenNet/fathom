@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from fathom.errors import ValidationError
-from fathom.integrations.mcp_server import FathomMCPServer
+from fathom.integrations.mcp_server import FathomMCPServer, _mcp_server_class
 
 FIXTURES_DIR = str(Path(__file__).parent / "fixtures")
 
@@ -38,6 +38,33 @@ class TestMCPToolRegistration:
     def test_engine_not_created_eagerly(self) -> None:
         server = FathomMCPServer(rules_path=FIXTURES_DIR)
         assert server._engine is None
+
+
+class TestSDKCompatibility:
+    """Guard against an MCP SDK rename breaking the server silently.
+
+    mcp 2.0 renamed ``FastMCP`` to ``MCPServer`` and moved it out of
+    ``mcp.server.fastmcp``. The dependency range allows 2.x, so importing the
+    old path unconditionally failed at construction time for anyone on the
+    current major. Nothing here asserted the tools actually registered, so the
+    whole suite errored out at once with no test naming the cause.
+    """
+
+    def test_server_class_resolves(self) -> None:
+        cls = _mcp_server_class()
+        assert cls is not None
+        assert hasattr(cls, "tool"), "resolved class exposes no tool decorator"
+        assert hasattr(cls, "run"), "resolved class exposes no run method"
+
+    def test_tools_register_on_installed_sdk(self) -> None:
+        server = FathomMCPServer()
+        registered = {t.name for t in server._mcp._tool_manager.list_tools()}
+        assert {
+            "fathom.evaluate",
+            "fathom.assert_fact",
+            "fathom.query",
+            "fathom.retract",
+        } <= registered, f"got {registered}"
 
 
 # ---------------------------------------------------------------------------

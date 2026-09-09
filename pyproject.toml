@@ -75,8 +75,10 @@ server = [
     "uvicorn>=0.20,<1",
 ]
 mcp = [
-    # Upper bound is real, not defensive: mcp 2.0 removed `mcp.server.fastmcp`,
-    # which `fathom.integrations.mcp_server` imports. The floor is the fix for
+    # 1.x and 2.x both work: mcp 2.0 renamed `FastMCP` to `MCPServer` and moved
+    # it out of `mcp.server.fastmcp`, and `_mcp_server_class()` resolves either.
+    # The upper bound is defensive against a 3.0 that has not been tested.
+    # The floor is the fix for
     # GHSA-vj7q-gjh5-988w / GHSA-jpw9-pfvf-9f58 / GHSA-hvrp-rf83-w775.
     "mcp>=1.28.1,<3",
 ]
@@ -216,6 +218,13 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = "clips.*"
 ignore_missing_imports = true
+
+# `_mcp_server_class()` resolves the MCP server class at runtime, because mcp
+# 1.x and 2.x expose it under different names. The class, and so its `tool`
+# decorator, is therefore untyped as far as mypy can tell.
+[[tool.mypy.overrides]]
+module = "fathom.integrations.mcp_server"
+disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
 module = "grpc.*"

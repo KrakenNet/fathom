@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 from fathom.engine import Engine
@@ -90,11 +91,41 @@ class FathomMCPServer:
         self._mcp.run(transport=transport)
 
 
-def _create_mcp_app(server: FathomMCPServer) -> Any:
-    """Create a FastMCP app and register Fathom tools."""
-    from mcp.server.fastmcp import FastMCP
+def _mcp_server_class() -> Any:
+    """Return the server class for whichever MCP SDK major version is installed.
 
-    mcp = FastMCP("fathom")
+    mcp 2.0 renamed ``FastMCP`` to ``MCPServer`` and moved it from
+    ``mcp.server.fastmcp`` to ``mcp.server.mcpserver``. Importing the old path
+    unconditionally broke every MCP tool under 2.x, even though the dependency
+    range allows it.
+
+    Only the name and location changed for what this module uses. The ``tool``
+    decorator and ``run(transport=...)`` keep their signatures, and the tool
+    manager still answers ``_tool_manager.list_tools()``, which is what the
+    manifest script reads. So one lookup covers both majors, newest first.
+
+    Resolved through :func:`importlib.import_module` rather than two ``import``
+    statements on purpose: under 2.x the old module still exists as a stub that
+    raises on import, so a static ``from mcp.server.fastmcp import FastMCP``
+    fails type checking on 2.x and a plain module-missing check does not
+    describe the situation on either version.
+    """
+    candidates = (("mcp.server.mcpserver", "MCPServer"), ("mcp.server.fastmcp", "FastMCP"))
+    for module_name, attribute in candidates:
+        try:
+            return getattr(importlib.import_module(module_name), attribute)
+        except (ImportError, AttributeError):
+            continue
+    raise ImportError(
+        "no supported MCP server class found: install the 'mcp' extra "
+        "(pip install 'fathom-rules[mcp]'). Looked for "
+        + " and ".join(f"{module}.{attribute}" for module, attribute in candidates)
+    )
+
+
+def _create_mcp_app(server: FathomMCPServer) -> Any:
+    """Create the MCP app and register Fathom tools."""
+    mcp = _mcp_server_class()("fathom")
 
     @mcp.tool(name="fathom.evaluate", description="Run forward-chain evaluation")
     def tool_evaluate() -> dict[str, Any]:
