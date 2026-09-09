@@ -12,6 +12,8 @@ gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
 ## [Unreleased]
+
+## [0.12.1] - 2026-09-09
 ### Fixed
 - **The MCP server works on `mcp` 2.x as well as 1.x.** The `mcp` extra allows
   `>=1.0`, but the server imported `FastMCP` from `mcp.server.fastmcp`, which 2.x
