@@ -2362,6 +2362,36 @@ Both operate on live working memory, so the results reflect rules
 that asserted during the most recent `evaluate()` plus anything you
 asserted by hand.
 
+### Debugging a ruleset
+
+`rule_trace` says what fired. Three more calls say what is *about* to
+fire, how far a rule that did not fire got, and what CLIPS itself saw:
+
+```python
+engine.agenda()
+# [Activation(rule='governance::deny-top-secret-for-secret',
+#             module='governance', salience=10, facts=[1, 2])]
+
+engine.rule_matches("deny-top-secret-for-secret")
+# RuleMatches(rule='governance::deny-top-secret-for-secret',
+#             matches=2, partial_matches=1, activations=1)
+
+with engine.trace() as firings:
+    engine.evaluate()
+print(firings)  # ['FIRE 1 deny-top-secret-for-secret: f-1,f-2']
+```
+
+`agenda()` is the question `rule_trace` cannot answer, because it reports
+firings only after they happen. `rule_matches` is the one to reach for when
+a rule should have fired and did not: all three counts at zero means nothing
+matched any condition, while `matches` above zero with `activations` at zero
+means the rule is waiting on a fact you have not asserted.
+
+`trace()` claims the CLIPS `stdout` router for the duration of the block, so
+a rule's `printout` is captured in `firings` rather than printed, and the
+list is filled when the block exits. It costs throughput — CLIPS renders the
+text on every firing — so use it to debug, not in a hot path.
+
 ## Go — HTTP client
 
 The Go client is published as a standalone module. Install it:
@@ -4653,24 +4683,32 @@ What to use instead: set explicit `salience` on rules that must fire in a
 particular order, and use modules plus focus to partition evaluation into
 phases.
 
-### Runtime agenda inspection
+### Runtime agenda inspection *from inside a rule pack*
 
 CLIPS provides `(get-agenda)`, `(refresh-agenda)`, and similar functions to
 inspect or manipulate the agenda — the queue of rule activations — at
-runtime. Fathom's Python API doesn't expose these, and there's no YAML way
-to ask "what's about to fire?" from inside a rule pack.
+runtime. There is no YAML way to ask "what's about to fire?" from inside a
+rule pack, and no way to manipulate the agenda at all: a rule that could
+reorder or cancel activations would make a decision depend on evaluation
+order rather than on working memory.
 
-What to use instead: inspect the `rule_trace` and `module_trace` fields on
-the `EvaluationResult` after the fact. That tells you what fired and in
-which module, which is what most agenda questions are really asking.
+Reading it from the host is supported. `Engine.agenda()` returns the waiting
+activations — rule, module, salience, and the facts that matched — and
+`Engine.rule_matches(rule)` reports how far a rule that did *not* activate
+got. See the [embedding how-to](../how-to/embed-sdk.md#debugging-a-ruleset).
 
-### Pattern-network and debug introspection
+### Pattern-network and debug introspection *as a YAML feature*
 
 CLIPS has `(watch rules)`, `(watch facts)`, `(dribble-on)`, and a suite of
-debug hooks that dump RETE activity to stderr. Fathom doesn't expose these
-as YAML features or Python API, because the audit log and the
-`rule_trace` / `module_trace` fields on `EvaluationResult` cover the same
-need with structured output that a host application can parse.
+debug hooks that dump RETE activity to stderr. None of them are YAML
+features: a rule pack cannot turn tracing on, because a pack that writes to
+the host's output is a side effect the audit record does not describe.
+
+The host can trace. `Engine.trace()` is a context manager that records each
+firing as CLIPS saw it, in order, with the facts each one matched — the
+structured equivalent of `(watch rules)`, captured rather than printed. For
+what already fired, the audit log and the `rule_trace` / `module_trace`
+fields on `EvaluationResult` remain the cheaper answer.
 
 What to use instead: read the audit log for decisions, and the evaluation
 traces for the firing sequence.
@@ -4726,8 +4764,8 @@ be contorted.
 | `deffacts` | Not exposed |
 | Logical CEs / truth maintenance | Not exposed |
 | Conflict-resolution strategy config | Uses CLIPS default (`depth`) |
-| Agenda inspection at runtime | Not exposed |
-| `watch` / `dribble` debug hooks | Not exposed (use `rule_trace`) |
+| Agenda inspection at runtime | Host API only (`Engine.agenda`) |
+| `watch` / `dribble` debug hooks | Host API only (`Engine.trace`) |
 | FuzzyCLIPS / temporal extensions | Not shipped |
 
 ## Versioning
@@ -4985,10 +5023,13 @@ Raw manifest: [`manifest.json`](manifest.json)
 
 | Tool | Description |
 |---|---|
+| [`fathom.agenda`](agenda.md) | List the activations waiting to fire |
 | [`fathom.assert_fact`](assert_fact.md) | Assert a fact into working memory |
 | [`fathom.evaluate`](evaluate.md) | Run forward-chain evaluation |
 | [`fathom.query`](query.md) | Query working memory |
 | [`fathom.retract`](retract.md) | Retract facts from working memory |
+| [`fathom.rule_matches`](rule_matches.md) | Report how far a rule got toward firing: matches, partials, activations |
+| [`fathom.trace`](trace.md) | Evaluate and return the decision with every rule firing in order |
 
 
 ## reference/yaml/index.md

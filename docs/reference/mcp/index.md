@@ -13,7 +13,10 @@ Raw manifest: [`manifest.json`](manifest.json)
 
 | Tool | Description |
 |---|---|
+| [`fathom.agenda`](agenda.md) | List the activations waiting to fire |
 | [`fathom.assert_fact`](assert_fact.md) | Assert a fact into working memory |
 | [`fathom.evaluate`](evaluate.md) | Run forward-chain evaluation |
 | [`fathom.query`](query.md) | Query working memory |
 | [`fathom.retract`](retract.md) | Retract facts from working memory |
+| [`fathom.rule_matches`](rule_matches.md) | Report how far a rule got toward firing: matches, partials, activations |
+| [`fathom.trace`](trace.md) | Evaluate and return the decision with every rule firing in order |
