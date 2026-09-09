@@ -64,6 +64,9 @@ class TestSDKCompatibility:
             "fathom.assert_fact",
             "fathom.query",
             "fathom.retract",
+            "fathom.agenda",
+            "fathom.rule_matches",
+            "fathom.trace",
         } <= registered, f"got {registered}"
 
 
@@ -468,3 +471,52 @@ class TestTransportRestriction:
         server = FathomMCPServer(rules_path=FIXTURES_DIR)
         server.assert_fact("agent", {"id": "a1", "clearance": "secret"})
         assert len(server.query("agent")) == 1
+
+
+class TestMCPIntrospectionTools:
+    """The three debugging tools: what will fire, why it did not, what did.
+
+    Every one of them is JSON over the wire, so each returns plain dicts and
+    lists rather than the models the Engine hands back.
+    """
+
+    @pytest.fixture
+    def server(self) -> FathomMCPServer:
+        server = FathomMCPServer(rules_path=FIXTURES_DIR)
+        server.assert_fact("agent", {"id": "a1", "clearance": "secret"})
+        server.assert_fact(
+            "data_request",
+            {"agent_id": "a1", "classification": "top-secret", "resource": "doc"},
+        )
+        return server
+
+    def test_agenda_lists_what_would_fire(self, server: FathomMCPServer) -> None:
+        waiting = server.agenda()
+        assert [entry["rule"] for entry in waiting] == ["governance::deny-insufficient-clearance"]
+        assert waiting[0]["salience"] == 100
+
+    def test_agenda_is_json_serialisable(self, server: FathomMCPServer) -> None:
+        json.dumps(server.agenda())
+
+    def test_agenda_is_empty_after_evaluation(self, server: FathomMCPServer) -> None:
+        server.evaluate()
+        assert server.agenda() == []
+
+    def test_rule_matches_counts_a_ready_rule(self, server: FathomMCPServer) -> None:
+        counts = server.rule_matches("deny-insufficient-clearance")
+        assert counts["activations"] == 1
+        assert counts["rule"] == "governance::deny-insufficient-clearance"
+
+    def test_rule_matches_rejects_an_unknown_rule(self, server: FathomMCPServer) -> None:
+        with pytest.raises(ValidationError, match="no loaded module defines a rule"):
+            server.rule_matches("no-such-rule")
+
+    def test_trace_returns_the_decision_and_the_firings(self, server: FathomMCPServer) -> None:
+        traced = server.trace()
+        assert traced["decision"] == "deny"
+        assert any("deny-insufficient-clearance" in line for line in traced["firings"]), traced[
+            "firings"
+        ]
+
+    def test_trace_is_json_serialisable(self, server: FathomMCPServer) -> None:
+        json.dumps(server.trace())

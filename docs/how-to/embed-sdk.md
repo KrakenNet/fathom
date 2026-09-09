@@ -6,6 +6,7 @@ diataxis: how-to
 status: stable
 last_verified: 2026-09-09
 sources:
+  - src/fathom/models.py
   - src/fathom/engine.py
   - src/fathom/integrations/rest.py
   - packages/fathom-go/client.go
@@ -102,6 +103,36 @@ removed = engine.retract("access", fact_filter={"role": "admin"})
 Both operate on live working memory, so the results reflect rules
 that asserted during the most recent `evaluate()` plus anything you
 asserted by hand.
+
+### Debugging a ruleset
+
+`rule_trace` says what fired. Three more calls say what is *about* to
+fire, how far a rule that did not fire got, and what CLIPS itself saw:
+
+```python
+engine.agenda()
+# [Activation(rule='governance::deny-top-secret-for-secret',
+#             module='governance', salience=10, facts=[1, 2])]
+
+engine.rule_matches("deny-top-secret-for-secret")
+# RuleMatches(rule='governance::deny-top-secret-for-secret',
+#             matches=2, partial_matches=1, activations=1)
+
+with engine.trace() as firings:
+    engine.evaluate()
+print(firings)  # ['FIRE 1 deny-top-secret-for-secret: f-1,f-2']
+```
+
+`agenda()` is the question `rule_trace` cannot answer, because it reports
+firings only after they happen. `rule_matches` is the one to reach for when
+a rule should have fired and did not: all three counts at zero means nothing
+matched any condition, while `matches` above zero with `activations` at zero
+means the rule is waiting on a fact you have not asserted.
+
+`trace()` claims the CLIPS `stdout` router for the duration of the block, so
+a rule's `printout` is captured in `firings` rather than printed, and the
+list is filled when the block exits. It costs throughput — CLIPS renders the
+text on every firing — so use it to debug, not in a hot path.
 
 ## Go — HTTP client
 
