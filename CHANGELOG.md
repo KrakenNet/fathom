@@ -12,6 +12,15 @@ gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
 ## [Unreleased]
+### Added
+- **`Engine.step(facts)`**, an incremental evaluation primitive for streams.
+  It runs the same evaluation as `evaluate()` *without* clearing CLIPS
+  refraction, so each rule fires once per new match rather than once per call
+  — which is what lets a rule count, accumulate, or watch for a sequence over
+  a feed. `evaluate()` is unchanged, and a step is never attested and never
+  audited: both bind a decision to the inputs it was computed from, and a
+  step's result also depends on what fired in earlier steps.
+
 
 ## [0.12.1] - 2026-09-09
 ### Fixed

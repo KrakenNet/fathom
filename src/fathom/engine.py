@@ -1686,6 +1686,44 @@ class Engine:
         finally:
             env.current_module = saved
 
+    def step(self, facts: list[tuple[str, dict[str, Any]]] | None = None) -> EvaluationResult:
+        """Assert *facts* and run one incremental step, keeping refraction.
+
+        The stream counterpart to :meth:`evaluate`. Where ``evaluate`` clears
+        CLIPS refraction first, so a decision is a function of working memory
+        and not of how often the engine has been asked, a step leaves it
+        alone: every rule fires once per *new* match rather than once per
+        call. That is what lets a rule count, accumulate, or watch for a
+        sequence over a feed -- none of which can be written against
+        ``evaluate``, where a counter counts calls instead of events.
+
+        Facts persist across steps, exactly as they do across ``evaluate``
+        calls. TTLs are honoured: each step expires what has aged out first.
+
+        Args:
+            facts: Optional ``(template, slots)`` pairs to assert before
+                running. Equivalent to calling :meth:`assert_facts` first;
+                the argument exists so a batch and its run are one call.
+
+        Returns:
+            :class:`EvaluationResult` for this step. ``rule_trace`` holds the
+            rules that fired *in this step*, not since the engine started.
+
+        Note:
+            A step is **never attested and never audited**, even on an engine
+            with an attestation service or an audit sink configured. Both
+            bind a decision to the inputs it was computed from, and a step's
+            result depends on what fired in earlier steps as well: signing
+            one would assert something that is not true. Use
+            :meth:`evaluate` or :meth:`evaluate_once` where a decision has to
+            be defensible, and a stream of steps where throughput matters.
+        """
+        with self._lock:
+            if facts:
+                self.assert_facts(facts)
+            result, _ = self._evaluator.evaluate()
+            return result
+
     def evaluate_once(self, facts: list[tuple[str, dict[str, Any]]]) -> EvaluationResult:
         """Evaluate exactly *facts* and leave working memory as it was found.
 
