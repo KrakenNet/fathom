@@ -13,6 +13,12 @@ gaps between 0.3.1 and 0.5.0 are explained under
 
 ## [Unreleased]
 ### Added
+- **`Engine.reload_rules(..., preserve_facts=True)`** carries working memory
+  into the new environment instead of discarding it, TTL ages included, so the
+  incoming rules re-match the facts already there. Off by default: the carry
+  runs with the engine lock held, which turns the swap from a pointer
+  assignment into a copy proportional to working memory. Change listeners are
+  not fired for carried facts, since subscribers already hold them.
 - **`Engine.step(facts)`**, an incremental evaluation primitive for streams.
   It runs the same evaluation as `evaluate()` *without* clearing CLIPS
   refraction, so each rule fires once per new match rather than once per call
