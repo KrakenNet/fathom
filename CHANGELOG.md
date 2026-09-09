@@ -19,6 +19,27 @@ gaps between 0.3.1 and 0.5.0 are explained under
   runs with the engine lock held, which turns the swap from a pointer
   assignment into a copy proportional to working memory. Change listeners are
   not fired for carried facts, since subscribers already hold them.
+- **`Engine.step(facts)`**, an incremental evaluation primitive for streams.
+  It runs the same evaluation as `evaluate()` *without* clearing CLIPS
+  refraction, so each rule fires once per new match rather than once per call
+  — which is what lets a rule count, accumulate, or watch for a sequence over
+  a feed. `evaluate()` is unchanged, and a step is never attested and never
+  audited: both bind a decision to the inputs it was computed from, and a
+  step's result also depends on what fired in earlier steps.
+- **`Engine.agenda()`** returns the activations waiting to fire — rule, module,
+  salience, and the facts that matched — so you can ask what *would* run before
+  running it. Closes the gap `rule_trace` leaves: it reports firings only after
+  the fact.
+- **`Engine.rule_matches(rule)`** reports how far a rule got toward firing:
+  per-pattern matches, partial matches, and activations. The diagnostic for a
+  rule that should have fired and did not.
+- **`Engine.trace()`**, a context manager that records each rule firing as CLIPS
+  saw it, in order, with the facts each one matched. It claims the CLIPS
+  `stdout` router for the duration, so a rule's `printout` is captured rather
+  than printed.
+- **Three MCP tools**: `fathom.agenda`, `fathom.rule_matches`, and
+  `fathom.trace`. The four existing tools consult a policy; these three debug
+  one, which is what an agent writing rules needs.
 
 
 ## [0.12.1] - 2026-09-09

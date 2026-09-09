@@ -19,14 +19,14 @@ import yaml
 
 from fathom.audit import AuditLog, AuditSink, NullSink
 from fathom.compiler import Compiler
-from fathom.errors import CompilationError, EvaluationLimitError, ScopeError
+from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
 from fathom.metrics import MetricsCollector
-from fathom.models import HierarchyDefinition
+from fathom.models import Activation, HierarchyDefinition, RuleMatches
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Iterator
 
     from fathom.attestation import AttestationService
     from fathom.models import (
@@ -182,6 +182,39 @@ def dominates(
     return compartments_superset(str(comps_a), str(comps_b))
 
 
+#: Fact indices in the pretty-printed form of an activation, which CLIPS
+#: renders as ``100 rule-name: f-1,f-2``. Read rather than parsed further:
+#: clipspy exposes an activation's name and salience but not its basis.
+_ACTIVATION_FACT_RE = re.compile(r"f-(\d+)")
+
+
+class _TraceRouter(clips.Router):  # type: ignore[misc]
+    """Captures CLIPS ``watch`` output instead of letting it reach stdout.
+
+    CLIPS writes trace text to its own logical output names rather than to
+    Python's ``sys.stdout``, so the only way to read a firing trace is to
+    register a router that claims the name it writes to. In CLIPS 6.4 that
+    name is the plain ``stdout``, not a dedicated trace name -- which means
+    anything else CLIPS prints while a trace is active, ``printout`` included,
+    lands in the same buffer.
+    """
+
+    def __init__(self) -> None:
+        # Priority above clipspy's LoggingRouter (30) and the default router,
+        # so this one is offered the message first. The name is unique per
+        # instance: CLIPS keys routers by name and refuses a duplicate.
+        super().__init__(f"fathom-trace-{uuid4().hex}", 40)
+        self.buffer: list[str] = []
+
+    def query(self, name: str) -> bool:
+        """Claim ``stdout``, which is where CLIPS 6.4 writes watch output."""
+        return name == "stdout"
+
+    def write(self, name: str, message: str) -> None:
+        """Buffer one chunk of trace text."""
+        self.buffer.append(message)
+
+
 class Engine:
     """Deterministic reasoning engine backed by CLIPS."""
 
@@ -266,6 +299,9 @@ class Engine:
         # nothing would read again. `evaluate_once` pins the env it started
         # on; everything else follows `self._env`.
         self._pinned_env: clips.Environment | None = None
+        #: Router installed for the duration of a :meth:`trace` block, and the
+        #: flag that keeps two traces from claiming CLIPS stdout at once.
+        self._trace_router: _TraceRouter | None = None
         self._fact_manager = FactManager(
             env_provider=self._current_env,
             template_registry=self._template_registry,
@@ -1560,6 +1596,169 @@ class Engine:
             if retracted:
                 self._metrics.record_facts_retracted(retracted)
 
+    # --- Introspection ---
+
+    def _walk_modules(self, env: clips.Environment) -> Iterator[Any]:
+        """Yield each defmodule with it made current, restoring the old one.
+
+        Several clipspy accessors -- ``rules()``, ``activations()`` -- report
+        only the CLIPS *current module*, which after an evaluation is wherever
+        the focus stack left off, usually ``MAIN``. ``MAIN`` holds no user
+        rules, so reading them straight off the environment silently returns
+        nothing. Same trap :meth:`_refresh_all_rules` documents.
+        """
+        saved = env.current_module
+        try:
+            for module in list(env.modules()):
+                env.current_module = module
+                yield module
+        finally:
+            env.current_module = saved
+
+    def agenda(self) -> list[Activation]:
+        """Return the activations waiting to fire.
+
+        An activation is a rule whose conditions working memory already
+        satisfies: the next :meth:`evaluate` fires it. Reading the agenda
+        between calls answers "what would run now" without running it, which
+        is the other half of the question ``rule_trace`` answers afterwards.
+
+        Entries appear in the order CLIPS would fire them *within* a module,
+        highest salience first. Across modules the focus stack decides, not
+        salience, so do not read the concatenated list as one firing order.
+
+        Returns:
+            One :class:`~fathom.models.Activation` per waiting rule, over
+            every module.
+        """
+        with self._lock:
+            env = self._current_env()
+            return [
+                Activation(
+                    # clipspy reports an activation's rule name bare, while it
+                    # reports a *rule's* name module-qualified. Qualify here so
+                    # one name shape reaches callers from both.
+                    rule=f"{module.name}::{activation.name}",
+                    module=module.name,
+                    salience=activation.salience,
+                    facts=[int(i) for i in _ACTIVATION_FACT_RE.findall(str(activation))],
+                )
+                for module in self._walk_modules(env)
+                for activation in env.activations()
+            ]
+
+    def rule_matches(self, rule: str) -> RuleMatches:
+        """Report how far *rule* got toward firing, pattern by pattern.
+
+        The diagnostic for a rule that should have fired and did not. All
+        three counts at zero means no fact matched any of its conditions.
+        ``matches`` above zero with ``activations`` at zero means some
+        conditions are satisfied and the rest are not, so the rule is waiting
+        on a fact you have not asserted -- or on one whose slots do not join
+        with the facts already there.
+
+        Args:
+            rule: Rule name, either module-qualified (``governance::deny``)
+                or bare (``deny``). A bare name is resolved against every
+                loaded module.
+
+        Returns:
+            :class:`~fathom.models.RuleMatches` counts for the rule.
+
+        Raises:
+            ValidationError: No loaded module defines a rule by that name.
+        """
+        with self._lock:
+            env = self._current_env()
+            found, qualified = self._find_rule(env, rule)
+            matches, partial_matches, activations = found.matches()
+            return RuleMatches(
+                rule=qualified,
+                matches=matches,
+                partial_matches=partial_matches,
+                activations=activations,
+            )
+
+    def _find_rule(self, env: clips.Environment, rule: str) -> tuple[Any, str]:
+        """Resolve *rule* to a clipspy rule and its module-qualified name.
+
+        ``env.find_rule`` resolves a bare name against the current module
+        only, so the same lookup works before an evaluation and fails after
+        one. Try the name as given, then qualify it with each loaded module.
+
+        The qualified name is returned alongside the rule because clipspy
+        does not derive one: ``Rule.name`` echoes back whatever string the
+        lookup used, so a bare lookup yields a bare name.
+        """
+        with contextlib.suppress(LookupError):
+            found = env.find_rule(rule)
+            if "::" in rule:
+                return found, rule
+            return found, f"{env.current_module.name}::{rule}"
+        bare = rule.split("::")[-1]
+        for module in list(env.modules()):
+            qualified = f"{module.name}::{bare}"
+            with contextlib.suppress(LookupError):
+                return env.find_rule(qualified), qualified
+        raise ValidationError(f"no loaded module defines a rule named '{rule}'")
+
+    @contextlib.contextmanager
+    def trace(self) -> Iterator[list[str]]:
+        """Record every rule firing inside the block.
+
+        ``rule_trace`` reports the rules one evaluation fired. This reports
+        them as CLIPS itself saw them, in firing order and with the facts each
+        one matched::
+
+            with engine.trace() as firings:
+                engine.evaluate()
+            print(firings)  # ['FIRE 1 governance::deny: f-1,f-2']
+
+        The list is filled when the block **exits**, not while it runs: CLIPS
+        emits trace text in chunks that do not line up with firings, so the
+        buffer is split into lines once at the end.
+
+        Tracing costs throughput — CLIPS renders the text on every firing —
+        and it claims the CLIPS ``stdout`` router for the duration, so any
+        ``printout`` a rule performs is captured here instead of printed. Use
+        it to debug a ruleset, not in a hot path.
+
+        The engine lock is held for the whole block, so a concurrent
+        :meth:`evaluate` on another thread waits rather than scattering its
+        own firings into this trace.
+
+        Yields:
+            The list that receives one entry per firing on exit.
+
+        Raises:
+            RuntimeError: A trace is already active on this engine. Two
+                routers cannot both claim CLIPS stdout, and the second would
+                silently capture nothing.
+        """
+        with self._lock:
+            if self._trace_router is not None:
+                raise RuntimeError(
+                    "a trace is already active on this engine; close the "
+                    "outer trace() block before opening another"
+                )
+            env = self._current_env()
+            router = _TraceRouter()
+            self._trace_router = router
+            firings: list[str] = []
+            env.add_router(router)
+            env.eval("(watch rules)")
+            try:
+                yield firings
+            finally:
+                self._trace_router = None
+                with contextlib.suppress(Exception):
+                    env.eval("(unwatch rules)")
+                with contextlib.suppress(Exception):
+                    router.delete()
+                firings.extend(
+                    line.strip() for line in "".join(router.buffer).splitlines() if line.strip()
+                )
+
     # --- Evaluation ---
 
     def _snapshot_user_facts(self) -> list[AssertedFact]:
@@ -1709,6 +1908,44 @@ class Engine:
                     rule.refresh()
         finally:
             env.current_module = saved
+
+    def step(self, facts: list[tuple[str, dict[str, Any]]] | None = None) -> EvaluationResult:
+        """Assert *facts* and run one incremental step, keeping refraction.
+
+        The stream counterpart to :meth:`evaluate`. Where ``evaluate`` clears
+        CLIPS refraction first, so a decision is a function of working memory
+        and not of how often the engine has been asked, a step leaves it
+        alone: every rule fires once per *new* match rather than once per
+        call. That is what lets a rule count, accumulate, or watch for a
+        sequence over a feed -- none of which can be written against
+        ``evaluate``, where a counter counts calls instead of events.
+
+        Facts persist across steps, exactly as they do across ``evaluate``
+        calls. TTLs are honoured: each step expires what has aged out first.
+
+        Args:
+            facts: Optional ``(template, slots)`` pairs to assert before
+                running. Equivalent to calling :meth:`assert_facts` first;
+                the argument exists so a batch and its run are one call.
+
+        Returns:
+            :class:`EvaluationResult` for this step. ``rule_trace`` holds the
+            rules that fired *in this step*, not since the engine started.
+
+        Note:
+            A step is **never attested and never audited**, even on an engine
+            with an attestation service or an audit sink configured. Both
+            bind a decision to the inputs it was computed from, and a step's
+            result depends on what fired in earlier steps as well: signing
+            one would assert something that is not true. Use
+            :meth:`evaluate` or :meth:`evaluate_once` where a decision has to
+            be defensible, and a stream of steps where throughput matters.
+        """
+        with self._lock:
+            if facts:
+                self.assert_facts(facts)
+            result, _ = self._evaluator.evaluate()
+            return result
 
     def evaluate_once(self, facts: list[tuple[str, dict[str, Any]]]) -> EvaluationResult:
         """Evaluate exactly *facts* and leave working memory as it was found.

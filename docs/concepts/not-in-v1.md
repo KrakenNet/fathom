@@ -4,8 +4,9 @@ summary: The CLIPS features Fathom deliberately omits from its authored surface 
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-08-27
+last_verified: 2026-09-09
 sources:
+  - src/fathom/engine.py
   - src/fathom/compiler.py
   - src/fathom/models.py
 ---
@@ -130,24 +131,32 @@ What to use instead: set explicit `salience` on rules that must fire in a
 particular order, and use modules plus focus to partition evaluation into
 phases.
 
-### Runtime agenda inspection
+### Runtime agenda inspection *from inside a rule pack*
 
 CLIPS provides `(get-agenda)`, `(refresh-agenda)`, and similar functions to
 inspect or manipulate the agenda — the queue of rule activations — at
-runtime. Fathom's Python API doesn't expose these, and there's no YAML way
-to ask "what's about to fire?" from inside a rule pack.
+runtime. There is no YAML way to ask "what's about to fire?" from inside a
+rule pack, and no way to manipulate the agenda at all: a rule that could
+reorder or cancel activations would make a decision depend on evaluation
+order rather than on working memory.
 
-What to use instead: inspect the `rule_trace` and `module_trace` fields on
-the `EvaluationResult` after the fact. That tells you what fired and in
-which module, which is what most agenda questions are really asking.
+Reading it from the host is supported. `Engine.agenda()` returns the waiting
+activations — rule, module, salience, and the facts that matched — and
+`Engine.rule_matches(rule)` reports how far a rule that did *not* activate
+got. See the [embedding how-to](../how-to/embed-sdk.md#debugging-a-ruleset).
 
-### Pattern-network and debug introspection
+### Pattern-network and debug introspection *as a YAML feature*
 
 CLIPS has `(watch rules)`, `(watch facts)`, `(dribble-on)`, and a suite of
-debug hooks that dump RETE activity to stderr. Fathom doesn't expose these
-as YAML features or Python API, because the audit log and the
-`rule_trace` / `module_trace` fields on `EvaluationResult` cover the same
-need with structured output that a host application can parse.
+debug hooks that dump RETE activity to stderr. None of them are YAML
+features: a rule pack cannot turn tracing on, because a pack that writes to
+the host's output is a side effect the audit record does not describe.
+
+The host can trace. `Engine.trace()` is a context manager that records each
+firing as CLIPS saw it, in order, with the facts each one matched — the
+structured equivalent of `(watch rules)`, captured rather than printed. For
+what already fired, the audit log and the `rule_trace` / `module_trace`
+fields on `EvaluationResult` remain the cheaper answer.
 
 What to use instead: read the audit log for decisions, and the evaluation
 traces for the firing sequence.
@@ -203,8 +212,8 @@ be contorted.
 | `deffacts` | Not exposed |
 | Logical CEs / truth maintenance | Not exposed |
 | Conflict-resolution strategy config | Uses CLIPS default (`depth`) |
-| Agenda inspection at runtime | Not exposed |
-| `watch` / `dribble` debug hooks | Not exposed (use `rule_trace`) |
+| Agenda inspection at runtime | Host API only (`Engine.agenda`) |
+| `watch` / `dribble` debug hooks | Host API only (`Engine.trace`) |
 | FuzzyCLIPS / temporal extensions | Not shipped |
 
 ## Versioning
