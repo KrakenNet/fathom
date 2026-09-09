@@ -586,6 +586,46 @@ class MatchEvidence(BaseModel):
     facts: list[AssertedFact] = Field(default_factory=list)
 
 
+class Activation(BaseModel):
+    """One rule waiting to fire, and the facts that put it there.
+
+    ``rule_trace`` on an :class:`EvaluationResult` says what already fired.
+    This says what *would* fire next, which is the question you have when a
+    rule you expected did not run. Read it through :meth:`Engine.agenda`.
+    """
+
+    #: Module-qualified rule name, as CLIPS reports it.
+    rule: str
+    #: The module whose agenda holds this activation.
+    module: str
+    #: The rule's salience. Within one module, higher fires first.
+    salience: int
+    #: Indices of the facts that satisfied the rule's conditions.
+    facts: list[int] = Field(default_factory=list)
+
+
+class RuleMatches(BaseModel):
+    """How far a rule got toward firing, pattern by pattern.
+
+    The diagnostic for a rule that should have fired and did not. All three
+    counts at zero means nothing matched any condition. ``matches`` above zero
+    with ``activations`` at zero means some conditions are satisfied and the
+    rest are not: the rule is waiting on a fact. Read it through
+    :meth:`Engine.rule_matches`.
+    """
+
+    #: Module-qualified rule name, as CLIPS reports it.
+    rule: str
+    #: Facts matching the rule's individual patterns, summed over the patterns.
+    matches: int
+    #: Partial matches held in the join network. CLIPS counts a join, not a
+    #: lone satisfied pattern, so a two-pattern rule with one pattern matched
+    #: reports zero here and one under ``matches``.
+    partial_matches: int
+    #: Complete matches, each one an entry on the agenda.
+    activations: int
+
+
 class EvaluationResult(BaseModel):
     """Result returned by :meth:`Engine.evaluate` after rule execution."""
 
