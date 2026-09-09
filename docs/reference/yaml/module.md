@@ -9,7 +9,7 @@ sources:
   - src/fathom/compiler.py
   - src/fathom/evaluator.py
   - src/fathom/engine.py
-last_verified: 2026-08-27
+last_verified: 2026-09-09
 ---
 
 # Module
