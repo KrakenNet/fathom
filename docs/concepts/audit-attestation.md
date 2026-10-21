@@ -342,6 +342,7 @@ The payload is deliberately narrow:
 {
     "iss":        "fathom",
     "iat":        int(time.time()),
+    "typ":        "fathom.evaluation",
     "decision":   result.decision,
     "rule_trace": result.rule_trace,
     # input_facts is the pre-inference working-memory snapshot: a list of
@@ -370,7 +371,16 @@ payload = verify_token(jwt_string, service.public_key)
 
 `verify_token` re-decodes the JWT with `algorithms=["EdDSA"]` and the
 supplied public key, returning the payload dict. Any failure — bad
-signature, malformed token, wrong algorithm — raises `AttestationError`.
+signature, malformed token, wrong algorithm, a key that is not an Ed25519
+public key — raises `AttestationError`.
+
+Every token names its kind in a `typ` claim, and `verify_token` accepts only
+the kind asked for: `"fathom.evaluation"` by default, `typ="fathom.event"`
+for the hot-reload and other event tokens `sign_event` mints. A chained-log
+line, or an event token, signed by the same key is therefore not accepted as
+an evaluation attestation. `sign_event` merges `iss`, `iat` and `typ` after
+the caller's payload, so a payload cannot override them. `typ=None` skips
+the kind check (tokens issued before the claim existed carry no `typ`).
 
 The public key can be serialised for distribution:
 

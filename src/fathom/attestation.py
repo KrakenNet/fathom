@@ -27,11 +27,18 @@ if TYPE_CHECKING:
 
 __all__ = ["AttestationService", "verify_token"]
 
+EVALUATION_TOKEN_TYPE = "fathom.evaluation"
+EVENT_TOKEN_TYPE = "fathom.event"
+
 
 class AttestationService:
     """Signs evaluation results using Ed25519 JWT tokens."""
 
     def __init__(self, private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:
+        # A mismatched pair signs tokens and logs that its own public key can
+        # never verify; refuse it here rather than at the first verification.
+        if _raw(private_key.public_key()) != _raw(public_key):
+            raise AttestationError("public_key does not match private_key")
         self._private_key = private_key
         self._public_key = public_key
 
@@ -83,6 +90,7 @@ class AttestationService:
         payload = {
             "iss": "fathom",
             "iat": int(time.time()),
+            "typ": EVALUATION_TOKEN_TYPE,
             "decision": result.decision,
             "rule_trace": result.rule_trace,
             "input_hash": input_hash,
@@ -94,14 +102,19 @@ class AttestationService:
     def sign_event(self, payload: dict[str, Any]) -> str:
         """Sign an arbitrary JSON payload and return a JWT token.
 
-        Wraps payload as ``{"iss": "fathom", "iat": <unix ts>, **payload}`` and
-        signs with the runtime Ed25519 key. Intended for audit events (e.g.
-        hot-reload) that are not shaped like an EvaluationResult.
+        Wraps payload as
+        ``{**payload, "iss": "fathom", "iat": <unix ts>, "typ": "fathom.event"}``
+        and signs with the runtime Ed25519 key. The reserved claims merge
+        last, so a payload cannot override them and pass as another token
+        kind. Intended for audit events (e.g. hot-reload) that are not shaped
+        like an EvaluationResult; verify with ``verify_token(...,
+        typ="fathom.event")``.
         """
         claims: dict[str, Any] = {
+            **payload,
             "iss": "fathom",
             "iat": int(time.time()),
-            **payload,
+            "typ": EVENT_TOKEN_TYPE,
         }
 
         return self._encode(claims)
@@ -132,12 +145,36 @@ class AttestationService:
         return self._private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
 
 
-def verify_token(token: str, public_key: Ed25519PublicKey) -> dict[str, Any]:
+def _raw(public_key: Ed25519PublicKey) -> bytes:
+    return public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+
+def verify_token(
+    token: str,
+    public_key: Ed25519PublicKey,
+    *,
+    typ: str | None = EVALUATION_TOKEN_TYPE,
+) -> dict[str, Any]:
     """Verify a JWT token and return the decoded payload.
 
-    Raises AttestationError if verification fails.
+    Args:
+        token: Compact JWS.
+        public_key: Ed25519 public key.
+        typ: The token kind the caller expects: ``"fathom.evaluation"``
+            (default, tokens from :meth:`AttestationService.sign`) or
+            ``"fathom.event"`` (:meth:`AttestationService.sign_event`). A
+            token of any other kind -- a chained-log line, an event offered
+            as an evaluation -- is refused. ``None`` skips the kind check.
+
+    Raises AttestationError if verification fails, including for a key that
+    is not an Ed25519 public key.
     """
     try:
-        return jwt.decode(token, public_key, algorithms=["EdDSA"])
-    except jwt.InvalidTokenError as exc:
+        claims: dict[str, Any] = jwt.decode(token, public_key, algorithms=["EdDSA"])
+    except jwt.PyJWTError as exc:
         raise AttestationError(f"Token verification failed: {exc}") from exc
+    if typ is not None and claims.get("typ") != typ:
+        raise AttestationError(
+            f"Token verification failed: typ {claims.get('typ')!r}, expected {typ!r}"
+        )
+    return claims

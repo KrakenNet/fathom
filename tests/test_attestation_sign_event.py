@@ -13,6 +13,7 @@ import time
 import pytest
 
 from fathom.attestation import AttestationService, verify_token
+from fathom.errors import AttestationError
 
 
 @pytest.fixture
@@ -29,7 +30,7 @@ def test_sign_event_round_trip(svc: AttestationService) -> None:
     # 3-part JWT (header.payload.signature)
     assert token.count(".") == 2
 
-    claims = verify_token(token, svc.public_key)
+    claims = verify_token(token, svc.public_key, typ="fathom.event")
 
     assert claims["iss"] == "fathom"
     assert isinstance(claims["iat"], int)
@@ -37,16 +38,18 @@ def test_sign_event_round_trip(svc: AttestationService) -> None:
     assert claims["k"] == "v"
 
 
-def test_sign_event_payload_iss_overrides_preset(svc: AttestationService) -> None:
-    """`**payload` spreads last, so a caller-supplied `iss` overrides `fathom`.
+def test_sign_event_reserved_claims_cannot_be_overridden(svc: AttestationService) -> None:
+    """Reserved claims merge last, so a payload cannot pass itself off as another kind."""
+    token = svc.sign_event({"iss": "custom", "typ": "fathom.evaluation", "iat": 1, "k": "v"})
+    claims = verify_token(token, svc.public_key, typ="fathom.event")
 
-    Documents current behaviour of sign_event (claims built as
-    ``{"iss": "fathom", "iat": ..., **payload}``) -- callers can override
-    `iss` by including it in the payload.
-    """
-    token = svc.sign_event({"iss": "custom", "k": "v"})
-    claims = verify_token(token, svc.public_key)
-
-    assert claims["iss"] == "custom"
+    assert claims["iss"] == "fathom"
+    assert claims["typ"] == "fathom.event"
+    assert claims["iat"] != 1
     assert claims["k"] == "v"
-    assert isinstance(claims["iat"], int)
+
+
+def test_event_token_is_not_an_evaluation_attestation(svc: AttestationService) -> None:
+    token = svc.sign_event({"decision": "allow", "k": "v"})
+    with pytest.raises(AttestationError, match="typ"):
+        verify_token(token, svc.public_key)

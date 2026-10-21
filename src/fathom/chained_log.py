@@ -299,7 +299,7 @@ def _scan(
                     return _fail("genesis key fingerprint does not match the public key", 1)
             if verify_key is not None:
                 try:
-                    claims = verify_token(obj["jws"], verify_key)
+                    claims = verify_token(obj["jws"], verify_key, typ=None)
                 except AttestationError as exc:
                     return _fail(f"invalid signature at line {lineno}: {exc}", lineno)
                 kid = jwt.get_unverified_header(obj["jws"]).get("kid")
@@ -754,7 +754,7 @@ def verify_chain(
     anchor_error: str | None = None
     if anchor_token is not None:
         try:
-            verify_token(anchor_token, key)
+            verify_token(anchor_token, key, typ=None)
         except AttestationError as exc:
             anchor_error = f"anchor token verification failed: {exc}"
         else:
