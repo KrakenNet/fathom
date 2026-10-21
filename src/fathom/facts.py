@@ -222,6 +222,10 @@ class FactManager:
                 f"Unknown template '{template_name}'",
                 template=template_name,
             )
+        if fact_filter:
+            # An unknown key would match nothing -- or, with a null value,
+            # everything, since `row.get(k)` is then None for every fact.
+            self._check_unknown_slots(template_def, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         results: list[dict[str, Any]] = []
@@ -274,6 +278,9 @@ class FactManager:
                 f"Unknown template '{template_name}'",
                 template=template_name,
             )
+        if fact_filter:
+            # Same check as `query`.
+            self._check_unknown_slots(template_def, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         # Collect (fact, slot_dict) pairs first to avoid mutating during
@@ -491,13 +498,16 @@ class FactManager:
                 # so a whole-numbered float arrives as `3` and a caller cannot
                 # express `3.0` at all.
                 result[key] = float(value)
-            elif slot.type == SlotType.STRING and not isinstance(value, str):
+            elif slot.type == SlotType.STRING and isinstance(value, (int, float)):
+                # Only scalars: str(None) is "None" and str({...}) a Python
+                # repr, both of which would pass a `matches(.+)` check.
                 result[key] = str(value)
         return result
 
     def _check_required(self, template: TemplateDefinition, data: dict[str, Any]) -> None:
         """Raise ValidationError if required slots are missing."""
-        missing = [s.name for s in template.slots if s.required and s.name not in data]
+        # A null counts as missing; JSON clients send it for "no value".
+        missing = [s.name for s in template.slots if s.required and data.get(s.name) is None]
         if missing:
             raise ValidationError(
                 f"Missing required slot(s) {missing} in template '{template.name}'",

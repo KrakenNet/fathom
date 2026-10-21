@@ -348,6 +348,15 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     503: {"model": ErrorResponse, "description": "Service unavailable"},
 }
 
+# The session GET routes read ``X-Session-Id`` off the request rather than
+# through ``Header()``, so a missing header answers 400 like the rest of the
+# session contract instead of FastAPI's 422. Declare it here instead.
+_SESSION_HEADER = {
+    "parameters": [
+        {"name": "X-Session-Id", "in": "header", "required": True, "schema": {"type": "string"}}
+    ]
+}
+
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -501,20 +510,24 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     )
 
 
-def _require_session_id(
-    x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
-) -> str:
+def _require_session_id(request: Request) -> str:
     """Require a session id via the ``X-Session-Id`` header.
 
     Session IDs are not put in the query string because query strings are
     logged by intermediaries and leak session identifiers into access logs.
     """
+    x_session_id = request.headers.get("X-Session-Id")
     if not x_session_id:
         raise HTTPException(status_code=400, detail="X-Session-Id header required")
     return x_session_id
 
 
-@app.get("/v1/templates", dependencies=[Depends(_require_auth)])
+@app.get(
+    "/v1/templates",
+    dependencies=[Depends(_require_auth)],
+    responses=_ERROR_RESPONSES,
+    openapi_extra=_SESSION_HEADER,
+)
 async def list_templates(
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
@@ -524,7 +537,12 @@ async def list_templates(
     return _make_list_response(items)
 
 
-@app.get("/v1/rules", dependencies=[Depends(_require_auth)])
+@app.get(
+    "/v1/rules",
+    dependencies=[Depends(_require_auth)],
+    responses=_ERROR_RESPONSES,
+    openapi_extra=_SESSION_HEADER,
+)
 async def list_rules(
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
@@ -534,7 +552,12 @@ async def list_rules(
     return _make_list_response(items)
 
 
-@app.get("/v1/modules", dependencies=[Depends(_require_auth)])
+@app.get(
+    "/v1/modules",
+    dependencies=[Depends(_require_auth)],
+    responses=_ERROR_RESPONSES,
+    openapi_extra=_SESSION_HEADER,
+)
 async def list_modules(
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
@@ -687,6 +710,14 @@ class RulesetReloadRequest(BaseModel):
     signature: str | None = None
 
 
+class RulesetReloadResponse(BaseModel):
+    """Response body for a successful ``POST /v1/rules/reload``."""
+
+    ruleset_hash_before: str
+    ruleset_hash_after: str
+    attestation_token: str
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -713,6 +744,11 @@ def _write_audit(sink: Any | None, record: dict[str, Any]) -> None:
 @app.post(
     "/v1/rules/reload",
     dependencies=[Depends(_require_admin_auth)],
+    responses={
+        200: {"model": RulesetReloadResponse, "description": "Ruleset reloaded"},
+        **_ERROR_RESPONSES,
+        500: {"model": ErrorResponse, "description": "Server misconfigured"},
+    },
     # The body is read and validated manually (to enforce the size cap on
     # real bytes before parsing), so FastAPI no longer infers the request
     # body schema from a parameter. Re-declare it here so the OpenAPI export
