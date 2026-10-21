@@ -10,7 +10,7 @@ from weakref import WeakKeyDictionary
 
 from fathom.compiler import Compiler
 from fathom.errors import CompilationError
-from fathom.yaml_utils import safe_load
+from fathom.yaml_utils import file_kind, safe_load
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -82,14 +82,9 @@ def _group_flat_files(pack_dir: Path) -> dict[str, list[Path]]:
             data = safe_load(handle)
         if not isinstance(data, dict):
             continue
-        if "templates" in data:
-            grouped["templates"].append(yaml_file)
-        elif "modules" in data or "focus_order" in data:
-            grouped["modules"].append(yaml_file)
-        elif "functions" in data:
-            grouped["functions"].append(yaml_file)
-        elif "rules" in data or "ruleset" in data:
-            grouped["rules"].append(yaml_file)
+        kind = file_kind(data)
+        if kind:
+            grouped[kind].append(yaml_file)
     return grouped
 
 

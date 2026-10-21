@@ -27,6 +27,7 @@ from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
 from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import (
+    file_kind,
     safe_load,
     safe_load_all,
     template_names_in,
@@ -335,17 +336,18 @@ def _compile_yaml_file(
     if not isinstance(data, dict):
         return constructs
 
-    if "templates" in data:
+    kind = file_kind(data)
+    if kind == "templates":
         constructs["templates"] = [
             compiler.compile_template(tmpl_defn)
             for tmpl_defn in compiler.parse_template_file(file_path)
         ]
-    elif "modules" in data:
+    elif kind == "modules":
         mod_definitions, focus_order = compiler.parse_module_file(file_path)
         constructs["modules"] = [compiler.compile_module(m) for m in mod_definitions]
         if focus_order:
             constructs["focus"] = [compiler.compile_focus_stack(focus_order)]
-    elif "functions" in data:
+    elif kind == "functions":
         # A classification function is only compilable with the hierarchy it
         # references in hand -- `compile_function` raises without it. The
         # engine resolves it off disk in `load_functions`; this did not, so
@@ -360,7 +362,7 @@ def _compile_yaml_file(
                     hierarchies[name] = Engine._resolve_hierarchy(defn.hierarchy_ref, file_path)
         compiled = [compiler.compile_function(f, hierarchies or None) for f in definitions]
         constructs["functions"] = [c for c in compiled if c]
-    elif "rules" in data or "ruleset" in data:
+    elif kind == "rules":
         ruleset = compiler.parse_rule_file(file_path)
         constructs["rules"] = [
             compiler.compile_rule(rule_defn, ruleset.module, templates)

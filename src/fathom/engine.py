@@ -19,13 +19,13 @@ import clips
 import yaml
 
 from fathom.audit import AuditLog, AuditSink, NullSink
-from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler, unknown_top_level_keys
+from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
 from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
 from fathom.metrics import MetricsCollector
 from fathom.models import Activation, HierarchyDefinition, RuleMatches
-from fathom.yaml_utils import safe_load
+from fathom.yaml_utils import safe_load, unknown_top_level_keys
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping

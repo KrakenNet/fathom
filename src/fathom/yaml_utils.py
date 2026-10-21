@@ -19,6 +19,41 @@ from fathom.models import (
     TemplateDefinition,
 )
 
+#: The keys each kind of YAML file may hold at its top level. The models
+#: inside are `extra="forbid"`, but the file around them was not checked, so
+#: a misspelled `focus_order:` was dropped and declaration order used instead.
+TOP_LEVEL_KEYS: dict[str, frozenset[str]] = {
+    "templates": frozenset({"templates"}),
+    "modules": frozenset({"modules", "focus_order"}),
+    "functions": frozenset({"functions", "hierarchies"}),
+    "rules": frozenset({"ruleset", "version", "module", "rules"}),
+}
+
+
+def unknown_top_level_keys(data: dict[str, Any], kind: str) -> str | None:
+    """Describe the keys of *data* a *kind* file may not hold, or None."""
+    unknown = sorted(str(key) for key in data if key not in TOP_LEVEL_KEYS[kind])
+    if not unknown:
+        return None
+    noun = "key" if len(unknown) == 1 else "keys"
+    return (
+        f"unknown top-level {noun} {', '.join(repr(k) for k in unknown)} in a {kind} file "
+        f"(allowed: {', '.join(sorted(TOP_LEVEL_KEYS[kind]))})"
+    )
+
+
+def file_kind(data: dict[str, Any]) -> str | None:
+    """Name the kind of Fathom file *data* holds by its top-level keys, or None."""
+    if "templates" in data:
+        return "templates"
+    if "modules" in data or "focus_order" in data:
+        return "modules"
+    if "functions" in data:
+        return "functions"
+    if "rules" in data or "ruleset" in data:
+        return "rules"
+    return None
+
 
 class _StrictLoader(yaml.SafeLoader):
     """``yaml.SafeLoader`` that rejects a mapping key given twice.
@@ -208,14 +243,10 @@ def validate_document(
     """
     errors: list[str] = []
 
-    from fathom.compiler import unknown_top_level_keys
-
-    for kind in ("templates", "modules", "functions", "rules"):
-        if kind in data:
-            unknown = unknown_top_level_keys(data, kind)
-            if unknown:
-                errors.append(f"{file_path}: {unknown}")
-            break
+    kind = file_kind(data)
+    unknown = unknown_top_level_keys(data, kind) if kind else None
+    if unknown:
+        errors.append(f"{file_path}: {unknown}")
 
     if "templates" in data:
         for idx, raw in _list_entries(data["templates"], "templates", file_path, errors):
