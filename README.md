@@ -168,9 +168,13 @@ curl -X POST localhost:8080/v1/evaluate \
 **As a gRPC sidecar**
 
 ```bash
-# protos/fathom.proto — regenerate Go/TS clients from the proto
-grpcurl -H "authorization: Bearer $TOKEN" \
-  -d '{"facts": [...]}' localhost:50051 fathom.v1.Fathom/Evaluate
+# Server: fathom.integrations.grpc_server.serve(), TLS by default
+# (docs/reference/configuration.md#grpc-tls). It has no reflection, so
+# grpcurl reads protos/fathom.proto — regenerate Go/TS clients from it too.
+grpcurl -import-path protos -proto fathom.proto \
+  -H "authorization: Bearer $TOKEN" \
+  -d '{"ruleset": "access-control", "facts": []}' \
+  localhost:50051 fathom.v1.FathomService/Evaluate
 ```
 
 **As an MCP tool**
