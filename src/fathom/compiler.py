@@ -1679,6 +1679,16 @@ class Compiler:
             escaped_arg = self._escape_clips_string(arg)
             return f'({slot} {slot_var}&:(str-index "{escaped_arg}" {slot_var}))'
         elif op == "matches":
+            # Checked here, not left to the first evaluation: a pattern that
+            # cannot compile errors on every fact the rule sees.
+            try:
+                re.compile(arg)
+            except re.error as exc:
+                raise CompilationError(
+                    "[fathom.compiler] compile rule failed: "
+                    f"invalid regex in expression: {expr}: {exc}",
+                    detail=f"Expression: {expr}",
+                ) from exc
             escaped_arg = self._escape_clips_string(arg)
             return f'({slot} {slot_var}&:(fathom-matches {slot_var} "{escaped_arg}"))'
         else:

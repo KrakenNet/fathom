@@ -98,16 +98,44 @@ class Evaluator:
                     fact.retract()
 
     def _run(self, env: clips.Environment) -> None:
-        """Run the agenda to quiescence, honouring the activation budget."""
+        """Run the agenda to quiescence, honouring the activation budget.
+
+        Raises:
+            EvaluationError: CLIPS reported a runtime error during the run,
+                or while matching facts asserted since the last evaluation.
+            EvaluationLimitError: The activation budget ran out.
+        """
         if self._run_limit is None:
             env.run()
-            return
-        fired = env.run(self._run_limit)
-        if fired >= self._run_limit and next(env.activations(), None) is not None:
-            raise EvaluationLimitError(
-                f"evaluation exceeded run_limit of {self._run_limit} activations "
-                "with activations still pending (non-terminating ruleset?)"
-            )
+        else:
+            fired = env.run(self._run_limit)
+            if fired >= self._run_limit and next(env.activations(), None) is not None:
+                raise EvaluationLimitError(
+                    f"evaluation exceeded run_limit of {self._run_limit} activations "
+                    "with activations still pending (non-terminating ruleset?)"
+                )
+        self._raise_clips_error(env)
+
+    @staticmethod
+    def _raise_clips_error(env: clips.Environment) -> None:
+        """Fail closed on a runtime error CLIPS printed instead of raising.
+
+        A runtime error in a pattern predicate (``matches`` with a bad regex,
+        a registered function that raises) or in a ``test:`` CE makes that
+        rule not match; one in a rule's action halts the agenda. Either way
+        CLIPS only prints it, so the run "succeeds" with whatever decision was
+        written before -- an allow, if the deny that errored was meant to
+        override it. Pattern matching happens when a fact is asserted, so an
+        error can arrive before the run as well as during it.
+
+        clipspy's own error router collects everything CLIPS writes to
+        ``stderr`` until it is read, and reading it clears it, so a reported
+        error is not reported again.
+        """
+        router = next(r for r in env.routers() if r.name == "python-error-router")
+        message = router.last_message.strip()
+        if message:
+            raise EvaluationError(f"CLIPS runtime error: {message.splitlines()[0]}")
 
     def _setup_focus_stack(self, env: clips.Environment) -> None:
         """Give the modules the focus in the order the author wrote them.

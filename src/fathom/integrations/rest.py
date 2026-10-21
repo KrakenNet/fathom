@@ -483,8 +483,8 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
             detail={"error": "evaluation_failed", "detail": str(exc)},
         ) from exc
     except EvaluationError as exc:
-        # Any other evaluation failure is a server-side fault, not something
-        # the caller can fix by retrying or by sending different facts.
+        # Any other evaluation failure, a CLIPS runtime error in a rule
+        # included. No decision was produced, so none is returned.
         raise HTTPException(
             status_code=500,
             detail={"error": "evaluation_error", "detail": str(exc)},
