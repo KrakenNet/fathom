@@ -561,6 +561,35 @@ class TestFleetScopeGuardIsSymmetric:
         # Refused, not partially applied.
         assert engine.query("shared_status") == [{"status": "online"}]
 
+    @pytest.mark.parametrize("entry", ["assert_facts", "step"])
+    def test_batch_assert_of_a_fleet_fact_is_refused(self, entry: str) -> None:
+        """`assert_facts` and `step(facts=)` must guard like `assert_fact`.
+
+        They did not: the fleet fact landed in this node's working memory
+        only, never reached the store, and the node silently diverged from
+        its peers. The guard covers the whole batch before anything is
+        asserted, so a session-scoped fact earlier in the list is not left
+        behind either.
+        """
+        from fathom.engine import Engine
+        from fathom.errors import ScopeError
+        from fathom.models import TemplateDefinition
+
+        engine = Engine()
+        _seed_shared_status(engine)
+        engine._template_registry["note"] = TemplateDefinition(name="note", slots=[])
+        engine._safe_build("(deftemplate note)", context="note")
+        batch: list[tuple[str, dict[str, Any]]] = [
+            ("note", {}),
+            ("shared_status", {"status": "online"}),
+        ]
+
+        with pytest.raises(ScopeError, match="fleet-scoped"):
+            getattr(engine, entry)(batch)
+
+        assert engine.query("shared_status") == []
+        assert engine.query("note") == []
+
 
 class TestSyncFleetFactsResilience:
     """One unsyncable row must not abort the rest of the sync."""

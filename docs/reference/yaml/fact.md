@@ -72,9 +72,11 @@ engine.assert_facts([
 ])
 ```
 
-`Engine.assert_fact` raises `ScopeError` when the referenced template's
+`Engine.assert_fact`, `Engine.assert_facts`, `Engine.step(facts=)` and
+`Engine.evaluate_once` raise `ScopeError` when a referenced template's
 `scope` is `"fleet"` — fleet-scoped facts must go through
-`FleetEngine.assert_fact`.
+`FleetEngine.assert_fact`. The batch forms check every template before
+asserting anything, so a refused batch leaves working memory unchanged.
 
 ### Rule RHS — `then.assert`
 

@@ -1466,17 +1466,29 @@ class Engine:
             data: Slot name-to-value mapping for the fact.
         """
         with self._lock:
+            self._refuse_fleet_asserts([template])
+            try:
+                self._fact_manager.assert_fact(template, data)
+            finally:
+                self._metrics.record_fact_asserted(template)
+                self._publish_working_memory([template])
+
+    def _refuse_fleet_asserts(self, templates: Iterable[str]) -> None:
+        """Raise ScopeError if any of *templates* is fleet-scoped.
+
+        Every public assert path calls this over its whole batch BEFORE
+        asserting anything, so a fleet template late in a list cannot leave
+        the earlier facts behind. A fleet fact asserted here would reach this
+        node's working memory only, never the shared FactStore, and the node
+        would silently diverge from its peers.
+        """
+        for template in templates:
             tmpl_def = self._template_registry.get(template)
             if tmpl_def is not None and tmpl_def.scope == "fleet":
                 raise ScopeError(
                     f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
                     "so the fact is also written through to the shared FactStore."
                 )
-            try:
-                self._fact_manager.assert_fact(template, data)
-            finally:
-                self._metrics.record_fact_asserted(template)
-                self._publish_working_memory([template])
 
     def _assert_local(
         self, template: str, data: dict[str, Any]
@@ -1522,8 +1534,13 @@ class Engine:
 
         Args:
             facts: List of ``(template_name, slot_data)`` tuples.
+
+        Raises:
+            ScopeError: A named template is fleet-scoped. Checked for the
+                whole batch before anything is asserted.
         """
         with self._lock:
+            self._refuse_fleet_asserts(t for t, _ in facts)
             try:
                 self._fact_manager.assert_facts(facts)
             finally:
@@ -1934,6 +1951,9 @@ class Engine:
             :class:`EvaluationResult` for this step. ``rule_trace`` holds the
             rules that fired *in this step*, not since the engine started.
 
+        Raises:
+            ScopeError: A template in *facts* is fleet-scoped.
+
         Note:
             A step is **never attested and never audited**, even on an engine
             with an attestation service or an audit sink configured. Both
@@ -1982,16 +2002,7 @@ class Engine:
                 is asserted, so working memory is untouched.
         """
         with self._lock:
-            # Guard every template BEFORE asserting any of them, so a
-            # fleet-scoped template late in the list cannot leave the
-            # earlier facts behind.
-            for template, _ in facts:
-                tmpl_def = self._template_registry.get(template)
-                if tmpl_def is not None and tmpl_def.scope == "fleet":
-                    raise ScopeError(
-                        f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
-                        "so the fact is also written through to the shared FactStore."
-                    )
+            self._refuse_fleet_asserts(t for t, _ in facts)
             # Pin the env for the whole request: the assert below and the run
             # that follows must happen in the same environment even if a
             # reload swaps `self._env` between them.
