@@ -494,10 +494,12 @@ def evaluate(request: EvaluateRequest, http_request: Request) -> EvaluateRespons
         ) from exc
     except EvaluationError as exc:
         # Any other evaluation failure, a CLIPS runtime error in a rule
-        # included. No decision was produced, so none is returned.
+        # included. No decision was produced, so none is returned. The
+        # CLIPS diagnostic is server-side detail: log it, do not echo it.
+        logger.warning("evaluate: evaluation failed", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "evaluation_error", "detail": str(exc)},
+            detail={"error": "evaluation_error", "detail": "evaluation failed"},
         ) from exc
 
     return EvaluateResponse(
@@ -1189,8 +1191,9 @@ def _opa_evaluate(
         # is broken"). The engine's default decision is fail-closed.
         logger.debug("opa data: document does not fit template %r", template, exc_info=True)
         return _opa_undefined(engine, document_name)
-    except EvaluationError as exc:
-        return _opa_error(500, "internal_error", str(exc))
+    except EvaluationError:
+        logger.warning("opa data: evaluation failed", exc_info=True)
+        return _opa_error(500, "internal_error", "evaluation failed")
 
     if document_name:
         # Always defined, never OPA's `{}` undefined response: a Fathom engine

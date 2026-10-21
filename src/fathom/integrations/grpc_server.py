@@ -285,9 +285,11 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             # server fault.
             context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, f"evaluation_failed: {exc}")
             raise  # unreachable; abort raises
-        except EvaluationError as exc:
-            # Any other evaluation failure is a server-side fault.
-            context.abort(grpc.StatusCode.INTERNAL, f"evaluation_error: {exc}")
+        except EvaluationError:
+            # Any other evaluation failure is a server-side fault. The CLIPS
+            # diagnostic is server-side detail: log it, do not echo it.
+            logger.warning("Evaluate: evaluation failed", exc_info=True)
+            context.abort(grpc.StatusCode.INTERNAL, "evaluation_error: evaluation failed")
             raise  # unreachable; abort raises
 
         # `decision` and `reason` are proto3 `optional`, so "no rule decided"

@@ -104,3 +104,19 @@ def test_every_live_error_status_is_declared_with_its_body(
             resp.text,
         )
     assert {"400", "401", "404", "413", "422", "500"} <= seen
+
+
+def test_evaluation_error_does_not_echo_clips_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FATHOM_API_TOKEN", "tok")
+    monkeypatch.setenv("FATHOM_RULESET_ROOT", str(ROOT))
+    c = TestClient(app)
+    big = {"template": "agent", "data": {"id": "x" * 5000, "clearance": "secret"}}
+    ev = c.post("/v1/evaluate", headers=H, json={"ruleset": HELLO, "facts": [big, _DR]})
+    data = c.post(
+        f"/v1/data/{HELLO}?template=agent",
+        headers=H,
+        json={"input": {"id": "x" * 5000, "clearance": "secret"}},
+    )
+    for resp in (ev, data):
+        assert resp.status_code == 500, resp.text
+        assert "CLIPS" not in resp.text and "4096" not in resp.text, resp.text
