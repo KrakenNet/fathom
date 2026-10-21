@@ -280,27 +280,17 @@ def _dependency_template_files(path: Path) -> list[Path]:
     patterns against the templates it can see, so it needs them too. Only an
     installed pack (one with an entry point) can declare dependencies.
     """
-    from fathom.packs import DEPENDENCIES_ATTR, RulePackLoader
+    from fathom.packs import RulePackLoader, _template_files
 
     root = path if path.is_dir() else path.parent.parent
     if not (root / "__init__.py").is_file():
         return []
     root = root.resolve()
-    pending: list[str] = []
-    for ep in entry_points(group="fathom.packs"):
-        module, pack_dir = RulePackLoader._resolve(ep.name)
-        if pack_dir.resolve() == root:
-            pending += getattr(module, DEPENDENCIES_ATTR, ())
     files: list[Path] = []
-    seen: set[str] = set()
-    while pending:
-        name = pending.pop()
-        if name in seen:
-            continue
-        seen.add(name)
-        module, pack_dir = RulePackLoader._resolve(name)
-        files += sorted((pack_dir / "templates").glob("*.yaml"))
-        pending += getattr(module, DEPENDENCIES_ATTR, ())
+    for ep in entry_points(group="fathom.packs"):
+        if RulePackLoader.discover(ep.name).resolve() == root:
+            for _name, pack_dir in list(RulePackLoader.dependency_closure(ep.name))[:-1]:
+                files += _template_files(pack_dir / "templates")
     return files
 
 
