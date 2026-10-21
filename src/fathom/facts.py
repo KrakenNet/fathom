@@ -190,8 +190,12 @@ class FactManager:
 
     def assert_facts_scoped(
         self, facts: list[tuple[str, dict[str, Any]]]
-    ) -> list[tuple[str, Any, dict[str, Any]]]:
-        """Assert multiple facts, returning handles for the ones actually created.
+    ) -> tuple[list[tuple[str, dict[str, Any]]], list[tuple[str, Any, dict[str, Any]]]]:
+        """Assert multiple facts, returning ``(validated, handles)``.
+
+        *validated* is every ``(template_name, slots)`` pair as accepted --
+        defaults applied, values coerced -- and *handles* covers the facts
+        actually created.
 
         Backs :meth:`fathom.engine.Engine.evaluate_once`: the returned
         ``(template_name, fact, slots)`` triples are what
@@ -222,7 +226,7 @@ class FactManager:
                 continue
             pre_existing.add(fact.index)
             created.append((template_name, fact, validated))
-        return created
+        return validated_batch, created
 
     def retract_handles(self, handles: list[tuple[str, Any, dict[str, Any]]]) -> None:
         """Retract the exact facts named by *handles* (see :meth:`assert_facts_scoped`).

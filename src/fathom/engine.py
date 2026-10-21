@@ -1559,8 +1559,10 @@ class Engine:
         """
         with self._lock:
             try:
-                validated = self._fact_manager._validate(template, data)
-                return validated, self._fact_manager.assert_facts_scoped([(template, validated)])
+                [(_, validated)], handles = self._fact_manager.assert_facts_scoped(
+                    [(template, data)]
+                )
+                return validated, handles
             finally:
                 self._metrics.record_fact_asserted(template)
                 self._publish_working_memory([template])
@@ -2093,7 +2095,7 @@ class Engine:
             # that follows must happen in the same environment even if a
             # reload swaps `self._env` between them.
             outer_pin, self._pinned_env = self._pinned_env, self._env
-            handles = self._fact_manager.assert_facts_scoped(facts)
+            _, handles = self._fact_manager.assert_facts_scoped(facts)
             for template, _ in facts:
                 self._metrics.record_fact_asserted(template)
             self._publish_working_memory(t for t, _ in facts)
