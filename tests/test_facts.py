@@ -480,9 +480,9 @@ class TestTypeMismatch:
         with pytest.raises(ValidationError, match="expects"):
             all_types_engine.assert_fact("all_types", data)
 
-    @pytest.mark.parametrize("bad_value", [123, 1.5, True])
+    @pytest.mark.parametrize("bad_value", [123, 1.5])
     def test_non_string_coerced_for_string_slot(self, all_types_engine, bad_value):
-        """Non-string values for string slots are coerced to str, not rejected."""
+        """Numbers for string slots are coerced to str, not rejected."""
         all_types_engine.assert_fact(
             "all_types",
             {
@@ -578,6 +578,15 @@ class TestBoolRejection:
                     "s_float": True,
                     "s_integer": 1,
                 },
+            )
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_bool_rejected_for_string(self, all_types_engine, flag):
+        # str(True) is "True", which would satisfy `matches(.+)`.
+        with pytest.raises(ValidationError, match="expects string"):
+            all_types_engine.assert_fact(
+                "all_types",
+                {"s_string": flag, "s_symbol": "s", "s_float": 1.0, "s_integer": 1},
             )
 
     @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])

@@ -29,7 +29,7 @@ _TRANSFER = {"source": "ehr", "destination": "partner"}
 
 
 @pytest.mark.parametrize(
-    "encrypted", ["FALSE", "false", "False", "no", "0", "unencrypted", " TRUE x", False]
+    "encrypted", ["FALSE", "false", "False", "no", "0", "unencrypted", " TRUE x"]
 )
 def test_hipaa_transmission_security_denies_anything_but_true(encrypted: object) -> None:
     decision, trace = _decide("hipaa", "data_transfer", {**_TRANSFER, "encrypted": encrypted})
@@ -37,9 +37,16 @@ def test_hipaa_transmission_security_denies_anything_but_true(encrypted: object)
     assert trace == ["hipaa::transmission-security"]
 
 
-@pytest.mark.parametrize("encrypted", ["TRUE", "true", "True", True])
+@pytest.mark.parametrize("encrypted", ["TRUE", "true", "True"])
 def test_hipaa_transmission_security_allows_true_in_any_case(encrypted: object) -> None:
     assert _decide("hipaa", "data_transfer", {**_TRANSFER, "encrypted": encrypted})[1] == []
+
+
+@pytest.mark.parametrize("encrypted", [True, False])
+def test_hipaa_encrypted_refuses_a_bool(encrypted: bool) -> None:
+    # `encrypted` is a string slot; a bool is refused, never stored as "True".
+    with pytest.raises(ValidationError, match="expects string"):
+        _decide("hipaa", "data_transfer", {**_TRANSFER, "encrypted": encrypted})
 
 
 def test_hipaa_phi_is_phi_in_any_case() -> None:

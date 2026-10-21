@@ -141,9 +141,10 @@ the assertion.
      against a FLOAT slot, so without this the assert failed after
      validation had already passed it. JSON has one number type, so a
      REST or TypeScript caller cannot send `3.0` at all.
-   - `STRING` slot with an `int`, `float` or `bool` value → coerced via
-     `str(value)`. `None`, dicts and lists are not coerced and fail the
-     type check below, so `null` never becomes the string `"None"`.
+   - `STRING` slot with an `int` or `float` value → coerced via
+     `str(value)`. `bool`, `None`, dicts and lists are not coerced and
+     fail the type check below, so `null` never becomes the string
+     `"None"` and `true` never becomes `"True"`.
    `SYMBOL` slots are wrapped later — see
    [CLIPS coercion](#clips-coercion).
 6. **Type check** (`_check_types`, lines 428–464). Validates against
@@ -158,7 +159,8 @@ the assertion.
 
    `bool` is **explicitly rejected** for `INTEGER` and `FLOAT` slots
    (facts.py lines 438–450) even though Python's `bool` is a subclass
-   of `int` — the check runs before the `isinstance` comparison.
+   of `int` — the check runs before the `isinstance` comparison. A
+   `bool` in a `STRING` slot is never coerced, so it fails as well.
    A non-finite `float` (`NaN`, `inf`, `-inf`) is rejected for both:
    CLIPS compares `NaN` true against `<` and `>` alike, so a `NaN`
    score would satisfy `less_than(0.3)` and `greater_than(0.8)` at

@@ -460,7 +460,7 @@ class FactManager:
         # 4. Check required
         self._check_required(template, data)
 
-        # 5. Coerce types (int→float, float→int, non-str→str)
+        # 5. Coerce types (int→float, float→int, number→str)
         data = self._coerce_types(template, data)
 
         # 6. Check types
@@ -508,9 +508,14 @@ class FactManager:
                 # so a whole-numbered float arrives as `3` and a caller cannot
                 # express `3.0` at all.
                 result[key] = float(value)
-            elif slot.type == SlotType.STRING and isinstance(value, (int, float)):
-                # Only scalars: str(None) is "None" and str({...}) a Python
-                # repr, both of which would pass a `matches(.+)` check.
+            elif (
+                slot.type == SlotType.STRING
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+            ):
+                # Only numbers: str(None) is "None", str(True) is "True" and
+                # str({...}) a Python repr, all of which would pass a
+                # `matches(.+)` check. A bool is refused, as for numeric slots.
                 result[key] = str(value)
         return result
 
