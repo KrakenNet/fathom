@@ -363,6 +363,61 @@ def test_a_second_writer_on_one_path_is_refused(tmp_path: Path) -> None:
     assert verification.count == 1
 
 
+def test_a_writer_that_opened_before_another_closed_continues_from_the_real_head(
+    tmp_path: Path,
+) -> None:
+    """Rolling restart: B opens, A appends and closes, B appends.
+
+    The lock is only taken at the first append, and B's head came from the
+    scan at construction. With A gone the lock was free, so B appended from a
+    stale head and the log verified as `malformed line 4: seq 2, expected 3`.
+    B now rescans once it holds the lock and continues from the real head.
+    """
+    from fathom.attestation import AttestationService
+    from fathom.chained_log import ChainedAttestationLog
+
+    path = tmp_path / "audit.jsonl"
+    service = AttestationService.generate_keypair()
+
+    a = ChainedAttestationLog(path, service)
+    a.append({"from": "a", "n": 0})
+    b = ChainedAttestationLog(path, service)
+    a.append({"from": "a", "n": 1})
+    a.close()
+    b.append({"from": "b"})
+    # The same object reopening after a foreign write: close, A writes, append.
+    b.close()
+    a = ChainedAttestationLog(path, service)
+    a.append({"from": "a", "n": 2})
+    a.close()
+    b.append({"from": "b", "n": 1})
+    b.close()
+
+    verification = b.verify()
+    assert verification.ok, verification.error
+    assert verification.count == 5
+
+
+def test_a_writer_whose_log_was_replaced_is_refused(tmp_path: Path) -> None:
+    """A rescan that finds another log's genesis must not be continued."""
+    from fathom.attestation import AttestationService
+    from fathom.chained_log import ChainedAttestationLog
+    from fathom.errors import AttestationError
+
+    path = tmp_path / "audit.jsonl"
+    service = AttestationService.generate_keypair()
+
+    stale = ChainedAttestationLog(path, service)
+    stale.close()
+    path.unlink()
+    with ChainedAttestationLog(path, service) as fresh:
+        fresh.append({"n": 1})
+
+    with pytest.raises(AttestationError, match="log_id"):
+        stale.append({"n": 2})
+    assert ChainedAttestationLog(path, service).verify().ok
+
+
 def test_the_log_stays_readable_while_its_writer_holds_the_lock(tmp_path: Path) -> None:
     """The writer lock must exclude writers, not readers.
 
