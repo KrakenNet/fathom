@@ -4,7 +4,7 @@ summary: Translate the stateless subset of an OPA Rego policy into Fathom YAML w
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-27
+last_verified: 2026-10-21
 sources:
   - src/fathom/rego.py
   - src/fathom/cli.py

@@ -31,6 +31,64 @@ gaps between 0.3.1 and 0.5.0 are explained under
   REST already refused these calls without `X-Session-Id`. Open a session
   with `Evaluate` and pass its id; a server that mounts an Engine refuses
   sessions, so it offers none of these four calls, as on REST.
+- **`null` is no longer a value for a required slot.** It is refused as a
+  missing slot (REST 422), and `null`, objects and arrays are refused in any
+  string slot. They were stored as the string `"None"` or a Python repr, which
+  `matches(.+)` accepts, so `"id": null` was allowed. Omit an optional slot
+  instead of sending `null`.
+- **A query, count or retract filter naming an undeclared slot raises
+  `ValidationError`** (REST 422, gRPC `INVALID_ARGUMENT`). It used to match
+  nothing, or with a `null` value everything: `DELETE /v1/facts` with
+  `{"x": null}` emptied the template.
+- **A rule pattern on an unregistered template is a `CompilationError` at
+  load**, in `load_rules`, `reload_rules` and `fathom validate`, even with no
+  slot conditions. CLIPS used to invent the template and the rule never
+  matched.
+- **Template, module, function and rule files reject unknown top-level
+  keys**, in every loader, `reload_rules`, `POST /v1/compile` and `fathom
+  validate`. A misspelled `focus_order:` fell back silently to declaration
+  order.
+- **A repeated mapping key is invalid YAML.** Every YAML Fathom parses goes
+  through `fathom.yaml_utils.safe_load`; a second `expression:` used to
+  replace the first and reverse the rule.
+- **`Engine.assert_facts` and `Engine.step(facts=)` raise `ScopeError` for a
+  fleet-scoped template**, as `assert_fact` and `evaluate_once` did, checking
+  the whole batch first. Use `FleetEngine.assert_fact`.
+- **A rule whose `then.assert` targets a `scope: fleet` template is a
+  `CompilationError`.** The fact used to stay in the session that fired the
+  rule. Assert a session-scoped fact and publish it with
+  `FleetEngine.assert_fact`.
+- **`FleetEngine.assert_fact` stores the validated fact** (defaults applied,
+  values coerced) on the in-memory, Redis and Postgres stores, not the raw
+  caller dict. Filter on the coerced value, e.g. `"123"` for a string slot.
+- **`Engine.template_registry`, `module_registry` and `rule_registry` return
+  read-only views** (`types.MappingProxyType`). Load or reload rules to change
+  them; wrap in `dict(...)` for a copy.
+- **`fathom convert rego` and `fathom convert to-rego` exit 3 and write
+  nothing when a `deny` rule cannot be translated**; `convert_ast` and
+  `export_engine` raise `CompilationError`. A dropped `deny` used to exit 0
+  with a policy that allowed what the original denied.
+- **Shipped packs refuse the spellings that slipped past their deny rules.**
+  The `nist-800-53`, `cmmc` and `hipaa` symbol slots a deny rule matches
+  against a fixed set now have `allowed_values`, so `protocol="FTP"`,
+  `classification="Secret"` or `action="Admin"` raise `ValidationError` at
+  assert instead of being allowed. `hipaa` `data_transfer.encrypted` is a
+  string: anything but `true` (any case) denies a PHI transfer, and `phi`
+  matches in any case. A blank `justification`, `context`, `subject` or
+  `resource` now triggers the `hipaa`, `nist-800-53` and `cmmc` rules that
+  require one, and the NIST AC-4/SC-7/AC-17, CMMC AC.L2-3.1.3 and OWASP
+  exec-tool matches ignore case.
+- **The TypeScript SDK versions separately from the engine.** It is its own
+  release-please component, tagged `fathom-ts-vX.Y.Z`, and `npm-publish.yml`
+  runs only on that tag.
+- **VERSIONING.md covers more surfaces:** the rule-pack format (the
+  `fathom.packs` entry-point group, directory layout, `PACK_DEPENDENCIES`) and
+  the shipped packs' names, templates and slots (a rule fix that changes a
+  pack's decision may still ship in a minor); `fathom.integrations` and its
+  REST, gRPC, MCP, LangChain, CrewAI, OpenAI Agents and Google ADK modules;
+  `fathom.rego`; `fathom.fleet_redis` and `fathom.fleet_pg`; and the
+  classification CLIPS built-ins. Each module now declares `__all__`, so
+  `from module import *` imports only the covered names.
 
 ### Fixed
 - **`pip install fathom-rules[cli]` installs a CLI that starts.** The `cli`
@@ -39,6 +97,50 @@ gaps between 0.3.1 and 0.5.0 are explained under
   `ModuleNotFoundError`.
 - **An unsigned `Engine.reload_rules` works on a core-only install.** It
   imported `cryptography` before checking whether a signature was given.
+- **Temporal operators give the same decision in any assertion order.**
+  `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`,
+  `sequence_detected`, `schema_frequency_exceeds` and `changed_within` are
+  judged over the whole fact set when `evaluate`/`evaluate_once` runs; a
+  request asserted before its history was judged against an empty history.
+  `Engine.step` keeps its fire-once-per-new-match behaviour.
+- **A failed `load_rules` leaves no rule behind.** Rules built before the
+  failing one stayed live, so an engine that kept serving ran an allow
+  without the deny meant to outrank it.
+- **gRPC answers `INVALID_ARGUMENT` for a fact, filter or JSON the engine
+  refuses**, as REST answers 422. It was `UNKNOWN`.
+- **`hierarchies:` in a function file is loaded**, as the reference
+  documents, by `Engine.load_functions`, `fathom compile` and `fathom
+  validate`.
+- **A second `ChainedAttestationLog` writer continues from the real head.**
+  One opened while another was still running (a rolling restart) appended
+  from a stale head and the log verified as tampered. A writer whose file
+  was replaced by another log is refused.
+- **`RulesetSignatureError` is a `FathomError`**, defined in `fathom.errors`;
+  `fathom.integrations.ruleset_sig` still re-exports it.
+- **The Docker image sets `FATHOM_RULESET_ROOT=/rules`**, so the REST sidecar
+  serves its declared volume; every evaluate answered 500. The README REST,
+  gRPC and MCP examples now work as written.
+- **The OpenAPI spec declares every status `POST /v1/rules/reload` and the
+  `GET /v1/templates`, `/v1/rules` and `/v1/modules` routes return**, types
+  reload's 200 body and marks `X-Session-Id` required.
+- **CLI messages keep bracketed text**; rich dropped the `[fathom.cli]`
+  prefix as markup.
+- **The CLI exit codes are documented**: 0 success, 1 check failed, 2 not
+  found or unreadable (shared with usage errors), 3 malformed input.
+
+### Added
+- **`fathom mcp <rules>`** starts the MCP tool server over stdio. The pack is
+  compiled first, so a broken one exits 1 before any MCP traffic. The MCP
+  reference has a launch section.
+- **`Engine.hierarchy(name)`** returns a loaded classification hierarchy and
+  raises `ValidationError` for an unknown name.
+- **`Activation`, `RuleMatches` and `RulesetSignatureError` are exported from
+  `fathom`**; `fathom.compiler` declares `__all__ = ["Compiler"]`.
+- **`Compiler.parse_function_bundle(path)`** returns a function file's
+  functions and hierarchies.
+- **How to cut 1.0.0** is in CONTRIBUTING.md, and VERSIONING.md has a "From
+  1.0" section: semver, pin `fathom-rules>=1,<2`, deprecated names removed
+  only in the next major.
 
 ## [0.13.0] - 2026-09-09
 ### Added

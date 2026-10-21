@@ -4,7 +4,7 @@ summary: One-line purpose + worked example for every fathom CLI command.
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-27
+last_verified: 2026-10-21
 sources:
   - src/fathom/cli.py
 ---

@@ -1402,6 +1402,19 @@ Pass `--json` to emit the verification result as JSON. The command
 exits 0 when the chain is valid, 1 when verification fails, and 2 when
 the log or key file cannot be read — a file that is not a parseable PEM
 counts as a key that cannot be read, and reports that rather than raising.
+It exits 3 when the key is a valid PEM but not an Ed25519 key.
+
+## mcp
+
+Serve the Fathom MCP tools over stdio, backed by one rule pack. Needs the
+`mcp` extra. The pack is compiled first, so a broken pack exits 1 before
+the server starts; after that, stdout belongs to the MCP protocol.
+
+```shell
+fathom mcp examples/01-hello-allow-deny
+```
+
+See [MCP tools](../reference/mcp/index.md) for registering it with a client.
 
 ## repl
 
@@ -1476,6 +1489,7 @@ command, see the generated reference pages:
 - [test](../reference/cli/test.md)
 - [bench](../reference/cli/bench.md)
 - [verify-chain](../reference/cli/verify-chain.md)
+- [mcp](../reference/cli/mcp.md)
 - [convert rego](../reference/cli/convert-rego.md)
 - [convert to-rego](../reference/cli/convert-to-rego.md)
 - [repl](../reference/cli/repl.md)
@@ -1989,11 +2003,21 @@ quietly widen the policy. The whole rule is dropped and the reason says so.
 Slots that only that rule read are dropped with it, so every slot in the
 generated template is one a converted rule actually uses.
 
+### A `deny` that cannot be converted fails the conversion
+
+Dropping a rule only narrows the policy when the rule is an `allow`. Dropping
+a `deny` takes a deny condition out, and the result allows input the policy
+denies. So when any `deny` rule is refused, for any reason in the table above,
+nothing is written: the command exits 3 and lists every refusal, and
+`convert_ast` raises `CompilationError`. Rewrite the `deny` into the
+convertible subset, or convert it by hand.
+
 ## Reading the output
 
-The command exits non-zero when *nothing* converted. Use `--strict` to also
-fail when anything at all was skipped — the right setting for a pipeline that
-wants all-or-nothing, versus the default best-effort behaviour.
+The command exits non-zero when *nothing* converted, and exits 3 when a `deny`
+was refused. Use `--strict` to also fail when anything at all was skipped —
+the right setting for a pipeline that wants all-or-nothing, versus the default
+best-effort behaviour, which only ever leaves out `allow` rules.
 
 Two things are reported as notes rather than refusals:
 
@@ -2245,9 +2269,12 @@ with a count rather than once per rule.
 | `bind:` or `test:` | A bind is a join; a raw CLIPS conditional element has no translation. |
 | A `$alias.field` reference | A cross-fact reference. |
 
-A refused rule is left out entirely. `--strict` exits non-zero when anything
-was refused; without it the command exits non-zero only when *nothing*
-exported.
+A refused rule is left out entirely, unless it decides `deny`: leaving a
+deny out would make the Rego allow what the ruleset denied, so a refused
+`deny` rule fails the whole export -- the command exits 3 and writes nothing,
+and `export_engine` raises `CompilationError`. Otherwise `--strict` exits
+non-zero when anything was refused; without it the command exits non-zero only
+when *nothing* exported.
 
 ## What the export changes even when it succeeds
 
@@ -2732,6 +2759,10 @@ engine.reload_rules(ruleset_yaml, preserve_facts=True)
 Nothing else about the swap changes: the new environment is still built and
 compiled outside the lock, and a failed compile still leaves the old one
 serving.
+
+In-process, pass `signature=` and `pubkey_pem=` to verify the payload first. A
+failed check raises `fathom.RulesetSignatureError`, a `FathomError`, before any
+compile work, and the old ruleset keeps serving.
 
 What it costs is the property the default has. The swap stops being a pointer
 assignment and becomes a copy proportional to working memory, taken with the
@@ -3889,7 +3920,7 @@ with two models in between:
 
 ```
 YAML text
-  │  yaml.safe_load()       (parse)
+  │  safe_load()            (parse)
   ▼
 Python dicts / lists
   │  Pydantic validation    (validate)
@@ -3903,8 +3934,10 @@ CLIPS source string
 Construct live in the CLIPS environment
 ```
 
-Parsing is boring: `yaml.safe_load` turns text into nested Python
-containers. Validation is where the interesting work happens — Pydantic
+Parsing is boring: `fathom.yaml_utils.safe_load`, PyYAML's safe loader
+that also rejects a mapping key given twice, turns text into nested
+Python containers. PyYAML alone keeps the last of two equal keys, so a
+second `expression:` would silently replace the first. Validation is where the interesting work happens — Pydantic
 rejects malformed or unsafe input *before* any CLIPS source is generated.
 Compilation is a string transform: each validated model goes through a
 matching `Compiler.compile_*` method that returns a CLIPS construct as
@@ -4326,6 +4359,11 @@ Three implementations ship with Fathom:
   exists. Every append would succeed and the log would verify as
   `malformed line 3: seq 1, expected 2`, which reads as tampering. The second
   writer is therefore refused: its first append raises `AttestationError`.
+  The lock is taken at a writer's first append (and again after `close()`),
+  and the head is re-read from the file once it is held, so a writer opened
+  while another was still running -- a rolling restart -- continues from the
+  real head once the other has closed. A writer whose file was replaced by
+  another log is refused.
   The lock is OS-level and lives on a `<log>.lock` file beside the log, never
   on the log itself — Windows locks are mandatory, so locking the log would
   make it unreadable to `verify()` and `fathom verify-chain` while a writer
@@ -4891,7 +4929,7 @@ without a restart.
 |---|---|---|---|
 | `FATHOM_API_TOKEN` | REST, gRPC | *(none — required)* | The data-plane bearer token. Every `/v1/*` route and every RPC compares the presented `Authorization: Bearer …` against it with `hmac.compare_digest`. Unset means server mode refuses to authenticate anything. Read per verification. |
 | `FATHOM_ADMIN_TOKEN` | REST, gRPC | *(unset)* | Scopes the reload surface. When set, `POST /v1/rules/reload` and the `Reload` RPC accept **only** this token and the data-plane token stops working for them. When unset, reload falls back to `FATHOM_API_TOKEN`. |
-| `FATHOM_RULESET_ROOT` | REST | *(none — required)* | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400; an unset root is a 500, never an unjailed read. |
+| `FATHOM_RULESET_ROOT` | REST | *(none — required)*; the Docker image sets `/rules`, its declared volume | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400; an unset root is a 500, never an unjailed read. |
 | `FATHOM_RULESET_PUBKEY_PATH` | REST | *(none)* | PEM path of the public key that signed rulesets are verified against. Required at startup unless the dev escape below is engaged — a missing or unreadable key is a startup failure, not a warning. |
 | `FATHOM_ALLOW_UNSIGNED_RULESETS` | REST | `0` | Set to `1` **and** build the app with `require_signature=False` to accept unsigned reload payloads. Both are required; either alone keeps signature checking on. Logs a warning on every boot that uses it. |
 | `FATHOM_MAX_REQUEST_BYTES` | REST | `2097152` (2 MB) | Body cap on the data-plane routes, enforced on bytes actually received rather than `Content-Length`. `/v1/evaluate` runs a quadratic join over the facts it is given, so this bounds server CPU, not just memory. A non-numeric or non-positive value falls back to the default. Read per request. |
@@ -4973,6 +5011,7 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 
 ## Public symbols
 
+- [`Activation`](activation.md)
 - [`AssertSpec`](assertspec.md)
 - [`AssertedFact`](assertedfact.md)
 - [`AttestationError`](attestationerror.md)
@@ -4994,6 +5033,8 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 - [`FleetError`](fleeterror.md)
 - [`InMemoryFactStore`](inmemoryfactstore.md)
 - [`NullSink`](nullsink.md)
+- [`RuleMatches`](rulematches.md)
+- [`RulesetSignatureError`](rulesetsignatureerror.md)
 - [`ScopeError`](scopeerror.md)
 - [`ValidationError`](validationerror.md)
 - [`verify_chain`](verify_chain.md)
@@ -5068,6 +5109,24 @@ The Go SDK's typed client wraps this service — see
 
 Raw manifest: [`manifest.json`](manifest.json)
 
+## Launching the server
+
+Start the server over stdio with a rule pack (needs the `mcp` and `cli` extras):
+
+```shell
+fathom mcp path/to/rules
+```
+
+The pack is compiled before the server starts: a broken pack exits `1`, an unreadable one `2`. Once serving, stdout carries the MCP protocol. To register it with an MCP client, give the client that command, e.g.:
+
+```json
+{"mcpServers": {"fathom": {"command": "fathom", "args": ["mcp", "path/to/rules"]}}}
+```
+
+Only stdio is supported. The tools are unauthenticated and share one Engine, so each client gets its own server process. From Python, `FathomMCPServer(rules_path).run()` (`fathom.integrations.mcp_server`) does the same.
+
+## Tools
+
 | Tool | Description |
 |---|---|
 | [`fathom.agenda`](agenda.md) | List the activations waiting to fire |
@@ -5095,6 +5154,25 @@ Schemas are regenerated from `fathom.models` on every docs build.
 | Module | [Module](module.md) |
 | Function | [Function](function.md) |
 | Fact | [Fact](fact.md) |
+
+## File-level keys
+
+Each YAML file holds one kind of construct, named by its top-level key.
+Any other top-level key is a `CompilationError` at load (`parse_*_file`,
+`Engine.reload_rules`), an error from `fathom validate`, and an error
+from `POST /v1/compile`:
+
+| File | Allowed top-level keys |
+|---|---|
+| Template | `templates` |
+| Module | `modules`, `focus_order` |
+| Function | `functions`, `hierarchies` |
+| Rule | `ruleset`, `version`, `module`, `rules` |
+
+A mapping key given twice anywhere in a file (two `expression:` keys in
+one condition, say) is invalid YAML to Fathom: every loader rejects it
+instead of keeping the last value. Overriding a key merged in with `<<`
+is not a duplicate.
 
 ## Downloads
 
@@ -5127,7 +5205,7 @@ primitives, see [Five Primitives](../../concepts/five-primitives.md).
 | `description` | `str`                             | `""`        | no       | Author-facing prose. Not emitted to CLIPS.                                                           |
 | `slots`       | `list[SlotDefinition]`            | —           | yes      | One or more slot definitions. Empty list is accepted by Pydantic but rejected at compile time.       |
 | `ttl`         | `int \| None`                     | `None`      | no       | Fact-expiry metadata (seconds). Not emitted to CLIPS; reserved for runtime fact-expiry.              |
-| `scope`       | `Literal["session", "fleet"]`     | `"session"` | no       | Authoring hint consumed by the fleet layer. Not emitted to CLIPS.                                    |
+| `scope`       | `Literal["session", "fleet"]`     | `"session"` | no       | Consumed by the fleet layer. Not emitted to CLIPS. A rule `assert` into a `fleet` template is a `CompilationError` at load. |
 
 The `name` field is validated by `_name_must_be_clips_ident` at model
 construction and re-checked (for emptiness) by `compile_template`.
@@ -5217,6 +5295,9 @@ YAML load):
 - Any key not listed in the tables above, on either model — both
   `TemplateDefinition` and `SlotDefinition` are `extra="forbid"`, so a
   misspelled field is an error rather than a silently dropped line.
+- A top-level key in a template file other than `templates` →
+  `CompilationError` from `parse_template_file` (see
+  [File-level keys](index.md#file-level-keys)).
 - `TemplateDefinition.name` that does not match
   `^[A-Za-z_][A-Za-z0-9_\-]*$` → `ValueError` from
   `_name_must_be_clips_ident`.
@@ -5505,7 +5586,15 @@ the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
 within one hierarchy.
 
 Temporal operators emit `(test …)` CEs that call
-external functions registered at runtime.
+external functions registered at runtime. A rule that uses one also matches
+an internal `(__fathom_epoch)` fact, placed after its own patterns.
+`Engine.evaluate` (and so `evaluate_once`) replaces that fact before every
+run, so the operator is judged over the whole fact set at run time: the
+decision does not depend on the order the facts were asserted in. Facts a
+rule asserts during the run are not seen by a test that has already run.
+`Engine.step` does not replace the epoch fact (that would re-fire every
+temporal rule each step), so in a stream a temporal test runs when the
+pattern it sits on first matches.
 
 Any other operator raises `CompilationError` from `_compile_condition`.
 For worked examples of each operator see
@@ -5522,7 +5611,7 @@ For worked examples of each operator see
 | `attestation` | `bool`                    | `False`             | Emitted as `TRUE`/`FALSE` on the decision fact's `attestation` slot. **Not** a signing switch — see [Audit & Attestation](../../concepts/audit-attestation.md). |
 | `metadata`    | `dict[str, str]`          | `{}`                | JSON-serialized (sorted keys) and emitted as a quoted string when non-empty; otherwise an empty quoted string.              |
 | `scope`       | `str \| None`             | `None`              | Accepted for authoring but not emitted by `_compile_action` (reserved).                                                    |
-| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. |
+| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. Targeting a `scope: fleet` template is a `CompilationError` at load: a rule's assert never reaches the fleet store. |
 
 ### `ThenBlock` validator
 
@@ -5627,7 +5716,8 @@ Notes on the shape:
 
 - `(declare (salience N))` is omitted when `salience == 0`.
 - Test CEs appear after all pattern CEs, in source order across
-  patterns.
+  patterns. A rule with a temporal operator gets `(__fathom_epoch)` as its
+  last pattern CE, just before the test CEs.
 - `reason` with `{placeholder}` placeholders becomes `(str-cat …)`;
   literal reasons are emitted as plain quoted strings.
 - `notify` is always quoted — empty list emits `""`.
@@ -5658,6 +5748,16 @@ Model- or compile-time errors you will hit:
   `ValueError` from `_require_action_or_asserts`.
 - `ConditionEntry` rejections listed under
   [What the validator rejects](#what-the-validator-rejects).
+- A top-level key other than `ruleset`, `version`, `module` and `rules`
+  — `CompilationError` from `parse_rule_file` / `reload_rules`.
+- A pattern whose `template` is not registered — `CompilationError`
+  from `Engine.load_rules` / `reload_rules`, before the rule is built,
+  whether or not the pattern has slot conditions. CLIPS would otherwise
+  create an implied deftemplate and the rule could never match.
+  `fathom validate` reports the same error against the templates it can
+  see: those under the validated path, a rule file's sibling
+  `templates/`, and the templates of an installed pack's
+  `PACK_DEPENDENCIES`.
 
 ## See also
 
@@ -5836,6 +5936,10 @@ Duplicate module names are rejected by `parse_module_file` (at YAML
 load) and again by `Engine.load_modules` (across files), both as
 `CompilationError`.
 
+A top-level key other than `modules` and `focus_order` is rejected by
+`parse_module_file` as `CompilationError`, so a misspelled `focus_order:`
+cannot silently fall back to declaration order.
+
 ## What is not emitted
 
 These YAML fields are accepted by the model but never appear in the
@@ -5928,7 +6032,8 @@ unusable: its levels ranked `-1` through the first hierarchy's table, so
 Compilation failures:
 
 - Missing `hierarchy_ref` → `CompilationError`.
-- `hierarchy_ref` not registered in the bundle → `CompilationError`.
+- `hierarchy_ref` that names neither a hierarchy in the file's
+  `hierarchies:` nor a hierarchy file on disk → `CompilationError`.
 
 ### `raw`
 
@@ -5957,8 +6062,15 @@ the external-function path and
 
 ## `HierarchyDefinition` fields
 
-Classification functions consume a `HierarchyDefinition` from the same
-YAML bundle.
+Classification functions consume a `HierarchyDefinition`. A function's
+`hierarchy_ref` is looked up first in the `hierarchies:` list of the same
+function file (as in the worked example below). If no hierarchy there has
+that name, it is resolved as a file on disk: `<ref>`, `<ref>.yaml` or
+`<ref>.yml`, holding a single top-level `name:` / `levels:` mapping,
+searched next to the function file, then in its `hierarchies/`
+subdirectory, then in a `hierarchies/` directory beside it (a pack's
+`hierarchies/`). Every hierarchy in a function file's `hierarchies:` list
+is registered, referenced or not.
 
 | Field          | Type               | Default | Required | Description                                                                                                                                       |
 |----------------|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -6068,6 +6180,8 @@ prevent collisions with the runtime's own bindings.
 | `type: classification` without `hierarchy_ref`       | `compile_function`             | `CompilationError` |
 | `type: classification` with unknown `hierarchy_ref`  | `compile_function`             | `CompilationError` |
 | Any key not defined on the model, on `FunctionDefinition` or `HierarchyDefinition` | Pydantic (`extra="forbid"`) | `ValidationError` |
+| A top-level key in a function file other than `functions` and `hierarchies` | `parse_function_file` | `CompilationError` |
+| An invalid or duplicate entry in `hierarchies:` | `parse_function_file` | `CompilationError` |
 | `HierarchyDefinition.name` that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 | A `levels` or `compartments` member that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 
@@ -6153,9 +6267,11 @@ engine.assert_facts([
 ])
 ```
 
-`Engine.assert_fact` raises `ScopeError` when the referenced template's
+`Engine.assert_fact`, `Engine.assert_facts`, `Engine.step(facts=)` and
+`Engine.evaluate_once` raise `ScopeError` when a referenced template's
 `scope` is `"fleet"` — fleet-scoped facts must go through
-`FleetEngine.assert_fact`.
+`FleetEngine.assert_fact`. The batch forms check every template before
+asserting anything, so a refused batch leaves working memory unchanged.
 
 ### Rule RHS — `then.assert`
 
@@ -6207,6 +6323,7 @@ the assertion.
 4. **Required check** (`_check_required`, lines 274–283). Slots marked
    `required: true` still missing after defaults raise
    `ValidationError("Missing required slot(s) […] in template 'X'")`.
+   A `None` value (JSON `null`) counts as missing.
    **Note:** [Template reference](./template.md) documents
    `SlotDefinition.required` as "not currently enforced" — that is
    accurate for the compiler and CLIPS emission, but `FactManager`
@@ -6219,7 +6336,9 @@ the assertion.
      against a FLOAT slot, so without this the assert failed after
      validation had already passed it. JSON has one number type, so a
      REST or TypeScript caller cannot send `3.0` at all.
-   - `STRING` slot with a non-`str` value → coerced via `str(value)`.
+   - `STRING` slot with an `int`, `float` or `bool` value → coerced via
+     `str(value)`. `None`, dicts and lists are not coerced and fail the
+     type check below, so `null` never becomes the string `"None"`.
    `SYMBOL` slots are wrapped later — see
    [CLIPS coercion](#clips-coercion).
 6. **Type check** (`_check_types`, lines 428–464). Validates against
@@ -6270,7 +6389,9 @@ stringified on readout (facts.py lines 96–98), so callers receive plain
 fact matches only when **every** filter key satisfies
 `row.get(k) == v` (facts.py lines 100–104) — equality is Python `==`,
 values are not coerced. A `None` or empty filter returns all facts.
-Unknown template raises `ValidationError("Unknown template 'X'")`.
+Unknown template raises `ValidationError("Unknown template 'X'")`, and
+a filter key that is not a slot of the template raises the same
+`ValidationError("Unknown slot(s) […]")` as an assert does.
 `Engine.count` is `len(query(...))` (facts.py lines 107–113).
 
 ```python
@@ -6282,8 +6403,8 @@ engine.query("access-request", {"subject": "alice"})
 
 `Engine.retract(template, fact_filter=None) -> int` forwards to
 `FactManager.retract` (`src/fathom/facts.py` lines 115–147). Filter
-semantics match `query`: a `None`/empty filter retracts **all** facts
-of the template. Matches are collected first, then retracted, to avoid
+semantics match `query`, including the unknown-slot rejection: a
+`None`/empty filter retracts **all** facts of the template. Matches are collected first, then retracted, to avoid
 mutating the CLIPS fact list during iteration. Returns the retracted
 count. Accessible via `DELETE /v1/facts`
 (`src/fathom/integrations/rest.py` lines 404–420), which takes a
@@ -6344,12 +6465,31 @@ it explicitly.
 | [`fathom convert rego`](convert-rego.md) | |
 | [`fathom convert to-rego`](convert-to-rego.md) | |
 | [`fathom info`](info.md) | |
+| [`fathom mcp`](mcp.md) | |
 | [`fathom repl`](repl.md) | |
 | [`fathom status`](status.md) | |
 | [`fathom test`](test.md) | |
 | [`fathom validate`](validate.md) | |
 | [`fathom verify-artifact`](verify-artifact.md) | |
 | [`fathom verify-chain`](verify-chain.md) | |
+
+## Exit codes
+
+Every command uses the same four codes.
+
+| Code | Meaning |
+|---|---|
+| `0` | Success. |
+| `1` | The command ran and the check failed: validation or compile errors, failing tests, an invalid signature or chain, nothing convertible, `--strict` with skipped items, or an unexpected internal error. |
+| `2` | An input could not be found or read, or an output could not be written. Typer also exits `2` on a usage error (unknown option, missing argument, a path argument that does not exist), so `2` alone does not tell the two apart; the stderr message does. |
+| `3` | An input was read but is malformed (see below). |
+
+Commands that can exit `3`:
+
+- `fathom verify-artifact` — the signature or public key is malformed (bad base64, wrong length, unsupported algorithm, key id mismatch).
+- `fathom verify-chain` — the public key is a valid PEM but not an Ed25519 key.
+- `fathom convert rego` — the Rego cannot be parsed, including when the `opa` binary that parses it is not installed.
+- `fathom convert to-rego` — the ruleset does not compile.
 
 
 ## reference/tooling/vscode/index.md
@@ -6589,9 +6729,9 @@ at [Go SDK](./go-sdk/fathom-go.md).
 **Status:** Partial.
 
 **Location:** `packages/fathom-ts/` — published identity
-`@fathom-rules/sdk`, versioned in lockstep with the engine (release-please
-writes `package.json` from the same tag, and `scripts/check_version_sync.py`
-fails the build if the two drift). Source lives in
+`@fathom-rules/sdk`, versioned apart from the engine: it is its own
+release-please component, tagged `fathom-ts-vX.Y.Z`, and only that tag
+publishes it to npm. Source lives in
 `src/client.ts` (215 lines), `src/errors.ts` (77 lines), and
 `src/index.ts` (26 lines). Vitest suites in `test/client.test.ts` and
 `test/errors.test.ts`.
