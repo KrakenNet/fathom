@@ -1533,7 +1533,6 @@ class Compiler:
         "below": "below",
         "meets_or_exceeds": "meets-or-exceeds",
         "within_scope": "within-scope",
-        "dominates": "fathom-dominates",
         "in_compartment": "fathom-has-compartment",
         "has_compartments": "fathom-compartments-superset",
     }

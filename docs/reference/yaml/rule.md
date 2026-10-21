@@ -210,6 +210,7 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 | Set            | `in`, `not_in`                                                                                              |
 | String         | `contains`, `matches`                                                                                       |
 | Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
+| Compartment    | `in_compartment`, `has_compartments`                                                                        |
 | Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`, `schema_frequency_exceeds` |
 
 `matches` takes a Python `re` pattern. A pattern that does not compile is a
@@ -242,6 +243,17 @@ When the argument is a cross-fact reference (`$other.level`) rather than a
 literal, there is no level to resolve by. With one hierarchy loaded the call
 goes to that hierarchy; with more than one it is a `CompilationError`. Compare
 with a literal, or call `<hier>-meets-or-exceeds` from a `test:` condition.
+
+**Compartment operators** read the slot as a `|`-delimited compartment set
+(`"nato|five"`; surrounding spaces and empty members are ignored) and need no
+hierarchy. `in_compartment(X)` is true when compartment `X` is in the slot's
+set; `has_compartments(X)` is true when every compartment in `X` is, so
+`has_compartments("")` is always true. The argument is a single token, a
+quoted string (quote it when it holds a `|`: `has_compartments("nato|five")`),
+or `$alias.field`. They compile to `fathom-has-compartment` and
+`fathom-compartments-superset`. There is no `dominates` operator; call
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` from a `test:`
+condition.
 
 **An unknown level fails closed.** A value that is not a level of the
 hierarchy -- a typo, a different case, a label from another ladder -- makes

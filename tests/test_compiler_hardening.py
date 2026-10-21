@@ -396,8 +396,14 @@ class TestOperatorDiagnostics:
         with pytest.raises(CompilationError) as exc_info:
             compiler._compile_condition("x", "bogus(a)", {}, None)
         message = str(exc_info.value)
-        for op in ("equals", "dominates", "in_compartment", "has_compartments", "last_n"):
+        for op in ("equals", "in_compartment", "has_compartments", "last_n"):
             assert op in message
+
+    def test_dominates_is_not_an_operator(self, compiler: Compiler) -> None:
+        """It compiled to a two-argument call of the five-argument built-in,
+        so it loaded clean and raised on every evaluation."""
+        with pytest.raises(CompilationError, match="unsupported condition operator"):
+            compiler._compile_condition("x", "dominates(secret)", {}, None)
 
     @pytest.mark.parametrize(
         "expression",
