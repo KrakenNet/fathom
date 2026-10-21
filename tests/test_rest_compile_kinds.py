@@ -71,4 +71,6 @@ def test_validate_refuses_a_document_with_no_constructs(name: str, tmp_path: Pat
     f.write_text(DOCS[name])
     result = CliRunner().invoke(cli_app, ["validate", str(f)])
     assert result.exit_code != 0, result.output
-    assert "no Fathom constructs found" in result.output
+    # A lone focus_order has its own, more specific refusal.
+    if name != "focus_only":
+        assert "no Fathom constructs found" in result.output

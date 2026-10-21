@@ -211,7 +211,7 @@ def test_rego_surface_shape() -> None:
         == inspect.signature(rego.convert_ast).parameters["template"].default
     )
     assert all(p.kind is p.KEYWORD_ONLY for n, p in params.items() if n != "source")
-    assert list(inspect.signature(rego.flatten_input).parameters) == ["document"]
+    assert list(inspect.signature(rego.flatten_input).parameters) == ["document", "declared"]
     assert "convert_file" not in rego.__all__
     assert "OPA_DOWNLOAD_URL" not in rego.__all__
     assert inspect.signature(rego.export_engine).parameters["engine"].annotation in (
