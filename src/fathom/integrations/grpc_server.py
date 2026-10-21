@@ -81,6 +81,19 @@ def _invalid_argument(context: Any) -> Iterator[None]:
         raise  # unreachable; abort raises
 
 
+def _json_object(raw: str, field: str) -> dict[str, Any]:
+    """Parse *raw* as a JSON object; anything else is the caller's error.
+
+    ``[1]``, ``5``, ``"s"`` and ``null`` parse, then failed deep in the engine
+    as UNKNOWN -- and a ``null`` filter meant "no filter", so Retract deleted
+    every fact of the template. Raised inside :func:`_invalid_argument`.
+    """
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValidationError(f"{field} must be a JSON object, got {type(value).__name__}")
+    return value
+
+
 class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     """gRPC servicer delegating RPCs to :class:`~fathom.engine.Engine`.
 
@@ -133,7 +146,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         self._ruleset_pubkey = ruleset_pubkey
         self._require_signature = require_signature
 
-    def _engine_for(self, session_id: str, ruleset: str = "", context: Any = None) -> Engine:
+    def _engine_for(
+        self, session_id: str, ruleset: str = "", context: Any = None, *, create: bool = False
+    ) -> Engine:
         """Resolve the session's engine.
 
         Every RPC but a session-less Evaluate needs a session. AssertFact,
@@ -146,7 +161,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         live session with a different ruleset is ``FAILED_PRECONDITION``
         (answering it out of the bound Engine would evaluate the request
         under the wrong policy), and the session ceiling is
-        ``RESOURCE_EXHAUSTED``.
+        ``RESOURCE_EXHAUSTED``. Only Evaluate passes ``create=True``: it is
+        the one RPC that opens an unknown session, bound to ``ruleset``
+        (empty if it names none).
         """
         if not session_id:
             if context is None:
@@ -178,22 +195,27 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         if not ruleset:
             # RPCs other than Evaluate carry no ruleset field, so they join
             # whatever session already exists rather than asserting a binding.
+            # So does an Evaluate that names none.
             existing = self._session_store.get(session_id)
             if existing is not None:
                 return existing
+        if not ruleset and not create:
             # ...and they must NOT create one. Falling through to
             # get_or_create(session_id, "") bound the id to the empty
             # ruleset permanently, so every later Evaluate naming a real
             # ruleset aborted FAILED_PRECONDITION for the whole session TTL
             # — one authenticated client could wedge arbitrary session ids.
             # REST already has this contract (unknown session -> 404, see
-            # `_require_session_engine`); sessions are created by Evaluate,
-            # which is the only call that carries a ruleset to bind to.
+            # `_require_session_engine`); sessions are created by Evaluate
+            # (`create=True`), the only call that carries a ruleset to bind
+            # to. An Evaluate naming none opens a session bound to the empty
+            # ruleset, as REST's does.
             if context is None:
                 raise SessionNotFoundError(f"session {session_id!r} does not exist")
             context.abort(
                 grpc.StatusCode.NOT_FOUND,
-                f"session_not_found: {session_id!r} — create it with Evaluate first",
+                f"session_not_found: {session_id!r} — open it with a session-scoped "
+                "Evaluate (session_id and ruleset) first",
             )
             raise  # unreachable; abort raises
         try:
@@ -268,7 +290,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         # Session-less Evaluate is request-scoped (evaluate_once), so it may
         # use the default engine; nothing it asserts outlives the call.
         engine = (
-            self._engine_for(request.session_id, ruleset, context)
+            self._engine_for(request.session_id, ruleset, context, create=True)
             if request.session_id
             else self._default_engine
         )
@@ -276,7 +298,8 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         try:
             with _invalid_argument(context):
                 facts: list[tuple[str, dict[str, Any]]] = [
-                    (fact.template, json.loads(fact.data_json)) for fact in request.facts
+                    (fact.template, _json_object(fact.data_json, "data_json"))
+                    for fact in request.facts
                 ]
                 result = engine.evaluate_once(facts=facts)
         except EvaluationLimitError as exc:
@@ -317,7 +340,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         self._check_auth(context)
         engine = self._engine_for(request.session_id, context=context)
         with _invalid_argument(context):
-            engine.assert_fact(request.template, json.loads(request.data_json))
+            engine.assert_fact(request.template, _json_object(request.data_json, "data_json"))
         return fathom_pb2.AssertFactResponse(success=True)
 
     def Query(  # noqa: N802 — gRPC convention
@@ -330,7 +353,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         engine = self._engine_for(request.session_id, context=context)
 
         with _invalid_argument(context):
-            fact_filter = json.loads(request.filter_json) if request.filter_json else None
+            fact_filter = (
+                _json_object(request.filter_json, "filter_json") if request.filter_json else None
+            )
             facts = engine.query(request.template, fact_filter)
         return fathom_pb2.QueryResponse(facts_json=[json.dumps(f) for f in facts])
 
@@ -344,7 +369,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         engine = self._engine_for(request.session_id, context=context)
 
         with _invalid_argument(context):
-            fact_filter = json.loads(request.filter_json) if request.filter_json else None
+            fact_filter = (
+                _json_object(request.filter_json, "filter_json") if request.filter_json else None
+            )
             count = engine.retract(request.template, fact_filter)
         return fathom_pb2.RetractResponse(retracted_count=count)
 
@@ -459,9 +486,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                     return
                 template, action, data = item
                 change_type = (
-                    fathom_pb2.ChangeType.ASSERT
+                    fathom_pb2.ChangeType.CHANGE_TYPE_ASSERT
                     if action == "assert"
-                    else fathom_pb2.ChangeType.RETRACT
+                    else fathom_pb2.ChangeType.CHANGE_TYPE_RETRACT
                 )
                 yield fathom_pb2.FactChange(
                     change_type=change_type,
@@ -681,6 +708,11 @@ def serve(
     engine: Engine | None = None,
     port: int = 50051,
     max_workers: int = 10,
+    *,
+    attestation: AttestationService | None = None,
+    audit_sink: Any | None = None,
+    ruleset_pubkey: bytes | None = None,
+    require_signature: bool = True,
 ) -> grpc.Server:
     """Start the Fathom gRPC server.
 
@@ -695,6 +727,13 @@ def serve(
             created when omitted.
         port: TCP port to listen on. Defaults to ``50051``.
         max_workers: Thread pool size. Defaults to ``10``.
+        attestation: Signs evaluations and ``Reload`` events. ``Reload``
+            answers ``FAILED_PRECONDITION`` "not_ready" without it.
+        audit_sink: Receives ``Reload`` audit records.
+        ruleset_pubkey: Ed25519 PEM that ``Reload`` verifies ruleset
+            signatures against.
+        require_signature: When True (the default), ``Reload`` refuses an
+            unsigned ruleset.
 
     Returns:
         The running :class:`grpc.Server` instance.
@@ -708,7 +747,13 @@ def serve(
         futures.ThreadPoolExecutor(max_workers=max_workers),
         options=[("grpc.max_receive_message_length", _GRPC_MAX_RECEIVE_BYTES)],
     )
-    servicer = FathomServicer(default_engine=engine)
+    servicer = FathomServicer(
+        default_engine=engine,
+        attestation=attestation,
+        audit_sink=audit_sink,
+        ruleset_pubkey=ruleset_pubkey,
+        require_signature=require_signature,
+    )
     fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)  # type: ignore[no-untyped-call]
 
     cert_path = os.environ.get("FATHOM_GRPC_TLS_CERT", "")

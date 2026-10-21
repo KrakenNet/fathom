@@ -9,9 +9,13 @@ DESCRIPTOR: _descriptor.FileDescriptor
 class ChangeType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     CHANGE_TYPE_UNSPECIFIED: _ClassVar[ChangeType]
+    CHANGE_TYPE_ASSERT: _ClassVar[ChangeType]
+    CHANGE_TYPE_RETRACT: _ClassVar[ChangeType]
     ASSERT: _ClassVar[ChangeType]
     RETRACT: _ClassVar[ChangeType]
 CHANGE_TYPE_UNSPECIFIED: ChangeType
+CHANGE_TYPE_ASSERT: ChangeType
+CHANGE_TYPE_RETRACT: ChangeType
 ASSERT: ChangeType
 RETRACT: ChangeType
 

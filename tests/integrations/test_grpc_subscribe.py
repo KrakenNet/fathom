@@ -8,9 +8,9 @@ messages to the subscriber.
 Tests:
 
 * ``test_subscribe_receives_assert`` — assert one fact, expect one
-  ``ASSERT`` message with matching template + slot data.
+  ``CHANGE_TYPE_ASSERT`` message with matching template + slot data.
 * ``test_subscribe_receives_retract`` — pre-populate a fact, then
-  retract it, expect one ``RETRACT`` message.
+  retract it, expect one ``CHANGE_TYPE_RETRACT`` message.
 * ``test_subscribe_isolated_per_session`` — events on session A do not
   bleed into a subscriber on session B.
 
@@ -165,7 +165,7 @@ def test_subscribe_receives_assert(grpc_server: tuple[str, FathomServicer]) -> N
         msg = _collect_one(sub_stream)
         sub_stream.cancel()
 
-    assert msg.change_type == fathom_pb2.ChangeType.ASSERT
+    assert msg.change_type == fathom_pb2.ChangeType.CHANGE_TYPE_ASSERT
     assert msg.template == "event"
     assert json.loads(msg.data_json) == {"kind": "boot"}
 
@@ -205,7 +205,7 @@ def test_subscribe_receives_retract(grpc_server: tuple[str, FathomServicer]) -> 
         msg = _collect_one(sub_stream)
         sub_stream.cancel()
 
-    assert msg.change_type == fathom_pb2.ChangeType.RETRACT
+    assert msg.change_type == fathom_pb2.ChangeType.CHANGE_TYPE_RETRACT
     assert msg.template == "event"
     assert json.loads(msg.data_json) == {"kind": "doomed"}
 
@@ -288,7 +288,7 @@ def test_subscribe_cancelled_on_reload(grpc_server: tuple[str, FathomServicer]) 
             timeout=5.0,
         )
         msg = _collect_one(sub_stream)
-        assert msg.change_type == fathom_pb2.ChangeType.ASSERT
+        assert msg.change_type == fathom_pb2.ChangeType.CHANGE_TYPE_ASSERT
 
         # In-process atomic swap — same path the Reload RPC takes.
         engine.reload_rules(_RELOAD_RULESET)
