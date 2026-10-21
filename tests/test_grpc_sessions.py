@@ -238,3 +238,59 @@ class TestGrpcSessionsOnAMountedServer:
 
         assert ctx.aborted is None
         assert len(svc._session_store) == 1
+
+
+class TestGrpcWorkingMemoryNeedsASession:
+    """AssertFact/Query/Retract/SubscribeChanges are session-scoped, as on REST.
+
+    A session-less call used to reach the servicer's default engine -- the
+    mounted, served policy -- so one caller's AssertFact or Retract changed
+    every later caller's decision. REST answers the same calls 400
+    ``X-Session-Id header required``.
+    """
+
+    @pytest.mark.parametrize("rpc", ["AssertFact", "Query", "Retract", "SubscribeChanges"])
+    def test_session_less_working_memory_rpc_is_refused(
+        self, ruleset_root: Path, rpc: str
+    ) -> None:
+        from fathom.engine import Engine
+
+        svc = FathomServicer(default_engine=Engine.from_rules(str(ruleset_root / "strict")))
+        ctx = _FakeContext()
+        request = SimpleNamespace(
+            session_id="", template="agent", data_json='{"id": "x"}', filter_json=""
+        )
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            result = getattr(svc, rpc)(request, ctx)
+            next(iter(result))  # SubscribeChanges is a generator
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+        assert "session_id required" in ctx.aborted[1]
+
+    def test_a_refused_assert_cannot_change_a_later_decision(self, ruleset_root: Path) -> None:
+        from fathom.engine import Engine
+
+        svc = FathomServicer(default_engine=Engine.from_rules(str(ruleset_root / "strict")))
+        facts = [
+            SimpleNamespace(template="agent", data_json='{"id": "a", "clearance": "secret"}'),
+            SimpleNamespace(
+                template="data_request",
+                data_json='{"agent_id": "a", "classification": "secret", "resource": "r"}',
+            ),
+        ]
+        req = SimpleNamespace(session_id="", ruleset="", facts=facts)
+        before = svc.Evaluate(req, _FakeContext()).decision
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            svc.AssertFact(
+                SimpleNamespace(
+                    session_id="",
+                    template="agent",
+                    data_json='{"id": "a", "clearance": "unclassified"}',
+                ),
+                _FakeContext(),
+            )
+
+        assert svc.Evaluate(req, _FakeContext()).decision == before

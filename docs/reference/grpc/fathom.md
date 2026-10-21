@@ -42,7 +42,7 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first. An empty session_id is refused with INVALID_ARGUMENT. |
 | template | [string](#string) |  |  |
 | data_json | [string](#string) |  | JSON-encoded slot data. |
 
@@ -161,7 +161,7 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first. An empty session_id is refused with INVALID_ARGUMENT. |
 | template | [string](#string) |  |  |
 | filter_json | [string](#string) |  | Optional JSON-encoded filter (e.g. {&#34;agent_id&#34;: &#34;a1&#34;}). |
 
@@ -227,7 +227,7 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first. An empty session_id is refused with INVALID_ARGUMENT. |
 | template | [string](#string) |  |  |
 | filter_json | [string](#string) |  | Optional JSON-encoded filter. |
 
@@ -259,7 +259,7 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first. An empty session_id is refused with INVALID_ARGUMENT. |
 
 
 

@@ -74,6 +74,8 @@ message EvaluateResponse {
 // ---------------------------------------------------------------------------
 
 message AssertFactRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
   string session_id = 1;
   string template = 2;
   // JSON-encoded slot data.
@@ -89,6 +91,8 @@ message AssertFactResponse {
 // ---------------------------------------------------------------------------
 
 message QueryRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
   string session_id = 1;
   string template = 2;
   // Optional JSON-encoded filter (e.g. {"agent_id": "a1"}).
@@ -105,6 +109,8 @@ message QueryResponse {
 // ---------------------------------------------------------------------------
 
 message RetractRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
   string session_id = 1;
   string template = 2;
   // Optional JSON-encoded filter.
@@ -120,6 +126,8 @@ message RetractResponse {
 // ---------------------------------------------------------------------------
 
 message SubscribeRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
   string session_id = 1;
 }
 

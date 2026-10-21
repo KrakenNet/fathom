@@ -178,6 +178,23 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, f"session_limit_exceeded: {exc}")
             raise  # unreachable; abort raises
 
+    def _session_engine(self, session_id: str, context: Any) -> Engine:
+        """Resolve the engine for a working-memory RPC, which needs a session.
+
+        AssertFact, Query, Retract and SubscribeChanges read or change working
+        memory. Without a session they reached the default engine -- the
+        mounted, served policy -- so one caller's AssertFact or Retract changed
+        every later caller's Evaluate. REST refuses the same calls with 400
+        ``X-Session-Id header required``.
+        """
+        if not session_id:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "session_id required: working memory is per session; "
+                "create one with Evaluate first",
+            )
+        return self._engine_for(session_id, context=context)
+
     def _check_auth(self, context: Any) -> None:
         """Abort the RPC if the caller did not present a valid data-plane token."""
         md = dict(context.invocation_metadata())
@@ -274,7 +291,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.AssertFactResponse:
         """Assert a single fact into working memory."""
         self._check_auth(context)
-        engine = self._engine_for(request.session_id, context=context)
+        engine = self._session_engine(request.session_id, context)
         data = json.loads(request.data_json)
         engine.assert_fact(request.template, data)
         return fathom_pb2.AssertFactResponse(success=True)
@@ -286,7 +303,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.QueryResponse:
         """Query working memory for matching facts."""
         self._check_auth(context)
-        engine = self._engine_for(request.session_id, context=context)
+        engine = self._session_engine(request.session_id, context)
 
         fact_filter: dict[str, Any] | None = None
         if request.filter_json:
@@ -302,7 +319,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.RetractResponse:
         """Retract facts matching template and optional filter."""
         self._check_auth(context)
-        engine = self._engine_for(request.session_id, context=context)
+        engine = self._session_engine(request.session_id, context)
 
         fact_filter: dict[str, Any] | None = None
         if request.filter_json:
@@ -341,7 +358,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         will not appear here -- :class:`Engine` is in-process state.
         """
         self._check_auth(context)
-        engine = self._engine_for(request.session_id, context=context)
+        engine = self._session_engine(request.session_id, context)
 
         # 1024 events ~= a few hundred KB of buffer. Generous for
         # interactive subscribers; truncates rather than OOMs the

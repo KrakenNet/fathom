@@ -290,9 +290,11 @@ func (x *EvaluateResponse) GetAttestationToken() string {
 }
 
 type AssertFactRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Template  string                 `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
 	// JSON-encoded slot data.
 	DataJson      string `protobuf:"bytes,3,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -395,9 +397,11 @@ func (x *AssertFactResponse) GetSuccess() bool {
 }
 
 type QueryRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Template  string                 `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
 	// Optional JSON-encoded filter (e.g. {"agent_id": "a1"}).
 	FilterJson    string `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -501,9 +505,11 @@ func (x *QueryResponse) GetFactsJson() []string {
 }
 
 type RetractRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Template  string                 `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
 	// Optional JSON-encoded filter.
 	FilterJson    string `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -606,8 +612,10 @@ func (x *RetractResponse) GetRetractedCount() int32 {
 }
 
 type SubscribeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first. An empty session_id is refused with INVALID_ARGUMENT.
+	SessionId     string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
