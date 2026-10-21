@@ -296,6 +296,52 @@ jobs:
           done
           test "$status" = "healthy"
 
+  # The test job runs with every extra installed, so an import that an extra
+  # forgot to declare is satisfied by some other extra and never fails there.
+  # `fathom-rules[cli]` shipped a CLI that crashed on every command for that
+  # reason. Install the built wheel once per extra, alone, and import what
+  # that extra is for.
+  extras:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        run: uv build --wheel -o dist
+
+      - name: Install each extra alone and use it
+        run: |
+          set -euo pipefail
+          wheel="$(ls "$PWD"/dist/*.whl)"
+          check() {  # check <extra|core> <python code>
+            rm -rf /tmp/venv
+            uv venv -q -p 3.12 /tmp/venv
+            spec="$wheel"; [ "$1" = core ] || spec="$wheel[$1]"
+            uv pip install -q --python /tmp/venv/bin/python "$spec"
+            (cd /tmp && /tmp/venv/bin/python -c "$2")
+            echo "ok: $1"
+          }
+          # Core has no cryptography; an unsigned reload must not need it.
+          printf 'modules:\n  - name: gov\nfocus_order: [gov]\n' > /tmp/modules.yaml
+          check core 'from fathom import Engine; e = Engine(); e.load_modules("/tmp/modules.yaml"); e.reload_rules(b"ruleset: r\nmodule: gov\nrules: []\n")'
+          check cli 'import subprocess, sys; subprocess.run([sys.prefix + "/bin/fathom", "--version"], check=True)'
+          check server 'import fathom.integrations.rest'
+          check mcp 'import fathom.integrations.mcp_server'
+          check grpc 'import fathom.integrations.grpc_server'
+          check attestation 'import fathom.attestation, fathom.chained_log'
+          check fleet 'import fathom.fleet_redis'
+          check fleet-pg 'import fathom.fleet_pg'
+          check metrics 'import fathom.metrics'
+          check langchain 'import fathom.integrations.langchain'
+
   # A dependency bump that introduces a known-vulnerable package is invisible
   # until the next Dependabot alert fires -- which is after it has landed on
   # main. This reviews the manifest/lock diff of the PR itself, so the alert

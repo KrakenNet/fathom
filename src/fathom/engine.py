@@ -1243,10 +1243,8 @@ class Engine:
             CompilationError: New ruleset failed to parse or compile.
                 The existing env is left untouched (NFR-8).
         """
-        # Local imports keep Engine.__init__ cheap and avoid a circular
-        # import from integrations when cryptography is absent in minimal
-        # installs.
-        from fathom.integrations.ruleset_sig import verify_ruleset_signature
+        # Local import keeps Engine.__init__ cheap and avoids a circular
+        # import from integrations.
         from fathom.models import RulesetDefinition
 
         if signature is not None and pubkey_pem is None:
@@ -1258,6 +1256,10 @@ class Engine:
         # work. RulesetSignatureError propagates — leaves env untouched.
         if signature is not None:
             assert pubkey_pem is not None  # narrowed by check above
+            # Imported only here: cryptography is not a core dependency, and
+            # an unsigned reload must work on a core-only install.
+            from fathom.integrations.ruleset_sig import verify_ruleset_signature
+
             verify_ruleset_signature(ruleset_yaml, signature, pubkey_pem)
 
         # Step 2: parse the new ruleset YAML. Parse errors surface as
