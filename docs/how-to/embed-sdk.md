@@ -4,7 +4,7 @@ summary: Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTT
 audience: [app-developers]
 diataxis: how-to
 status: stable
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 sources:
   - src/fathom/models.py
   - src/fathom/engine.py
@@ -199,7 +199,10 @@ the caller chose. See
 
 `AssertFact`, `Query`, and `Retract` all operate on a session
 previously created by an `Evaluate` call with the same `session_id`.
-Unknown session ids return `404`.
+Unknown session ids return `404`. Over gRPC, these calls and
+`SubscribeChanges` with an empty `session_id` are refused with
+`INVALID_ARGUMENT`: working memory belongs to a session, never to the
+server's shared Engine.
 
 ```go
 ctx := context.Background()

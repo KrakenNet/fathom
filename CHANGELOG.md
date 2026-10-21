@@ -12,6 +12,33 @@ gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
 ## [Unreleased]
+### Changed
+- **An evaluation during which a rule errors now raises `EvaluationError`.**
+  CLIPS reports a runtime error in a condition, a `test:` CE or an action by
+  printing it and carrying on, and Fathom used to return whatever decision had
+  been written by then — so an allow won over the deny that errored. A caller
+  could trigger it on purpose with a slot value over the 4096-character
+  `matches` cap. REST answers 500 and gRPC `INTERNAL`; no decision is
+  returned. Fix the rule, or bound the input before it reaches the engine.
+- **A `matches` pattern that is not a valid Python regex no longer loads.** It
+  raises `CompilationError` at load instead of erroring on every fact. Fix
+  the pattern.
+- **gRPC `AssertFact`, `Query`, `Retract` and `SubscribeChanges` need a
+  `session_id`.** An empty one is refused with `INVALID_ARGUMENT`. It used to
+  reach the server's default Engine — on a server that mounts one, the served
+  policy — so one caller's `AssertFact` or `Retract` changed every later
+  caller's decision, and `SubscribeChanges` streamed every caller's facts.
+  REST already refused these calls without `X-Session-Id`. Open a session
+  with `Evaluate` and pass its id; a server that mounts an Engine refuses
+  sessions, so it offers none of these four calls, as on REST.
+
+### Fixed
+- **`pip install fathom-rules[cli]` installs a CLI that starts.** The `cli`
+  extra now declares `httpx` and `cryptography`, which the CLI imports when it
+  starts; without them every command, `fathom --version` included, failed with
+  `ModuleNotFoundError`.
+- **An unsigned `Engine.reload_rules` works on a core-only install.** It
+  imported `cryptography` before checking whether a signature was given.
 
 ## [0.13.0] - 2026-09-09
 ### Added

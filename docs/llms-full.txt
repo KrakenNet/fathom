@@ -2457,7 +2457,10 @@ the caller chose. See
 
 `AssertFact`, `Query`, and `Retract` all operate on a session
 previously created by an `Evaluate` call with the same `session_id`.
-Unknown session ids return `404`.
+Unknown session ids return `404`. Over gRPC, these calls and
+`SubscribeChanges` with an empty `session_id` are refused with
+`INVALID_ARGUMENT`: working memory belongs to a session, never to the
+server's shared Engine.
 
 ```go
 ctx := context.Background()
@@ -5469,6 +5472,16 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 | String         | `contains`, `matches`                                                                                       |
 | Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
 | Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`, `schema_frequency_exceeds` |
+
+`matches` takes a Python `re` pattern. A pattern that does not compile is a
+`CompilationError` when the rule loads.
+
+**A runtime error fails the evaluation closed.** If a condition or an action
+errors while a request is evaluated -- a registered function that raises, a
+value over the 4096-character `matches` cap, a division by zero in a
+`then.assert` slot -- the evaluation raises `EvaluationError` and returns no
+decision. It does not return the decision written before the error: the rule
+that errored may have been the deny meant to override it.
 
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
