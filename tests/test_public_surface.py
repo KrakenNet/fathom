@@ -89,3 +89,13 @@ def test_compiler_declares_its_surface() -> None:
 
     assert compiler.__all__ == ["Compiler"]
 
+
+@pytest.mark.parametrize("prop", ["template_registry", "module_registry", "rule_registry"])
+def test_engine_registries_are_read_only(prop: str) -> None:
+    eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
+    view = getattr(eng, prop)
+    assert view
+    with pytest.raises(TypeError):
+        view["x"] = None  # type: ignore[index]
+    assert not hasattr(view, "clear")
+

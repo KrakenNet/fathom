@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 from pydantic import ValidationError as PydanticValidationError
 
@@ -190,7 +191,7 @@ class Compiler:
         self,
         defn: RuleDefinition,
         module: str,
-        templates: dict[str, TemplateDefinition] | None = None,
+        templates: Mapping[str, TemplateDefinition] | None = None,
     ) -> str:
         """Generate a CLIPS defrule string from a RuleDefinition.
 
@@ -310,7 +311,7 @@ class Compiler:
         pattern: FactPattern,
         aliases: dict[str, str],
         pattern_index: int = 0,
-        templates: dict[str, TemplateDefinition] | None = None,
+        templates: Mapping[str, TemplateDefinition] | None = None,
         join_slots: set[str] | None = None,
     ) -> tuple[str, list[str]]:
         """Compile a FactPattern into a CLIPS LHS pattern string.
@@ -499,7 +500,7 @@ class Compiler:
         self,
         then: ThenBlock,
         rule_name: str,
-        templates: dict[str, TemplateDefinition] | None = None,
+        templates: Mapping[str, TemplateDefinition] | None = None,
     ) -> str:
         """Compile a ThenBlock into a CLIPS RHS assert string.
 
