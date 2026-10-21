@@ -134,6 +134,11 @@ literal inside a regex character class.
 - a **cross-fact reference**, `$alias.field`, resolved to the CLIPS variable
   `?alias-field`. The alias must be declared as `alias:` on another pattern
   in the same rule (see **Aliases** below);
+  `contains($alias.field)` joins too, and only on that exact form (an
+  identifier, a dot, an identifier), so free text such as `contains($5.00)`
+  stays literal. `matches` takes a literal pattern only: `matches($alias.field)`
+  is a `CompilationError`, because a regex read from a fact is untrusted input
+  to a backtracking engine. `in` and `not_in` take no cross-fact reference;
 - a **list**, `[a, b, c]`, for `in` and `not_in` only;
 - a **literal**, everything else.
 

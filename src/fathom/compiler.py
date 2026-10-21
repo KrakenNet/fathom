@@ -60,6 +60,9 @@ _QUOTED_ARG_RE = re.compile(r'^"(?:[^"\\]|\\.)*"$')
 _LEADING_VAR_RE = re.compile(r"^\?([A-Za-z][A-Za-z0-9_-]*)")
 _GENERATED_VAR_RE = re.compile(r"^s_\d+_")
 # A CLIPS variable, or a quoted string to skip so its text is never renamed.
+# The ``$alias.field`` form, matched strictly for the string operators, whose
+# argument is otherwise free text.
+_STRICT_XREF_RE = re.compile(r"^\$[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*$")
 _CLIPS_VAR_RE = re.compile(r'"(?:\\.|[^"\\])*"|\?[A-Za-z][A-Za-z0-9_-]*')
 
 
@@ -1359,9 +1362,10 @@ class Compiler:
         return cross_ref
 
     #: Operators whose argument is resolved as a cross-fact reference, and so
-    #: declares a join the enclosing rule must bind. ``in``, ``not_in``,
-    #: ``contains`` and ``matches`` treat a leading ``$`` as literal text, so a
-    #: ``$`` inside a regex is not mistaken for a join. The counting temporal
+    #: declares a join the enclosing rule must bind. ``in`` and ``not_in``
+    #: treat a leading ``$`` as literal text. ``contains`` joins only on the
+    #: strict ``$alias.field`` form (:data:`_STRICT_XREF_RE`), so text such as
+    #: ``$5.00`` stays literal; ``matches`` refuses that form. The counting temporal
     #: operators accept a ``$alias.field`` *value* too, but only a
     #: self-reference to the slot the condition already binds
     #: (see :meth:`_emit_count_value`) -- no join, nothing to declare.
@@ -1380,6 +1384,9 @@ class Compiler:
             op, arg = cls._parse_operator(expr)
         except CompilationError:
             return None  # reported with full context further down the pipeline
+        if op == "contains" and _STRICT_XREF_RE.match(arg):
+            alias, field = arg[1:].split(".", 1)
+            return alias, field
         if op not in cls._CROSS_REF_OPS and op not in cls._CLASSIFICATION_OPS:
             return None
         if not arg.startswith("$") or "." not in arg:
@@ -1822,9 +1829,20 @@ class Compiler:
             negations = "".join(f"&~{item}" for item in items)
             return f"({slot} {slot_var}{negations})"
         elif op == "contains":
+            if _STRICT_XREF_RE.match(arg) and cross_ref is not None:
+                return f"({slot} {slot_var}&:(str-index {cross_ref} {slot_var}))"
             escaped_arg = self._escape_clips_string(arg)
             return f'({slot} {slot_var}&:(str-index "{escaped_arg}" {slot_var}))'
         elif op == "matches":
+            # The pattern must be one the rule author wrote: a regex read from
+            # a fact is attacker-shaped input to a backtracking engine, and the
+            # ReDoS threat model rests on patterns being trusted.
+            if _STRICT_XREF_RE.match(arg):
+                raise CompilationError(
+                    "[fathom.compiler] compile rule failed: "
+                    f"matches takes a literal pattern, not a cross-fact reference: {expr}",
+                    detail=f"Expression: {expr}",
+                )
             # Checked here, not left to the first evaluation: a pattern that
             # cannot compile errors on every fact the rule sees.
             try:

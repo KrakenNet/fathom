@@ -357,3 +357,49 @@ def test_a_bind_on_the_aliased_slot_joins_for_every_operator(
 
     assert decide(*hit) == "allow"
     assert decide(*miss) == "deny"
+
+
+def _string_xref_engine(tmp_path: Path, expr: str, bind: bool = False) -> Engine:
+    subj = "{slot: name, bind: '?v'}" if bind else ""
+    rules = (
+        "module: governance\nrules:\n  - name: r\n    when:\n"
+        f"      - template: subj\n        alias: $s\n        conditions: [{subj}]\n"
+        "      - template: req\n"
+        f"        conditions: [{{slot: owner, expression: '{expr}'}}]\n"
+        "    then: {action: allow, reason: hit}\n"
+    )
+    root = tmp_path / "pack"
+    root.mkdir()
+    (root / "templates.yaml").write_text(_BIND_TEMPLATES)
+    (root / "modules.yaml").write_text("modules:\n  - name: governance\n")
+    (root / "rules.yaml").write_text(rules)
+    return Engine.from_rules(str(root))
+
+
+@pytest.mark.parametrize("bind", [False, True])
+def test_contains_joins_on_a_cross_ref(tmp_path: Path, bind: bool) -> None:
+    """``contains($s.name)`` compiled to the literal text ``"$s.name"``."""
+    engine = _string_xref_engine(tmp_path, "contains($s.name)", bind)
+
+    def decide(owner: str) -> str:
+        facts = [("subj", {"name": "alice", "limit": 0}), ("req", {"owner": owner, "amount": 0})]
+        return engine.evaluate_once(facts).decision
+
+    assert decide("xalicex") == "allow"
+    assert decide("bob") == "deny"
+
+
+def test_contains_with_an_undeclared_alias_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(CompilationError, match="undeclared alias"):
+        _string_xref_engine(tmp_path, "contains($nosuch.name)")
+
+
+def test_contains_literal_dollar_text_is_still_literal() -> None:
+    clips = Compiler().compile_rule(_rule(("target", "contains($5.00)", None)), "governance")
+    assert '"$5.00"' in clips
+
+
+def test_matches_with_a_cross_ref_is_refused(tmp_path: Path) -> None:
+    """A regex read from a fact is not a pattern the rule author wrote."""
+    with pytest.raises(CompilationError, match="literal pattern"):
+        _string_xref_engine(tmp_path, "matches($s.name)")
