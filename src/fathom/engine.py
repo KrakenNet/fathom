@@ -10,13 +10,14 @@ import os
 import re
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import uuid4
 
 import clips
 import yaml
+from pydantic import BaseModel
 
 from fathom.audit import AuditLog, AuditSink, NullSink
 from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
@@ -28,7 +29,7 @@ from fathom.models import ActionType, Activation, HierarchyDefinition, RuleMatch
 from fathom.yaml_utils import safe_load, unknown_top_level_keys
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator
 
     from fathom.attestation import AttestationService
     from fathom.models import (
@@ -54,6 +55,8 @@ RESERVED_FUNCTION_PREFIX = "fathom-"
 # every other request on a shared server with it. Callers who genuinely want
 # an unbounded run pass ``Engine(run_limit=None)``.
 _DEFAULT_RUN_LIMIT = 100_000
+
+_M = TypeVar("_M", bound=BaseModel)
 
 # Max regex pattern/input length for fathom-matches.
 #
@@ -201,6 +204,27 @@ def dominates(
 #: renders as ``100 rule-name: f-1,f-2``. Read rather than parsed further:
 #: clipspy exposes an activation's name and salience but not its basis.
 _ACTIVATION_FACT_RE = re.compile(r"f-(\d+)")
+
+
+class _CopyingView(Mapping[str, _M]):
+    """Read-only registry view whose values are deep copies.
+
+    A plain ``MappingProxyType`` was read-only one level deep: clearing a
+    returned template's ``slots`` made every assert fail, and editing a
+    rule's ``then`` changed what ``rego.export_engine`` wrote.
+    """
+
+    def __init__(self, data: dict[str, _M]) -> None:
+        self._data = data
+
+    def __getitem__(self, key: str) -> _M:
+        return self._data[key].model_copy(deep=True)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
 
 
 class _TraceRouter(clips.Router):  # type: ignore[misc]
@@ -363,18 +387,18 @@ class Engine:
 
     @property
     def template_registry(self) -> Mapping[str, TemplateDefinition]:
-        """Read-only view of registered template definitions."""
-        return MappingProxyType(self._template_registry)
+        """Read-only view of registered template definitions; values are copies."""
+        return _CopyingView(self._template_registry)
 
     @property
     def module_registry(self) -> Mapping[str, ModuleDefinition]:
-        """Read-only view of registered module definitions."""
-        return MappingProxyType(self._module_registry)
+        """Read-only view of registered module definitions; values are copies."""
+        return _CopyingView(self._module_registry)
 
     @property
     def rule_registry(self) -> Mapping[str, RuleDefinition]:
-        """Read-only view of loaded rule definitions, keyed by rule name."""
-        return MappingProxyType(self._rule_registry)
+        """Read-only view of loaded rule definitions, keyed by rule name; values are copies."""
+        return _CopyingView(self._rule_registry)
 
     @property
     def focus_order(self) -> list[str]:
@@ -1794,7 +1818,7 @@ class Engine:
         definition = self._hierarchy_registry.get(name)
         if definition is None:
             raise ValidationError(f"no loaded hierarchy named '{name}'")
-        return definition
+        return definition.model_copy(deep=True)
 
     def _find_rule(self, env: clips.Environment, rule: str) -> tuple[Any, str]:
         """Resolve *rule* to a clipspy rule and its module-qualified name.

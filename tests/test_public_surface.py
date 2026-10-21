@@ -171,6 +171,26 @@ def test_engine_registries_are_read_only(prop: str) -> None:
     assert not hasattr(view, "clear")
 
 
+@pytest.mark.parametrize("prop", ["template_registry", "module_registry", "rule_registry"])
+def test_engine_registry_values_are_copies(prop: str) -> None:
+    """Mutating a returned definition must not reach the engine."""
+    eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
+    name, value = next(iter(getattr(eng, prop).items()))
+    before = value.model_dump()
+    for field_name in type(value).model_fields:
+        attr = getattr(value, field_name)
+        if isinstance(attr, list):
+            attr.clear()
+    assert getattr(eng, prop)[name].model_dump() == before
+    assert next(iter(getattr(eng, prop).values())).model_dump() == before
+
+
+def test_engine_hierarchy_is_a_copy() -> None:
+    eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
+    eng.hierarchy("clearance").levels.clear()
+    assert eng.hierarchy("clearance").levels
+
+
 def test_engine_hierarchy_accessor() -> None:
     eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
     assert eng.hierarchy("clearance").levels[0] == "unclassified"
