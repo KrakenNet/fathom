@@ -256,6 +256,36 @@ class _TraceRouter(clips.Router):  # type: ignore[misc]
         self.buffer.append(message)
 
 
+class _DiagnosticRouter(clips.Router):  # type: ignore[misc]
+    """Keeps CLIPS error and warning text off the process's stderr.
+
+    clipspy's error router copies each message down to its LoggingRouter,
+    which calls the root ``logging.error`` -- so every CompilationError and
+    EvaluationError also printed a CLIPS ERROR block or a Python traceback,
+    and configured root logging as a side effect. The error router (priority
+    40) still captures the text for the exception; this router (35) takes
+    it from there and sends it to the ``fathom.engine`` logger at DEBUG.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("fathom-diagnostics", 35)
+
+    def query(self, name: str) -> bool:
+        """Claim the error and warning outputs; ``stdout`` is left alone."""
+        return name in ("stderr", "stdwrn")
+
+    def write(self, name: str, message: str) -> None:
+        """Log one chunk of diagnostic text."""
+        logger.debug("CLIPS %s: %s", name, message)
+
+
+def _new_env() -> clips.Environment:
+    """A CLIPS environment whose diagnostics reach the exception, not stderr."""
+    env = clips.Environment()
+    env.add_router(_DiagnosticRouter())
+    return env
+
+
 class Engine:
     """Deterministic reasoning engine backed by CLIPS."""
 
@@ -321,7 +351,7 @@ class Engine:
         # evaluate, load_modules -> set_focus), so a plain Lock would
         # self-deadlock on the nested call.
         self._lock = threading.RLock()
-        self._env: clips.Environment = clips.Environment()
+        self._env: clips.Environment = _new_env()
         self._session_id: str = session_id or str(uuid4())
         self._default_decision: str | None = default_decision
         self._template_registry: dict[str, TemplateDefinition] = {}
@@ -537,7 +567,7 @@ class Engine:
             )
         )
         if not unique:
-            return None
+            return self._unknown_reference_error(defn, file, registry, env)
         names = ", ".join(f"'{name}'" for name in unique)
         noun = "template" if len(unique) == 1 else "templates"
         verb = "is" if len(unique) == 1 else "are"
@@ -549,6 +579,50 @@ class Engine:
             file=str(file) if file is not None else None,
             construct=f"rule:{defn.name}",
         )
+
+    def _unknown_reference_error(
+        self,
+        defn: RuleDefinition,
+        file: Path | None,
+        registry: dict[str, TemplateDefinition] | None,
+        env: clips.Environment | None,
+    ) -> CompilationError | None:
+        """Reject a ``then.assert`` or temporal argument naming an unknown template or slot.
+
+        A bare assert into an unknown template made CLIPS invent it, and a
+        temporal operator resolves its template and slots only at evaluation
+        time, so either kind of typo used to load and then fail open or raise
+        on every evaluation. See :meth:`Compiler.template_references`.
+        """
+        for template, slot, where in Compiler.template_references(defn):
+            if not self._template_is_known(template, registry, env):
+                problem = f"template '{template}', which is not registered"
+            elif slot is not None and slot not in self._template_slot_names(
+                template, registry, env
+            ):
+                problem = f"slot '{slot}' of template '{template}', which it does not declare"
+            else:
+                continue
+            return CompilationError(
+                f"[fathom.engine] load rules failed: rule '{defn.name}' names {problem} "
+                f"(in {where})",
+                file=str(file) if file is not None else None,
+                construct=f"rule:{defn.name}",
+            )
+        return None
+
+    def _template_slot_names(
+        self,
+        name: str,
+        registry: dict[str, TemplateDefinition] | None,
+        env: clips.Environment | None,
+    ) -> set[str]:
+        """Slot names of a template :meth:`_template_is_known` accepted."""
+        registry = self._template_registry if registry is None else registry
+        if name in registry:
+            return {slot.name for slot in registry[name].slots}
+        template = (self._env if env is None else env).find_template(name)
+        return {slot.name for slot in template.slots}
 
     def _diagnose_rule_build(
         self,
@@ -1386,7 +1460,7 @@ class Engine:
         # Step 3: build the fresh env OUTSIDE the lock. All compilation
         # targets ``new_env``; on any failure we raise and never touch
         # ``self._env`` (AC-5.3 atomicity, NFR-8 idempotent failure).
-        new_env = clips.Environment()
+        new_env = _new_env()
 
         # Decision template — matches what __init__ does on startup.
         for construct, context in _PREAMBLE:

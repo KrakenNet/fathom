@@ -113,7 +113,6 @@ with a count rather than once per rule.
 | More than one fact pattern | The rule joins across facts; Rego has one input document to join against. |
 | `then.assert` | The rule adds to working memory. Rego derives documents from one input and cannot. |
 | No `then.action` | Pure inference — the part of Fathom Rego does not have. |
-| `then.scope` | The decision carries a scope value; a Rego document is a boolean here. |
 | A temporal operator | `changed_within`, `count_exceeds` and the rest ask about history, and Rego has no memory of the last input. |
 | A classification operator | `below`, `meets_or_exceeds` and the rest resolve against a hierarchy, which is engine state. |
 | `bind:` or `test:` | A bind is a join; a raw CLIPS conditional element has no translation. |

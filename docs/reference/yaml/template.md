@@ -26,7 +26,7 @@ primitives, see [Five Primitives](../../concepts/five-primitives.md).
 | `name`        | `str`                             | —           | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`. Emitted as `(deftemplate MAIN::<name> …)`. |
 | `description` | `str`                             | `""`        | no       | Author-facing prose. Not emitted to CLIPS.                                                           |
 | `slots`       | `list[SlotDefinition]`            | —           | yes      | One or more slot definitions. Empty list is accepted by Pydantic but rejected at compile time.       |
-| `ttl`         | `int \| None`                     | `None`      | no       | Fact-expiry metadata (seconds). Not emitted to CLIPS; reserved for runtime fact-expiry.              |
+| `ttl`         | `int \| None`                     | `None`      | no       | Fact expiry in seconds. Not emitted to CLIPS; the engine retracts a fact of this template once it is older than `ttl`, checked at every evaluation. A fact a rule asserts is timed from the first evaluation that sees it. |
 | `scope`       | `Literal["session", "fleet"]`     | `"session"` | no       | Consumed by the fleet layer. Not emitted to CLIPS. A rule `assert` into a `fleet` template is a `CompilationError` at load. |
 
 The `name` field is validated by `_name_must_be_clips_ident` at model
@@ -36,10 +36,10 @@ construction and re-checked (for emptiness) by `compile_template`.
 
 | Field            | Type                              | Default | Required | Description                                                                                                                       |
 |------------------|-----------------------------------|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `name`           | `str`                             | —       | yes      | Slot identifier. No regex validator is applied in the current model; the compiler emits it verbatim into `(slot <name> …)`.       |
+| `name`           | `str`                             | —       | yes      | Slot identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`, checked at model construction. Emitted as `(slot <name> …)`.           |
 | `type`           | `SlotType`                        | —       | yes      | One of `string`, `symbol`, `float`, `integer`. See [SlotType](#slottype-enum).                                                    |
 | `required`       | `bool`                            | `False` | no       | If True, FactManager rejects asserts that omit this slot with a ValidationError (src/fathom/facts.py:405-414). Not emitted to CLIPS; the rule-RHS assert path bypasses this check because it doesn't run through FactManager._validate. |
-| `allowed_values` | `list[str] \| None`               | `None`  | no       | Emitted only for `string` and `symbol` slots (see [`_CLIPS_ALLOWED_MAP`](#slottype-enum)). Silently ignored for numeric slots.    |
+| `allowed_values` | `list[str] \| None`               | `None`  | no       | Emitted to CLIPS only for `string` and `symbol` slots (see [`_CLIPS_ALLOWED_MAP`](#slottype-enum)). On every slot type `FactManager` enforces it at assert time, comparing `str(value)` against the list. |
 | `default`        | `str \| float \| int \| None`     | `None`  | no       | Emitted as `(default <value>)`. String defaults are CLIPS-quoted and escaped; numeric defaults are emitted raw.                   |
 
 ## SlotType enum
@@ -58,7 +58,8 @@ types — to an allowed-values directive via `_CLIPS_ALLOWED_MAP`.
 A `float` slot accepts a Python `int` as well as a `float`; `FactManager`
 widens it before it reaches CLIPS, which types `1` as INTEGER and would
 otherwise reject it. `bool` is refused for both. An `integer` slot takes
-only `int`, or a `float` with no fractional part.
+only `int`, or a `float` with no fractional part. `NaN` and infinities
+are refused for both.
 
 Source: `src/fathom/compiler.py` lines 29–40.
 
@@ -152,8 +153,8 @@ These YAML fields are accepted by the model but do not appear in the
 compiled CLIPS `deftemplate`:
 
 - `TemplateDefinition.description` — metadata only.
-- `TemplateDefinition.ttl` — reserved for runtime fact-expiry; has no
-  CLIPS counterpart. A template with `ttl: 300` emits the same
+- `TemplateDefinition.ttl` — enforced by the engine, which retracts
+  expired facts at every evaluation; it has no CLIPS counterpart. A template with `ttl: 300` emits the same
   `deftemplate` as one without.
 - `TemplateDefinition.scope` — consumed by the fleet layer, not the
   compiler.
@@ -161,9 +162,10 @@ compiled CLIPS `deftemplate`:
   Runtime enforcement happens in `FactManager._check_required`
   (`src/fathom/facts.py:405-414`) on the SDK and REST paths, but it is
   not checked on the rule-RHS assert path.
-- `SlotDefinition.allowed_values` on `float` or `integer` slots —
-  silently dropped because these types have no entry in
-  `_CLIPS_ALLOWED_MAP`.
+- `SlotDefinition.allowed_values` on `float` or `integer` slots — not
+  emitted, because these types have no entry in `_CLIPS_ALLOWED_MAP`.
+  `FactManager` still enforces it on asserted facts; a rule's
+  `then.assert` is not checked.
 
 If you need one of these to influence runtime behavior today, enforce it
 in a rule (for example, an explicit `allowed-values`-style test CE for a

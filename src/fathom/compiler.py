@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -75,6 +76,17 @@ _EVIDENCE_VAR = "fathom-ev-"
 # Fact the evaluator renews before every run so rules with a temporal
 # operator re-match over the whole fact set; see ``compile_rule``.
 _EPOCH_TEMPLATE_NAME = "__fathom_epoch"
+
+
+def _reason(exc: PydanticValidationError) -> str:
+    """One line naming each field a model rejected and why.
+
+    ``str(exc)`` is multi-line and stays in ``CompilationError.detail``;
+    without this the message said only *that* a file was invalid.
+    """
+    return "; ".join(
+        f"{'.'.join(str(p) for p in err['loc']) or 'value'}: {err['msg']}" for err in exc.errors()
+    )
 
 
 class Compiler:
@@ -903,7 +915,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse template failed: invalid template '{name}'",
+                    "[fathom.compiler] parse template failed: "
+                    f"invalid template '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"template:{name}",
                     detail=str(exc),
@@ -989,7 +1002,8 @@ class Compiler:
             )
         except PydanticValidationError as exc:
             raise CompilationError(
-                f"[fathom.compiler] parse rules failed: invalid ruleset in {file_str}",
+                "[fathom.compiler] parse rules failed: "
+                f"invalid ruleset in {file_str}: {_reason(exc)}",
                 file=file_str,
                 detail=str(exc),
             ) from exc
@@ -1068,7 +1082,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse module failed: invalid module '{name}'",
+                    "[fathom.compiler] parse module failed: "
+                    f"invalid module '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"module:{name}",
                     detail=str(exc),
@@ -1169,7 +1184,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse function failed: invalid function '{name}'",
+                    "[fathom.compiler] parse function failed: "
+                    f"invalid function '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"function:{name}",
                     detail=str(exc),
@@ -1204,7 +1220,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse function failed: invalid hierarchy '{name}'",
+                    "[fathom.compiler] parse function failed: "
+                    f"invalid hierarchy '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"hierarchy:{name}",
                     detail=str(exc),
@@ -1548,15 +1565,15 @@ class Compiler:
         "schema_frequency_exceeds",
     }
 
-    # Minimum argument count for each temporal operator
-    _TEMPORAL_ARITY: dict[str, int] = {
-        "changed_within": 1,
-        "count_exceeds": 4,
-        "rate_exceeds": 5,
-        "last_n": 4,
-        "distinct_count": 4,
-        "sequence_detected": 2,
-        "schema_frequency_exceeds": 4,
+    # (minimum, maximum) argument count for each temporal operator
+    _TEMPORAL_ARITY: dict[str, tuple[int, int]] = {
+        "changed_within": (1, 1),
+        "count_exceeds": (4, 4),
+        "rate_exceeds": (5, 6),
+        "last_n": (4, 4),
+        "distinct_count": (4, 4),
+        "sequence_detected": (2, 2),
+        "schema_frequency_exceeds": (4, 4),
     }
 
     # Operators compiled directly into a slot constraint
@@ -1597,6 +1614,93 @@ class Compiler:
             f"[fathom.compiler] compile rule failed: invalid argument {arg!r} for operator {op!r}",
             detail="Operator arguments must be a single token or a quoted string",
         )
+
+    @staticmethod
+    def _number_arg(arg: str, op: str) -> str:
+        """Return *arg* unchanged if it is a finite number, else raise.
+
+        A temporal threshold or window reaches Python's ``int()`` / ``float()``
+        at evaluation time, so a non-number used to compile cleanly and then
+        raise on every evaluation that reached the rule.
+        """
+        try:
+            ok = math.isfinite(float(arg))
+        except ValueError:
+            ok = False
+        if not ok:
+            raise CompilationError(
+                "[fathom.compiler] compile rule failed: "
+                f"argument {arg!r} for operator {op!r} must be a finite number",
+            )
+        return Compiler._validate_operator_arg(arg, op)
+
+    @staticmethod
+    def _sequence_events(events_json: str) -> list[dict[str, Any]]:
+        """Parse a ``sequence_detected`` event list, raising if it is malformed.
+
+        Each event names a ``template``, a ``slot`` and a ``value``, and may
+        name the timestamp slot as ``slot_ts`` (default ``ts``).
+        """
+        try:
+            events = json.loads(events_json)
+        except ValueError:
+            events = None
+        if not (
+            isinstance(events, list)
+            and events
+            and all(
+                isinstance(e, dict)
+                and all(isinstance(e.get(k), str) for k in ("template", "slot", "value"))
+                and isinstance(e.get("slot_ts", "ts"), str)
+                for e in events
+            )
+        ):
+            raise CompilationError(
+                "[fathom.compiler] compile rule failed: sequence_detected needs a JSON "
+                'list of {"template", "slot", "value"[, "slot_ts"]} events',
+                detail=f"Got: {events_json}",
+            )
+        return events
+
+    @classmethod
+    def template_references(cls, defn: RuleDefinition) -> list[tuple[str, str | None, str]]:
+        """``(template, slot, where)`` for every template a rule names outside ``when``.
+
+        Covers ``then.assert`` targets and their slots, and the template and
+        slot arguments of the temporal operators. *slot* is ``None`` when only
+        the template is named. The loader and ``fathom validate`` check these
+        against the registered templates: CLIPS invents a template for a bare
+        assert, and a temporal operator looks its template up only at
+        evaluation time.
+        """
+        refs: list[tuple[str, str | None, str]] = []
+        for target in defn.then.asserts:
+            refs.append((target.template, None, "then.assert"))
+            refs.extend((target.template, s, "then.assert") for s in target.slots)
+        for pattern in defn.when:
+            for cond in pattern.conditions:
+                op, arg = cls._parse_operator(cond.expression) if cond.expression else ("", "")
+                if op not in cls._TEMPORAL_OPS or op == "changed_within":
+                    continue
+                args = cls._split_operator_args(arg)
+                required, allowed = cls._TEMPORAL_ARITY[op]
+                if not required <= len(args) <= allowed:
+                    continue  # compile_rule reports it
+                where = repr(cond.expression)
+                if op == "sequence_detected":
+                    try:
+                        events = cls._sequence_events(args[0])
+                    except CompilationError:
+                        continue  # compile_rule reports it
+                    for e in events:
+                        refs.append((e["template"], e["slot"], where))
+                        refs.append((e["template"], e.get("slot_ts", "ts"), where))
+                    continue
+                slots = args[1:3] if op == "distinct_count" else args[1:2]
+                if op == "rate_exceeds":
+                    slots.append(args[5] if len(args) > 5 else "ts")
+                refs.extend((args[0], s, where) for s in slots)
+        return refs
 
     @staticmethod
     def _literal(arg: str, op: str, slot_type: SlotType | None) -> str:
@@ -1954,18 +2058,19 @@ class Compiler:
 
         # Parse comma-separated args and check arity before unpacking
         args = Compiler._split_operator_args(arg)
-        required = Compiler._TEMPORAL_ARITY[op]
-        if len(args) < required:
+        required, allowed = Compiler._TEMPORAL_ARITY[op]
+        if not required <= len(args) <= allowed:
+            bound = f"at least {required}" if len(args) < required else f"at most {allowed}"
             raise CompilationError(
                 "[fathom.compiler] compile rule failed: "
-                f"temporal operator {op!r} requires at least {required} argument(s), "
+                f"temporal operator {op!r} requires {bound} argument(s), "
                 f"got {len(args)}",
                 detail=f"Arguments: {arg}",
             )
 
         if op == "changed_within":
             # changed_within(window) — single numeric arg
-            window = Compiler._validate_operator_arg(args[0], op)
+            window = Compiler._number_arg(args[0], op)
             test_ce = f"(test (fathom-changed-within {slot_var} {window}))"
             return slot_binding, test_ce
 
@@ -1973,7 +2078,7 @@ class Compiler:
             # count_exceeds(template, slot, value, threshold)
             # First 3 args are strings (quoted), last is numeric
             tmpl, slot_arg, value, threshold = args[0], args[1], args[2], args[3]
-            threshold = Compiler._validate_operator_arg(threshold, op)
+            threshold = Compiler._number_arg(threshold, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
@@ -1991,8 +2096,8 @@ class Compiler:
                 args[4],
             )
             ts_slot = args[5] if len(args) > 5 else "ts"
-            threshold = Compiler._validate_operator_arg(threshold, op)
-            window = Compiler._validate_operator_arg(window, op)
+            threshold = Compiler._number_arg(threshold, op)
+            window = Compiler._number_arg(window, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
@@ -2014,7 +2119,7 @@ class Compiler:
             # First 3 args are strings (quoted), last is numeric
             fn = "fathom-last-n" if op == "last_n" else "fathom-schema-frequency-exceeds"
             tmpl, slot_arg, value, n = args[0], args[1], args[2], args[3]
-            n = Compiler._validate_operator_arg(n, op)
+            n = Compiler._number_arg(n, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
@@ -2030,7 +2135,7 @@ class Compiler:
                 args[2],
                 args[3],
             )
-            threshold = Compiler._validate_operator_arg(threshold, op)
+            threshold = Compiler._number_arg(threshold, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             group_e = Compiler._escape_clips_string(group_slot)
             count_e = Compiler._escape_clips_string(count_slot)
@@ -2042,7 +2147,8 @@ class Compiler:
         # sequence_detected(events_json, window_seconds)
         # First arg is a JSON string (quoted), second is numeric
         events_json, window_seconds = args[0], args[1]
-        window_seconds = Compiler._validate_operator_arg(window_seconds, op)
+        window_seconds = Compiler._number_arg(window_seconds, op)
+        Compiler._sequence_events(events_json)
         events_e = Compiler._escape_clips_string(events_json)
         test_ce = f'(test (fathom-sequence-detected "{events_e}" {window_seconds}))'
         return slot_binding, test_ce

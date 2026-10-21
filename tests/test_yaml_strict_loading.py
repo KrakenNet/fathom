@@ -109,6 +109,81 @@ def test_validate_accepts_registered_templates(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
+def _rule(expression: str = "equals(admin)", then: str = "{action: allow}") -> str:
+    return (
+        "ruleset: rs\nmodule: m\nrules:\n  - name: r\n"
+        "    when: [{template: req, conditions:\n"
+        f"      [{{slot: role, expression: '{expression}'}}]}}]\n"
+        f"    then: {then}\n"
+    )
+
+
+# Templates and slots named outside a `when:` pattern: a `then.assert` target
+# and the template/slot arguments of a temporal operator. Each used to pass
+# load and validate; the bare assert made CLIPS invent the template, and the
+# temporal ones raised on every evaluation that reached them.
+UNKNOWN_REFERENCES = [
+    pytest.param(_rule(then="{action: deny, assert: [{template: flg}]}"), "'flg'", id="assert"),
+    pytest.param(
+        _rule(then="{action: deny, assert: [{template: flg, slots: {who: x}}]}"),
+        "'flg'",
+        id="assert-slots",
+    ),
+    pytest.param(
+        _rule(then="{action: deny, assert: [{template: req, slots: {rol: x}}]}"),
+        "'rol'",
+        id="assert-slot",
+    ),
+    pytest.param(_rule("count_exceeds(reqs, role, admin, 3)"), "'reqs'", id="count-template"),
+    pytest.param(_rule("count_exceeds(req, rol, admin, 3)"), "'rol'", id="count-slot"),
+    pytest.param(_rule("rate_exceeds(req, role, admin, 3, 60, tss)"), "'tss'", id="rate-ts"),
+    pytest.param(_rule("distinct_count(req, role, rolee, 1)"), "'rolee'", id="distinct"),
+    pytest.param(
+        _rule('sequence_detected([{"template": "req", "slot": "rol", "value": "a"}], 60)'),
+        "'rol'",
+        id="sequence",
+    ),
+]
+
+
+@pytest.mark.parametrize(("rules", "name"), UNKNOWN_REFERENCES)
+def test_unknown_reference_is_rejected_at_load(tmp_path: Path, rules: str, name: str) -> None:
+    with pytest.raises(CompilationError, match=name):
+        Engine.from_rules(str(_pack(tmp_path, rules)))
+
+
+@pytest.mark.parametrize(("rules", "name"), UNKNOWN_REFERENCES)
+def test_unknown_reference_is_rejected_by_reload(tmp_path: Path, rules: str, name: str) -> None:
+    engine = Engine.from_rules(str(_pack(tmp_path)))
+    with pytest.raises(CompilationError, match=name):
+        engine.reload_rules(rules.encode())
+
+
+@pytest.mark.parametrize(("rules", "name"), UNKNOWN_REFERENCES)
+def test_unknown_reference_is_rejected_by_validate(tmp_path: Path, rules: str, name: str) -> None:
+    result = CliRunner().invoke(app, ["validate", str(_pack(tmp_path, rules))])
+    assert result.exit_code != 0
+    assert name in result.output
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        _rule(then="{action: deny, assert: [{template: req, slots: {role: x}}]}"),
+        _rule("count_exceeds(req, role, admin, 3)"),
+        _rule(
+            'sequence_detected([{"template": "req", "slot": "role", "value": "a",'
+            ' "slot_ts": "role"}], 60)'
+        ),
+    ],
+)
+def test_known_references_load_and_validate(tmp_path: Path, rules: str) -> None:
+    pack = _pack(tmp_path, rules)
+    Engine.from_rules(str(pack))
+    result = CliRunner().invoke(app, ["validate", str(pack)])
+    assert result.exit_code == 0, result.output
+
+
 # --- 2. unknown top-level keys ---------------------------------------------
 
 
@@ -261,3 +336,11 @@ def test_strict_loader_is_still_safe(load: Any) -> None:
     # object tags the way yaml.safe_load does.
     with pytest.raises(yaml.constructor.ConstructorError):
         load("!!python/object/apply:os.system ['true']")
+
+
+def test_invalid_ruleset_message_names_the_field(tmp_path: Path) -> None:
+    # `reason: no` loads as YAML False. The message used to say only
+    # "invalid ruleset in <path>", leaving the reason in `.detail`.
+    rules = _rule(then="{action: deny, reason: no}")
+    with pytest.raises(CompilationError, match=r"rules\.0\.then\.reason: Input should be"):
+        Engine.from_rules(str(_pack(tmp_path, rules)))

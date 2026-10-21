@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import difflib
 import logging
+import math
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -492,7 +493,7 @@ class FactManager:
                 slot.type == SlotType.INTEGER
                 and isinstance(value, float)
                 and not isinstance(value, bool)
-                and value == int(value)
+                and value.is_integer()
             ):
                 result[key] = int(value)
             elif (
@@ -535,6 +536,21 @@ class FactManager:
             expected_types = _PYTHON_TYPE_MAP.get(slot.type)
             if expected_types is None:
                 continue
+            # NaN compares true against both `<` and `>` in CLIPS, so a NaN
+            # score would satisfy `less_than(0.3)` and `greater_than(0.8)` at
+            # once; infinities have no CLIPS INTEGER form either.
+            if (
+                slot.type in (SlotType.FLOAT, SlotType.INTEGER)
+                and isinstance(value, float)
+                and not math.isfinite(value)
+            ):
+                raise ValidationError(
+                    f"Slot '{key}' expects a finite {slot.type.value}, got {value}",
+                    template=template.name,
+                    slot=key,
+                    value=value,
+                    expected=slot.type.value,
+                )
             # Special case: integer type should not accept bool
             if slot.type == SlotType.INTEGER and isinstance(value, bool):
                 raise ValidationError(

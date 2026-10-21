@@ -421,6 +421,29 @@ class TestOperatorDiagnostics:
         with pytest.raises(CompilationError, match="(?i)requires at least"):
             compiler._compile_condition("name", expression, {}, None)
 
+    @pytest.mark.parametrize(
+        ("expression", "message"),
+        [
+            ("count_exceeds(a, b, c, 3, 999)", "at most 4"),
+            ("rate_exceeds(a, b, c, 3, 60, ts, extra)", "at most 6"),
+            ("distinct_count(a, b, c, 1, extra)", "at most 4"),
+            ("changed_within(60, 1)", "at most 1"),
+            ("count_exceeds(a, b, c, abc)", "number"),
+            ("rate_exceeds(a, b, c, 3, soon)", "number"),
+            ("last_n(a, b, c, nan)", "number"),
+            ("changed_within(x)", "number"),
+            ("sequence_detected(not-json, 60)", "JSON"),
+            ('sequence_detected([{"template": "a"}], 60)', "JSON"),
+        ],
+    )
+    def test_temporal_arguments_checked_at_compile(
+        self, compiler: Compiler, expression: str, message: str
+    ) -> None:
+        # Surplus arguments used to be dropped, and a bad threshold or event
+        # list compiled cleanly and raised on every evaluation.
+        with pytest.raises(CompilationError, match=message):
+            compiler._compile_condition("name", expression, {}, None)
+
 
 # ---------------------------------------------------------------------------
 # contains() quoting and type-aware equals

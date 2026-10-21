@@ -134,7 +134,7 @@ the assertion.
    accurate for the compiler and CLIPS emission, but `FactManager`
    enforces it at assertion time on the SDK and REST paths.
 5. **Type coercion** (`_coerce_types`, lines 386–415):
-   - `INTEGER` slot with a `float` value where `value == int(value)` →
+   - `INTEGER` slot with a `float` value where `value.is_integer()` →
      coerced to `int` (excluding `bool`).
    - `FLOAT` slot with an `int` value → widened to `float` (excluding
      `bool`). CLIPS types a bare `3` as INTEGER and would reject it
@@ -159,6 +159,11 @@ the assertion.
    `bool` is **explicitly rejected** for `INTEGER` and `FLOAT` slots
    (facts.py lines 438–450) even though Python's `bool` is a subclass
    of `int` — the check runs before the `isinstance` comparison.
+   A non-finite `float` (`NaN`, `inf`, `-inf`) is rejected for both:
+   CLIPS compares `NaN` true against `<` and `>` alike, so a `NaN`
+   score would satisfy `less_than(0.3)` and `greater_than(0.8)` at
+   once. This covers every fact entry path (SDK, REST, gRPC, MCP,
+   fleet), since all of them validate through `FactManager`.
 7. **Allowed-values check** (`_check_allowed_values`, lines 322–337).
    When `SlotDefinition.allowed_values` is set, the value is coerced
    with `str(value)` and compared against the list. Comparison is by
