@@ -182,7 +182,9 @@ class FleetEngine:
         """Assert a fact into *session_id*, routing fleet-scoped facts to the store.
 
         Returns the assigned ``fact_id`` for fleet-scoped templates, or ``None``
-        for session-scoped templates.
+        for session-scoped templates. The store receives the fact as the
+        engine accepted it, defaults applied and values coerced, so
+        :meth:`query` filters match the values this session's rules see.
 
         Raises:
             KeyError: if *session_id* has no associated Engine.
@@ -204,9 +206,12 @@ class FleetEngine:
         if tmpl_def.scope == "fleet":
             # Validate locally FIRST: a fact this engine rejects must never reach
             # the shared store, where it would abort every peer's sync.
-            handles = engine._assert_local(template, data)
+            # Write what the engine accepted (defaults applied, values
+            # coerced), not the raw caller dict, so store rows, peers and
+            # `query` filters see the same values this node's rules match on.
+            validated, handles = engine._assert_local(template, data)
             try:
-                return await self._fact_store.assert_fact(template, data)
+                return await self._fact_store.assert_fact(template, validated)
             except Exception:
                 # The store write failed after the local assert; undo it so this
                 # session does not hold a fleet fact the store never accepted.

@@ -1492,7 +1492,7 @@ class Engine:
 
     def _assert_local(
         self, template: str, data: dict[str, Any]
-    ) -> list[tuple[str, Any, dict[str, Any]]]:
+    ) -> tuple[dict[str, Any], list[tuple[str, Any, dict[str, Any]]]]:
         """Assert a fact bypassing the fleet-scope guard.
 
         :class:`~fathom.fleet.FleetEngine` is the only legitimate caller: it
@@ -1502,7 +1502,10 @@ class Engine:
         :meth:`assert_fact` does (the lock, the metrics) still applies.
 
         Returns:
-            Handles for the facts this call actually created — empty when
+            ``(validated, handles)``. *validated* is the slot dict the engine
+            accepted, defaults applied and values coerced: what FleetEngine
+            writes to the store, so store rows equal what rules match on.
+            *handles* are the facts this call actually created — empty when
             CLIPS de-duplicated the assert onto a fact that already existed.
             :meth:`_retract_local_handles` withdraws exactly these, which is
             what makes FleetEngine's rollback-on-store-failure sound: it
@@ -1512,7 +1515,8 @@ class Engine:
         """
         with self._lock:
             try:
-                return self._fact_manager.assert_facts_scoped([(template, data)])
+                validated = self._fact_manager._validate(template, data)
+                return validated, self._fact_manager.assert_facts_scoped([(template, validated)])
             finally:
                 self._metrics.record_fact_asserted(template)
                 self._publish_working_memory([template])
