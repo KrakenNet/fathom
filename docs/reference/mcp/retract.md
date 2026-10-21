@@ -37,7 +37,7 @@ Retract facts from working memory
   "required": [
     "template"
   ],
-  "title": "tool_retractArguments",
+  "title": "fathom_retractArguments",
   "type": "object"
 }
 ```

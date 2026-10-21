@@ -333,3 +333,80 @@ class TestGrpcBadInputIsInvalidArgument:
 
         assert ctx.aborted is not None
         assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+
+
+class TestGrpcNonObjectJsonIsInvalidArgument:
+    """JSON that parses but is not an object is refused, not UNKNOWN.
+
+    ``[1]``, ``5``, ``"s"`` and ``null`` reached the engine and failed with
+    ``'list' object has no attribute 'keys'``; REST answers 422. A
+    ``filter_json`` of ``null`` used to mean "no filter", so Retract deleted
+    every fact of the template. Only an empty ``filter_json`` means that now.
+    """
+
+    @pytest.mark.parametrize("raw", ["[1]", "5", '"s"', "null"])
+    @pytest.mark.parametrize(
+        ("rpc", "field"),
+        [("AssertFact", "data_json"), ("Query", "filter_json"), ("Retract", "filter_json")],
+    )
+    def test_session_rpc(self, ruleset_root: Path, rpc: str, field: str, raw: str) -> None:
+        svc = FathomServicer()
+        _evaluate(svc, _FakeContext(), "strict", "S")
+        svc.AssertFact(
+            SimpleNamespace(
+                session_id="S", template="agent", data_json='{"id": "a", "clearance": "secret"}'
+            ),
+            _FakeContext(),
+        )
+        ctx = _FakeContext()
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            getattr(svc, rpc)(
+                SimpleNamespace(session_id="S", template="agent", **{field: raw}), ctx
+            )
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+        assert "JSON object" in ctx.aborted[1]
+        assert len(svc._session_store.get("S").query("agent")) == 1  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize("raw", ["[1]", "5", '"s"', "null"])
+    def test_evaluate(self, ruleset_root: Path, raw: str) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+        fact = SimpleNamespace(template="agent", data_json=raw)
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            svc.Evaluate(SimpleNamespace(session_id="", ruleset="strict", facts=[fact]), ctx)
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+
+
+class TestGrpcEvaluateOpensASession:
+    """Evaluate is the call that creates a session, with or without a ruleset.
+
+    A session-scoped Evaluate with no ruleset on an unknown id answered
+    NOT_FOUND "create it with Evaluate first" -- from Evaluate itself. REST
+    opens a session bound to the empty ruleset for the same request.
+    """
+
+    def test_evaluate_without_a_ruleset_creates_the_session(self, ruleset_root: Path) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+
+        _evaluate(svc, ctx, "", "fresh")
+
+        assert ctx.aborted is None
+        assert svc._session_store.get("fresh") is not None
+
+    def test_evaluate_without_a_ruleset_still_joins_an_existing_session(
+        self, ruleset_root: Path
+    ) -> None:
+        svc = FathomServicer()
+        _evaluate(svc, _FakeContext(), "strict", "S")
+        ctx = _FakeContext()
+
+        _evaluate(svc, ctx, "", "S")
+
+        assert ctx.aborted is None

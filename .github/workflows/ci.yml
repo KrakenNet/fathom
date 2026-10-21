@@ -333,6 +333,30 @@ jobs:
           printf 'modules:\n  - name: gov\nfocus_order: [gov]\n' > /tmp/modules.yaml
           check core 'from fathom import Engine; e = Engine(); e.load_modules("/tmp/modules.yaml"); e.reload_rules(b"ruleset: r\nmodule: gov\nrules: []\n")'
           check cli 'import subprocess, sys; subprocess.run([sys.prefix + "/bin/fathom", "--version"], check=True)'
+          # Importing is not using: `verify-chain` imported pyjwt only when it
+          # ran, so `[cli]` passed the check above and still could not verify
+          # a chain. Run every command's happy path from the `[cli]` venv.
+          (
+            cd /tmp && f=/tmp/venv/bin/fathom ex="$GITHUB_WORKSPACE/examples/01-hello-allow-deny"
+            $f validate "$ex"
+            $f compile "$ex" >/dev/null
+            $f info "$ex" >/dev/null
+            $f bench "$ex" -n 5 -w 1 >/dev/null
+            $f repl --rules "$ex" </dev/null >/dev/null
+            printf -- '- name: smoke\n  facts: []\n  expected_decision: null\n' > t.yaml
+            $f test "$ex" t.yaml >/dev/null 2>&1 || [ $? -eq 1 ]
+            $f convert rego "$GITHUB_WORKSPACE/tests/fixtures/rego/basic.rego" >/dev/null
+            $f convert to-rego "$ex" >/dev/null 2>&1 || [ $? -eq 3 ]
+            $f verify-artifact /dev/null --sig /dev/null >/dev/null 2>&1 || [ $? -eq 3 ]
+            $f status --server http://127.0.0.1:9 2>err || [ $? -eq 1 ]
+            grep -q 'connection error' err
+            /tmp/venv/bin/python -c 'from fathom.chained_log import ChainedAttestationLog; from fathom.attestation import AttestationService; ChainedAttestationLog("c.jsonl", AttestationService.generate_keypair()).write({"a": 1})'
+            $f verify-chain c.jsonl --pubkey c.jsonl.pub.pem
+            # Without the `mcp` extra: a one-line hint and exit 3, not a traceback.
+            rc=0; $f mcp "$ex" </dev/null 2>err || rc=$?
+            [ "$rc" -eq 3 ] && grep -q 'fathom-rules\[mcp\]' err && [ -z "$(grep Traceback err)" ] \
+              || { cat err; exit 1; }
+          )
           check server 'import fathom.integrations.rest'
           check mcp 'import fathom.integrations.mcp_server'
           check grpc 'import fathom.integrations.grpc_server'
@@ -341,6 +365,17 @@ jobs:
           check fleet-pg 'import fathom.fleet_pg'
           check metrics 'import fathom.metrics'
           check langchain 'import fathom.integrations.langchain'
+          # The `fathom` script is installed with every extra. Without `[cli]`
+          # it must name the extra and exit 3, not print a traceback.
+          for extra in core server mcp grpc attestation; do
+            rm -rf /tmp/venv && uv venv -q -p 3.12 /tmp/venv
+            spec="$wheel"; [ "$extra" = core ] || spec="$wheel[$extra]"
+            uv pip install -q --python /tmp/venv/bin/python "$spec"
+            rc=0; /tmp/venv/bin/fathom --version 2>/tmp/err || rc=$?
+            [ "$rc" -eq 3 ] && grep -q 'fathom-rules\[cli\]' /tmp/err && [ -z "$(grep Traceback /tmp/err)" ] \
+              || { cat /tmp/err; exit 1; }
+            echo "ok: fathom without [cli] under $extra"
+          done
 
   # A dependency bump that introduces a known-vulnerable package is invisible
   # until the next Dependabot alert fires -- which is after it has landed on

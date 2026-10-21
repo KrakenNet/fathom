@@ -30,7 +30,7 @@ Assert a fact into working memory
     "template",
     "data"
   ],
-  "title": "tool_assert_factArguments",
+  "title": "fathom_assert_factArguments",
   "type": "object"
 }
 ```

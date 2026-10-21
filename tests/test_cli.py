@@ -7,6 +7,7 @@ Uses typer.testing.CliRunner for subprocess-free invocation.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path as RealPath
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, get_type_hints
@@ -902,3 +903,97 @@ def test_error_messages_keep_their_bracketed_prefix(capsys: pytest.CaptureFixtur
     cli._print_error("[fathom.cli] mcp failed: boom")
 
     assert "[fathom.cli] mcp failed" in capsys.readouterr().err
+
+
+class TestEveryPackCommandLoadsTheSameWay:
+    """info/test/bench/repl/mcp/to-rego share one loader and one exit-code map."""
+
+    PACK_COMMANDS = (
+        ["info"],
+        ["bench", "-n", "1", "-w", "0"],
+        ["repl", "--rules"],
+        ["mcp"],
+        ["convert", "to-rego"],
+    )
+
+    @pytest.mark.parametrize("argv", PACK_COMMANDS, ids=lambda a: a[0])
+    def test_an_empty_directory_exits_2_like_validate(self, tmp_path: Path, argv) -> None:
+        result = runner.invoke(app, [*argv, str(tmp_path)])
+        assert result.exit_code == 2, result.output
+        assert "no YAML files found" in result.output
+
+    def test_test_command_refuses_an_empty_pack(self, tmp_path: Path) -> None:
+        cases = _write_yaml(tmp_path, [{"name": "c", "facts": []}], "cases.yaml")
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        assert runner.invoke(app, ["test", str(empty), str(cases)]).exit_code == 2
+
+    @pytest.mark.parametrize("argv", PACK_COMMANDS, ids=lambda a: a[0])
+    def test_a_file_is_a_usage_error(self, tmp_path: Path, argv) -> None:
+        pack_file = _write_yaml(tmp_path, {"rules": []}, "r.yaml")
+        assert runner.invoke(app, [*argv, str(pack_file)]).exit_code == 2
+
+    @pytest.mark.parametrize("argv", PACK_COMMANDS, ids=lambda a: a[0])
+    def test_an_uncompilable_pack_exits_1(self, tmp_path: Path, argv) -> None:
+        (tmp_path / "rules").mkdir()
+        (tmp_path / "rules" / "r.yaml").write_text("rules: [{nope: 1}]\n", encoding="utf-8")
+        result = runner.invoke(app, [*argv, str(tmp_path)])
+        assert result.exit_code == 1, result.output
+        assert "Traceback" not in result.output
+
+    def test_an_unexpected_loader_error_is_one_line_not_a_traceback(self, tmp_path: Path) -> None:
+        pack = _make_rule_pack(tmp_path)
+        with patch("fathom.cli.Engine.from_rules", side_effect=ValueError("boom")):
+            result = runner.invoke(app, ["convert", "to-rego", str(pack)])
+        assert result.exit_code == 1
+        assert "boom" in result.output
+        assert not isinstance(result.exception, ValueError)
+
+
+class TestBenchCounts:
+    @pytest.mark.parametrize("flags", [["-n", "0"], ["-n", "-5"], ["-w", "-1"]])
+    def test_a_non_positive_count_is_a_usage_error(self, tmp_path: Path, flags) -> None:
+        result = runner.invoke(app, ["bench", str(_make_rule_pack(tmp_path)), *flags])
+        assert result.exit_code == 2, result.output
+
+
+class TestStatusResponse:
+    def _invoke(self, body: object, *flags: str):
+        response = MagicMock(status_code=200)
+        response.json.return_value = body
+        with patch("fathom.cli.httpx.get", return_value=response):
+            return runner.invoke(app, ["status", "--server", "http://x", *flags])
+
+    @pytest.mark.parametrize("body", [[1], 5, "s", None])
+    def test_a_non_object_body_is_an_error_not_a_traceback(self, body: object) -> None:
+        result = self._invoke(body)
+        assert result.exit_code == 1
+        assert "not a JSON object" in result.output
+        assert not isinstance(result.exception, AttributeError)
+
+    def test_json_prints_the_response(self) -> None:
+        body = {"ruleset_hash": "h", "version": "1", "loaded_at": "t"}
+        result = self._invoke(body, "--json")
+        assert result.exit_code == 0
+        assert json.loads(result.output) == body
+
+
+def test_mcp_without_the_extra_names_it_and_exits_3(tmp_path: Path) -> None:
+    pack = _make_rule_pack(tmp_path)
+    with patch.dict("sys.modules", {"fathom.integrations.mcp_server": None}):
+        result = runner.invoke(app, ["mcp", str(pack)])
+    assert result.exit_code == 3
+    assert "fathom-rules[mcp]" in result.output
+
+
+@pytest.mark.parametrize("blocked", ["httpx", "typer", "cryptography"])
+def test_a_missing_cli_dependency_is_one_line_and_exits_3(blocked: str) -> None:
+    """The `fathom` script is installed with every extra, not only `cli`."""
+    import subprocess
+    import sys
+
+    code = f"import sys; sys.modules[{blocked!r}] = None; import fathom.cli"
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert proc.returncode == 3
+    assert "fathom-rules[cli]" in proc.stderr
+    assert "Traceback" not in proc.stderr

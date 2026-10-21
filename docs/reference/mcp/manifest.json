@@ -4,7 +4,7 @@
       "description": "List the activations waiting to fire",
       "input_schema": {
         "properties": {},
-        "title": "tool_agendaArguments",
+        "title": "fathom_agendaArguments",
         "type": "object"
       },
       "name": "fathom.agenda"
@@ -27,7 +27,7 @@
           "template",
           "data"
         ],
-        "title": "tool_assert_factArguments",
+        "title": "fathom_assert_factArguments",
         "type": "object"
       },
       "name": "fathom.assert_fact"
@@ -36,7 +36,7 @@
       "description": "Run forward-chain evaluation",
       "input_schema": {
         "properties": {},
-        "title": "tool_evaluateArguments",
+        "title": "fathom_evaluateArguments",
         "type": "object"
       },
       "name": "fathom.evaluate"
@@ -66,7 +66,7 @@
         "required": [
           "template"
         ],
-        "title": "tool_queryArguments",
+        "title": "fathom_queryArguments",
         "type": "object"
       },
       "name": "fathom.query"
@@ -96,7 +96,7 @@
         "required": [
           "template"
         ],
-        "title": "tool_retractArguments",
+        "title": "fathom_retractArguments",
         "type": "object"
       },
       "name": "fathom.retract"
@@ -113,7 +113,7 @@
         "required": [
           "rule"
         ],
-        "title": "tool_rule_matchesArguments",
+        "title": "fathom_rule_matchesArguments",
         "type": "object"
       },
       "name": "fathom.rule_matches"
@@ -122,7 +122,7 @@
       "description": "Evaluate and return the decision with every rule firing in order",
       "input_schema": {
         "properties": {},
-        "title": "tool_traceArguments",
+        "title": "fathom_traceArguments",
         "type": "object"
       },
       "name": "fathom.trace"
