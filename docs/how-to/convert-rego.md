@@ -105,7 +105,9 @@ widen to `string` when one field is compared against literals of different
 types. Rego has a single `number` type, so **every number becomes a `float`
 slot** — inferring `integer` from a policy that happens to compare against a
 whole number would produce a template that rejects the very input the policy
-was written for. `flatten_input` feeds those slots floats to match.
+was written for. `flatten_input` feeds those slots floats to match. Pass it
+`declared=` (the template's slot names) to drop input fields no slot
+declares, which would otherwise fail the assert.
 
 ### A field the document leaves out
 

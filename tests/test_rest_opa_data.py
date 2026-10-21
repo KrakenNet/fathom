@@ -148,6 +148,14 @@ class TestInputMapping:
         """The bridge and the converter have to agree, or nothing matches."""
         assert flatten_input({"a": True, "b": False}) == {"a": "true", "b": "false"}
 
+    def test_declared_keeps_only_the_template_slots(self) -> None:
+        """A real OPA input carries fields no slot declares; asserting them fails."""
+        document = {"user": {"role": "admin", "name": "bob"}, "action": "read"}
+        assert flatten_input(document, declared={"user_role", "action"}) == {
+            "user_role": "admin",
+            "action": "read",
+        }
+
 
 # ---------------------------------------------------------------------------
 # The GET form

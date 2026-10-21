@@ -32,7 +32,7 @@ from fathom.compiler import _ARG_TOKEN_RE, Compiler
 from fathom.errors import CompilationError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Collection
 
 __all__ = [
     "ConversionResult",
@@ -283,7 +283,9 @@ def _slot_name(path: list[str]) -> str:
     return "_".join(_escape_segment(segment) for segment in path[1:])
 
 
-def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]:
+def flatten_input(
+    document: dict[str, Any], _prefix: str = "", *, declared: Collection[str] | None = None
+) -> dict[str, Any]:
     """Flatten an OPA `input` document into Fathom slot values.
 
     The inverse of what :func:`_slot_name` does at conversion time, and it has
@@ -300,6 +302,10 @@ def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]
     two input paths can land in the same slot: `{"user": {"role": x}}` fills
     `user_role` and a top-level `"user_role"` fills `user__role`, which is the
     slot a policy reading `input.user_role` was converted against.
+
+    An OPA caller sends its whole input, and a field no slot declares fails
+    the assert. Pass the template's slot names as *declared* to keep only
+    those.
     """
     flat: dict[str, Any] = {}
     for key, value in document.items():
@@ -316,6 +322,8 @@ def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]
             flat[name] = float(value)
         elif isinstance(value, str):
             flat[name] = value
+    if declared is not None:
+        return {k: v for k, v in flat.items() if k in declared}
     return flat
 
 
