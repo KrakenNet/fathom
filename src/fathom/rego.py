@@ -34,13 +34,14 @@ from fathom.errors import CompilationError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from fathom.engine import Engine
+
 __all__ = [
     "ConversionResult",
     "ExportResult",
-    "OPA_DOWNLOAD_URL",
     "Skipped",
     "convert_ast",
-    "convert_file",
+    "convert_source",
     "export_engine",
     "flatten_input",
     "parse_rego",
@@ -283,7 +284,7 @@ def _slot_name(path: list[str]) -> str:
     return "_".join(_escape_segment(segment) for segment in path[1:])
 
 
-def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]:
+def flatten_input(document: dict[str, Any]) -> dict[str, Any]:
     """Flatten an OPA `input` document into Fathom slot values.
 
     The inverse of what :func:`_slot_name` does at conversion time, and it has
@@ -301,11 +302,15 @@ def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]
     `user_role` and a top-level `"user_role"` fills `user__role`, which is the
     slot a policy reading `input.user_role` was converted against.
     """
+    return _flatten(document, "")
+
+
+def _flatten(document: dict[str, Any], prefix: str) -> dict[str, Any]:
     flat: dict[str, Any] = {}
     for key, value in document.items():
-        name = f"{_prefix}{_escape_segment(key)}"
+        name = f"{prefix}{_escape_segment(key)}"
         if isinstance(value, dict):
-            flat.update(flatten_input(value, f"{name}_"))
+            flat.update(_flatten(value, f"{name}_"))
         elif isinstance(value, bool):
             flat[name] = "true" if value else "false"
         elif isinstance(value, (int, float)):
@@ -752,9 +757,15 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
     return result
 
 
-def convert_file(source: str, *, filename: str = "policy.rego") -> ConversionResult:
-    """Parse *source* with OPA and convert it. See :func:`convert_ast`."""
-    return convert_ast(parse_rego(source, filename=filename))
+def convert_source(
+    source: str, *, filename: str = "policy.rego", template: str = "input"
+) -> ConversionResult:
+    """Parse Rego *source* text with OPA and convert it. See :func:`convert_ast`.
+
+    *filename* only names the policy in OPA's error messages; nothing is read
+    from disk.
+    """
+    return convert_ast(parse_rego(source, filename=filename), template=template)
 
 
 # ---------------------------------------------------------------------------
@@ -956,7 +967,7 @@ def _export_rule(
     return str(rule.then.action), body
 
 
-def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
+def export_engine(engine: Engine, *, package: str | None = None) -> ExportResult:
     """Export the stateless subset of a loaded :class:`~fathom.engine.Engine`.
 
     Args:

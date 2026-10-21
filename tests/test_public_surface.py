@@ -9,6 +9,7 @@ document is current. These tests fail on that drift instead.
 from __future__ import annotations
 
 import re
+import shutil
 from importlib.metadata import distribution
 from pathlib import Path
 
@@ -173,3 +174,32 @@ def test_engine_hierarchy_accessor() -> None:
     assert eng.hierarchy("clearance").levels[0] == "unclassified"
     with pytest.raises(fathom.ValidationError, match="nope"):
         eng.hierarchy("nope")
+
+
+def test_rego_surface_shape() -> None:
+    """Text in, keyword template like convert_ast; no private or constant names."""
+    import inspect
+
+    params = inspect.signature(rego.convert_source).parameters
+    assert list(params) == ["source", "filename", "template"]
+    assert (
+        params["template"].default
+        == inspect.signature(rego.convert_ast).parameters["template"].default
+    )
+    assert all(p.kind is p.KEYWORD_ONLY for n, p in params.items() if n != "source")
+    assert list(inspect.signature(rego.flatten_input).parameters) == ["document"]
+    assert "convert_file" not in rego.__all__
+    assert "OPA_DOWNLOAD_URL" not in rego.__all__
+    assert inspect.signature(rego.export_engine).parameters["engine"].annotation in (
+        "Engine",
+        engine.Engine,
+    )
+
+
+def test_convert_source_honours_template() -> None:
+    if shutil.which("opa") is None:
+        pytest.skip("opa binary not installed")
+    source = 'package p\n\nallow if input.role == "admin"\n'
+    result = rego.convert_source(source, template="req")
+    assert result.templates[0]["name"] == "req"
+    assert result.rules[0]["when"][0]["template"] == "req"
