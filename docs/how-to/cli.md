@@ -202,6 +202,7 @@ Pass `--json` to emit the verification result as JSON. The command
 exits 0 when the chain is valid, 1 when verification fails, and 2 when
 the log or key file cannot be read — a file that is not a parseable PEM
 counts as a key that cannot be read, and reports that rather than raising.
+It exits 3 when the key is a valid PEM but not an Ed25519 key.
 
 ## mcp
 
