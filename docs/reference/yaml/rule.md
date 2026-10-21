@@ -237,7 +237,15 @@ the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
 within one hierarchy.
 
 Temporal operators emit `(test …)` CEs that call
-external functions registered at runtime.
+external functions registered at runtime. A rule that uses one also matches
+an internal `(__fathom_epoch)` fact, placed after its own patterns.
+`Engine.evaluate` (and so `evaluate_once`) replaces that fact before every
+run, so the operator is judged over the whole fact set at run time: the
+decision does not depend on the order the facts were asserted in. Facts a
+rule asserts during the run are not seen by a test that has already run.
+`Engine.step` does not replace the epoch fact (that would re-fire every
+temporal rule each step), so in a stream a temporal test runs when the
+pattern it sits on first matches.
 
 Any other operator raises `CompilationError` from `_compile_condition`.
 For worked examples of each operator see
@@ -359,7 +367,8 @@ Notes on the shape:
 
 - `(declare (salience N))` is omitted when `salience == 0`.
 - Test CEs appear after all pattern CEs, in source order across
-  patterns.
+  patterns. A rule with a temporal operator gets `(__fathom_epoch)` as its
+  last pattern CE, just before the test CEs.
 - `reason` with `{placeholder}` placeholders becomes `(str-cat …)`;
   literal reasons are emitted as plain quoted strings.
 - `notify` is always quoted — empty list emits `""`.

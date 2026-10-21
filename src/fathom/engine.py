@@ -18,7 +18,7 @@ import clips
 import yaml
 
 from fathom.audit import AuditLog, AuditSink, NullSink
-from fathom.compiler import Compiler
+from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
 from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
@@ -98,6 +98,11 @@ _DECISION_TEMPLATE = (
     "    (slot attestation (type SYMBOL) (allowed-symbols TRUE FALSE) (default FALSE))"
     '    (slot metadata (type STRING) (default "")))'
 )
+
+# Matched by every rule that uses a temporal operator. ``evaluate`` replaces
+# the one fact of this template before each run, which re-matches those rules
+# and re-runs their test CEs over the whole fact set (see ``compile_rule``).
+_EPOCH_TEMPLATE = f"(deftemplate MAIN::{_EPOCH_TEMPLATE_NAME})"
 
 # Source of the ``seq`` above. MAIN exports every construct and each generated
 # module does ``(import MAIN ?ALL)``, so a rule in any module can increment it.
@@ -324,6 +329,7 @@ class Engine:
         # Build the decision template into the CLIPS environment
         self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision")
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision")
+        self._safe_build(_EPOCH_TEMPLATE, context="__fathom_epoch")
         if match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence")
 
@@ -1301,6 +1307,7 @@ class Engine:
         # Decision template — matches what __init__ does on startup.
         self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision", env=new_env)
         self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision", env=new_env)
+        self._safe_build(_EPOCH_TEMPLATE, context="__fathom_epoch", env=new_env)
         if self._match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence", env=new_env)
 
@@ -1842,6 +1849,7 @@ class Engine:
         """
         with self._lock:
             self._refresh_all_rules()
+            self._renew_epoch()
 
             # Pre-snapshot user facts when any loaded rule declares `asserts`,
             # so newly-asserted facts can be captured for the audit record.
@@ -1911,6 +1919,19 @@ class Engine:
         finally:
             env.current_module = saved
 
+    def _renew_epoch(self, only_if_missing: bool = False) -> None:
+        """Replace the epoch fact so temporal rules re-match at run time.
+
+        Caller must hold ``self._lock``.
+        """
+        template = self._current_env().find_template(f"MAIN::{_EPOCH_TEMPLATE_NAME}")
+        stale = list(template.facts())
+        if stale and only_if_missing:
+            return
+        for fact in stale:
+            fact.retract()
+        template.assert_fact()
+
     def step(self, facts: list[tuple[str, dict[str, Any]]] | None = None) -> EvaluationResult:
         """Assert *facts* and run one incremental step, keeping refraction.
 
@@ -1946,6 +1967,9 @@ class Engine:
         with self._lock:
             if facts:
                 self.assert_facts(facts)
+            # Only create the epoch fact: renewing it would re-fire every
+            # temporal rule that already fired, which is what a step must not do.
+            self._renew_epoch(only_if_missing=True)
             result, _ = self._evaluator.evaluate()
             return result
 
