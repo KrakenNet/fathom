@@ -161,7 +161,9 @@ async def test_concurrent_retracts_count_each_fact_once(store: FactStore) -> Non
 
 
 @pytest.mark.asyncio
-async def test_fleet_engine_stores_clips_implicit_defaults(store: FactStore, tmp_path: Path) -> None:
+async def test_fleet_engine_stores_clips_implicit_defaults(
+    store: FactStore, tmp_path: Path
+) -> None:
     """A slot with no declared default is stored with the value CLIPS fills in."""
     rules = tmp_path / "rules"
     rules.mkdir()

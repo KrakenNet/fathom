@@ -207,7 +207,7 @@ class RedisFactStore:
         fields = [item for pair in self._encode_fields(data).items() for item in pair]
         keys = [key, self._index_key(template), self._stream_key(template)]
         ttl = "" if self._ttl is None else str(self._ttl)
-        args = [fact_id, ttl, _STREAM_MAXLEN, template, json.dumps(data), *fields]
+        args: list[str | int] = [fact_id, ttl, _STREAM_MAXLEN, template, json.dumps(data), *fields]
         await self._retry("assert_fact", lambda: self._assert_script(keys=keys, args=args))
         return fact_id
 
