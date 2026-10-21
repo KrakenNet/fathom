@@ -155,9 +155,14 @@ result = engine.evaluate()
 **As a REST sidecar**
 
 ```bash
-docker run -p 8080:8080 -v ./rules:/rules ghcr.io/krakennet/fathom:latest
-curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8080/v1/evaluate \
-  -d '{"facts": [...], "ruleset": "access-control"}'
+# ./rules/access-control/ holds a ruleset (templates/, rules/, ...);
+# the image serves rulesets from /rules (FATHOM_RULESET_ROOT).
+export TOKEN=change-me
+docker run -p 8080:8080 -e FATHOM_API_TOKEN="$TOKEN" \
+  -v "$PWD/rules:/rules:ro" ghcr.io/krakennet/fathom:latest
+curl -X POST localhost:8080/v1/evaluate \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"facts": [], "ruleset": "access-control"}'
 ```
 
 **As a gRPC sidecar**

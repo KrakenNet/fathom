@@ -68,10 +68,14 @@ RUN useradd --create-home --shell /bin/bash fathom \
 # so moving it between stages would break every console script inside it.
 COPY --from=builder --chown=fathom:fathom /app /app
 
+# FATHOM_RULESET_ROOT is the jail every request's `ruleset` path resolves
+# under. Without it the server answers every evaluate with a 500, so point it
+# at the volume the image declares for exactly this.
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8080
+    PORT=8080 \
+    FATHOM_RULESET_ROOT=/rules
 
 USER fathom
 WORKDIR /app
