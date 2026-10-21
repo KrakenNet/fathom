@@ -36,7 +36,7 @@ _HIERARCHY_SCOPED_OPS = frozenset({"below", "meets_or_exceeds", "within_scope"})
 TOP_LEVEL_KEYS: dict[str, frozenset[str]] = {
     "templates": frozenset({"templates"}),
     "modules": frozenset({"modules", "focus_order"}),
-    "functions": frozenset({"functions"}),
+    "functions": frozenset({"functions", "hierarchies"}),
     "rules": frozenset({"ruleset", "version", "module", "rules"}),
 }
 
@@ -1083,8 +1083,21 @@ class Compiler:
     def parse_function_file(self, path: Path) -> list[FunctionDefinition]:
         """Parse a YAML function file into FunctionDefinition objects.
 
+        The file's ``hierarchies:`` are validated and dropped; use
+        :meth:`parse_function_bundle` to get them as well.
+        """
+        return self.parse_function_bundle(path)[0]
+
+    def parse_function_bundle(
+        self, path: Path
+    ) -> tuple[list[FunctionDefinition], dict[str, HierarchyDefinition]]:
+        """Parse a YAML function file into its functions and bundled hierarchies.
+
         Expected YAML format::
 
+            hierarchies:
+              - name: classification
+                levels: [unclassified, secret]
             functions:
               - name: classification
                 params: [a, b]
@@ -1094,8 +1107,13 @@ class Compiler:
         Args:
             path: Path to a YAML file containing function definitions.
 
+        A classification function's ``hierarchy_ref`` names a hierarchy from
+        ``hierarchies:`` in the same file, or failing that a hierarchy file
+        on disk (see ``Engine._resolve_hierarchy``).
+
         Returns:
-            A list of validated FunctionDefinition objects.
+            The validated FunctionDefinition objects, and the file's
+            hierarchies keyed by name.
 
         Raises:
             CompilationError: On invalid YAML, missing fields, or validation errors.
@@ -1167,7 +1185,40 @@ class Compiler:
             seen_names.add(defn.name)
             results.append(defn)
 
-        return results
+        raw_hierarchies = data.get("hierarchies", [])
+        if not isinstance(raw_hierarchies, list):
+            raise CompilationError(
+                "[fathom.compiler] parse function failed: 'hierarchies' must be a list",
+                file=file_str,
+            )
+        hierarchies: dict[str, HierarchyDefinition] = {}
+        for idx, raw in enumerate(raw_hierarchies):
+            if not isinstance(raw, dict):
+                raise CompilationError(
+                    f"[fathom.compiler] parse function failed: hierarchy entry {idx} "
+                    "is not a mapping",
+                    file=file_str,
+                )
+            try:
+                hier = HierarchyDefinition(**raw)
+            except PydanticValidationError as exc:
+                name = raw.get("name", f"<entry {idx}>")
+                raise CompilationError(
+                    f"[fathom.compiler] parse function failed: invalid hierarchy '{name}'",
+                    file=file_str,
+                    construct=f"hierarchy:{name}",
+                    detail=str(exc),
+                ) from exc
+            if hier.name in hierarchies:
+                raise CompilationError(
+                    "[fathom.compiler] parse function failed: "
+                    f"duplicate hierarchy name '{hier.name}'",
+                    file=file_str,
+                    construct=f"hierarchy:{hier.name}",
+                )
+            hierarchies[hier.name] = hier
+
+        return results, hierarchies
 
     @staticmethod
     def _parse_operator(expr: str) -> tuple[str, str]:

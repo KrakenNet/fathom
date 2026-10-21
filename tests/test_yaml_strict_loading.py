@@ -196,3 +196,58 @@ def test_yaml_merge_key_override_is_not_a_duplicate(tmp_path: Path) -> None:
     )
     engine = Engine.from_rules(str(_pack(tmp_path, rules)))
     assert engine.evaluate_once([("req", {"role": "admin"})]).decision == "allow"
+
+
+# --- 4. hierarchies: in the function bundle --------------------------------
+
+BUNDLE = """\
+hierarchies:
+  - name: clearance
+    levels: [unclassified, confidential, secret, top-secret]
+
+functions:
+  - name: clearance-check
+    type: classification
+    params: [a, b]
+    hierarchy_ref: clearance
+"""
+SUBJ_TEMPLATES = """\
+templates:
+  - name: subj
+    slots:
+      - {name: clearance, type: symbol}
+"""
+CLEARANCE_RULES = """\
+ruleset: rs
+module: m
+rules:
+  - name: cleared
+    when:
+      - template: subj
+        conditions:
+          - {slot: clearance, expression: meets_or_exceeds(secret)}
+    then: {action: allow}
+"""
+
+
+def test_hierarchies_in_function_bundle_are_loaded(tmp_path: Path) -> None:
+    pack = _pack(
+        tmp_path,
+        CLEARANCE_RULES,
+        templates=SUBJ_TEMPLATES,
+        functions=BUNDLE,
+    )
+    engine = Engine.from_rules(str(pack))
+    assert engine.evaluate_once([("subj", {"clearance": "top-secret"})]).decision == "allow"
+    assert engine.evaluate_once([("subj", {"clearance": "confidential"})]).decision != "allow"
+    compiled = CliRunner().invoke(app, ["compile", str(pack)])
+    assert compiled.exit_code == 0, compiled.output
+    assert "clearance-rank" in compiled.output
+    assert CliRunner().invoke(app, ["validate", str(pack)]).exit_code == 0
+
+
+def test_invalid_bundle_hierarchy_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "f.yaml"
+    path.write_text(BUNDLE.replace("levels:", "levelz:"))
+    with pytest.raises(CompilationError, match="invalid hierarchy"):
+        Engine().load_functions(str(path))

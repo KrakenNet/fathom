@@ -32,7 +32,7 @@ from `POST /v1/compile`:
 |---|---|
 | Template | `templates` |
 | Module | `modules`, `focus_order` |
-| Function | `functions` |
+| Function | `functions`, `hierarchies` |
 | Rule | `ruleset`, `version`, `module`, `rules` |
 
 A mapping key given twice anywhere in a file (two `expression:` keys in

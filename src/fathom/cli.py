@@ -35,7 +35,7 @@ from fathom.yaml_utils import (
 )
 
 if TYPE_CHECKING:
-    from fathom.models import HierarchyDefinition, TemplateDefinition
+    from fathom.models import TemplateDefinition
 
 try:
     import typer
@@ -351,8 +351,7 @@ def _compile_yaml_file(
         # `fathom compile` exited 1 on every pack with a classification
         # function, including the shipped examples/03-classification-blp that
         # `fathom validate` and `fathom info` both accept.
-        definitions = compiler.parse_function_file(file_path)
-        hierarchies: dict[str, HierarchyDefinition] = {}
+        definitions, hierarchies = compiler.parse_function_bundle(file_path)
         for defn in definitions:
             if defn.hierarchy_ref:
                 name = defn.hierarchy_ref.rsplit(".", 1)[0]

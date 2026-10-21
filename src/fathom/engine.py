@@ -869,10 +869,9 @@ class Engine:
             # unsorted glob made load order vary between machines.
             files: list[Path] = sorted(p.glob("*.yaml")) if p.is_dir() else [p]
             for file in files:
-                definitions = self._compiler.parse_function_file(file)
+                definitions, hierarchies = self._compiler.parse_function_bundle(file)
 
-                # Resolve hierarchy references for this file
-                hierarchies: dict[str, HierarchyDefinition] = {}
+                # Resolve the references the file's own hierarchies don't cover
                 for defn in definitions:
                     if defn.hierarchy_ref:
                         hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]

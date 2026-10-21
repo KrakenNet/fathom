@@ -241,6 +241,15 @@ def validate_document(
                 errors.extend(
                     _format_errors(exc, "function", file_path, f"functions -> {idx} -> ")
                 )
+        for idx, raw in _list_entries(
+            data.get("hierarchies", []), "hierarchies", file_path, errors
+        ):
+            try:
+                HierarchyDefinition(**raw)
+            except PydanticValidationError as exc:
+                errors.extend(
+                    _format_errors(exc, "hierarchy", file_path, f"hierarchies -> {idx} -> ")
+                )
     elif "rules" in data:
         errors.extend(_validate_rule_file(data, file_path))
     elif "levels" in data and "name" in data:

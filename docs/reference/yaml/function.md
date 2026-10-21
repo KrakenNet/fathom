@@ -79,7 +79,8 @@ unusable: its levels ranked `-1` through the first hierarchy's table, so
 Compilation failures:
 
 - Missing `hierarchy_ref` → `CompilationError`.
-- `hierarchy_ref` not registered in the bundle → `CompilationError`.
+- `hierarchy_ref` that names neither a hierarchy in the file's
+  `hierarchies:` nor a hierarchy file on disk → `CompilationError`.
 
 ### `raw`
 
@@ -108,8 +109,15 @@ the external-function path and
 
 ## `HierarchyDefinition` fields
 
-Classification functions consume a `HierarchyDefinition` from the same
-YAML bundle.
+Classification functions consume a `HierarchyDefinition`. A function's
+`hierarchy_ref` is looked up first in the `hierarchies:` list of the same
+function file (as in the worked example below). If no hierarchy there has
+that name, it is resolved as a file on disk: `<ref>`, `<ref>.yaml` or
+`<ref>.yml`, holding a single top-level `name:` / `levels:` mapping,
+searched next to the function file, then in its `hierarchies/`
+subdirectory, then in a `hierarchies/` directory beside it (a pack's
+`hierarchies/`). Every hierarchy in a function file's `hierarchies:` list
+is registered, referenced or not.
 
 | Field          | Type               | Default | Required | Description                                                                                                                                       |
 |----------------|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -219,7 +227,8 @@ prevent collisions with the runtime's own bindings.
 | `type: classification` without `hierarchy_ref`       | `compile_function`             | `CompilationError` |
 | `type: classification` with unknown `hierarchy_ref`  | `compile_function`             | `CompilationError` |
 | Any key not defined on the model, on `FunctionDefinition` or `HierarchyDefinition` | Pydantic (`extra="forbid"`) | `ValidationError` |
-| A top-level key in a function file other than `functions` | `parse_function_file` | `CompilationError` |
+| A top-level key in a function file other than `functions` and `hierarchies` | `parse_function_file` | `CompilationError` |
+| An invalid or duplicate entry in `hierarchies:` | `parse_function_file` | `CompilationError` |
 | `HierarchyDefinition.name` that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 | A `levels` or `compartments` member that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 
