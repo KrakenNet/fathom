@@ -56,7 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${NPM_TOKEN}" ]; then
-            echo "::error::NPM_TOKEN is not set on the 'npm' environment, so this" \
+            echo "::error::NPM_RELEASE_TOKEN is not set on the 'npm' environment, so this" \
                  "release cannot be published. Add an npm granular access token" \
                  "scoped to publish, or configure npm Trusted Publishing (OIDC)."
             exit 1
@@ -100,4 +100,4 @@ jobs:
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_RELEASE_TOKEN }}
