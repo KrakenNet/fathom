@@ -85,9 +85,9 @@ at [Go SDK](./go-sdk/fathom-go.md).
 **Status:** Partial.
 
 **Location:** `packages/fathom-ts/` — published identity
-`@fathom-rules/sdk`, versioned in lockstep with the engine (release-please
-writes `package.json` from the same tag, and `scripts/check_version_sync.py`
-fails the build if the two drift). Source lives in
+`@fathom-rules/sdk`, versioned apart from the engine: it is its own
+release-please component, tagged `fathom-ts-vX.Y.Z`, and only that tag
+publishes it to npm. Source lives in
 `src/client.ts` (215 lines), `src/errors.ts` (77 lines), and
 `src/index.ts` (26 lines). Vitest suites in `test/client.test.ts` and
 `test/errors.test.ts`.

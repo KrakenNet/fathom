@@ -4,11 +4,6 @@ Sources, all of which are written automatically on a release:
 
 - ``pyproject.toml`` ``[project].version`` — the authority
 - ``src/fathom/__init__.py`` ``__version__``
-- ``packages/fathom-ts/package.json`` ``version`` — the TS SDK versions in
-  lockstep with the engine, because it is the client for the engine's API and
-  ``npm-publish.yml`` fires on the same ``v*.*.*`` tag. It sat at 0.1.0 across
-  every release before that was wired up, so each tag would have republished
-  the same version.
 - ``CHANGELOG.md`` — the newest version heading. It had stopped at 0.3.0 while
   0.7.4 was on PyPI, so this gate requires a heading for the version being
   released. release-please runs with ``skip-changelog`` — its generated
@@ -24,6 +19,10 @@ Sources, all of which are written automatically on a release:
   ``x-release-please-version`` markers on those lines; this check is what
   notices if a marker is dropped or a line is reworded out from under it.
 
+The TS SDK (``packages/fathom-ts/package.json``) is deliberately not here: it
+is its own release-please component, versioned and tagged (``fathom-ts-v*``)
+apart from the engine, so its version differing is not skew.
+
 A source that is absent is skipped rather than fatal: the script is run
 against synthetic trees in the tests, and a missing file is not version skew.
 """
@@ -31,7 +30,6 @@ against synthetic trees in the tests, and a missing file is not version skew.
 from __future__ import annotations
 
 import functools
-import json
 import re
 import sys
 import tomllib
@@ -53,16 +51,6 @@ def read_init_version(root: Path) -> str:
     if match is None:
         raise SystemExit("__version__ not found in src/fathom/__init__.py")
     return match.group(1)
-
-
-def read_ts_sdk_version(root: Path) -> str | None:
-    path = root / "packages" / "fathom-ts" / "package.json"
-    if not path.exists():
-        return None
-    version = json.loads(path.read_text(encoding="utf-8")).get("version")
-    if not isinstance(version, str):
-        raise SystemExit("version not found in packages/fathom-ts/package.json")
-    return version
 
 
 #: The newest release heading in CHANGELOG.md, e.g. ``## [0.8.0] - 2026-08-19``.
@@ -104,7 +92,6 @@ def read_prose_version(root: Path, name: str) -> str | None:
 #: enforced by test_every_checked_source_is_written_on_a_release.
 VERSION_SOURCES: dict[str, Callable[[Path], str | None]] = {
     "src/fathom/__init__.py": read_init_version,
-    "packages/fathom-ts/package.json": read_ts_sdk_version,
     "CHANGELOG.md": read_changelog_version,
     **{name: functools.partial(read_prose_version, name=name) for name in PROSE_SOURCES},
 }

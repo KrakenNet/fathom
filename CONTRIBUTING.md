@@ -106,8 +106,14 @@ Forgot to sign off? You don't need to rewrite history — when the `DCO` check f
 
 Releases are cut by release-please: merging to `main` maintains a release PR
 that bumps the version everywhere it appears — `pyproject.toml`,
-`src/fathom/__init__.py`, `packages/fathom-ts/package.json`, and the version
-lines in `README.md` and `docs/index.md`.
+`src/fathom/__init__.py`, and the version lines in `README.md` and
+`docs/index.md` — and tags it `vX.Y.Z`, which publishes to PyPI, GHCR and the
+docs site.
+
+The TypeScript SDK (`packages/fathom-ts/`) is a separate release-please
+component on its own version line. Commits touching it bump
+`packages/fathom-ts/package.json` and tag `fathom-ts-vX.Y.Z`; only that tag
+runs `npm-publish.yml`. An engine release never publishes the SDK.
 
 `CHANGELOG.md` is **not** automatic. `scripts/check_version_sync.py` (the
 `lint` job) fails when the version in `pyproject.toml` has no matching heading

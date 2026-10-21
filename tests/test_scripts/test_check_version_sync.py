@@ -80,20 +80,32 @@ def _tree(
     return tmp_path
 
 
-def test_fails_when_ts_sdk_version_lags(tmp_path: Path) -> None:
-    """The TS SDK ships on the same tag, so a stale package.json is skew.
+def test_ts_sdk_on_its_own_version_is_not_skew(tmp_path: Path) -> None:
+    """The TS SDK versions apart from the engine, so a different number is fine.
 
-    It sat at 0.1.0 through every release before this was enforced, which
-    meant each tag asked npm to republish a version that already existed.
+    It used to ride the engine's version, which meant the 1.0.0 engine release
+    would have published an SDK covering 4 of 10 REST endpoints as 1.0.0.
     """
     result = run_script(_tree(tmp_path, "1.2.3", "1.2.3", ts="0.1.0"))
-    assert result.returncode != 0
-    assert "packages/fathom-ts/package.json=0.1.0" in result.stderr
-
-
-def test_passes_when_ts_sdk_version_matches(tmp_path: Path) -> None:
-    result = run_script(_tree(tmp_path, "1.2.3", "1.2.3", ts="1.2.3"))
     assert result.returncode == 0, result.stderr
+
+
+def test_ts_sdk_is_its_own_release_please_component() -> None:
+    """release-please bumps and tags the SDK on its own, and npm publishes only that tag."""
+    root = SCRIPT.parent.parent
+    config = json.loads((root / "release-please-config.json").read_text(encoding="utf-8"))
+    engine_files = {e["path"] for e in config["packages"]["."].get("extra-files", [])}
+    assert "packages/fathom-ts/package.json" not in engine_files
+
+    sdk = config["packages"]["packages/fathom-ts"]
+    assert sdk["include-component-in-tag"] is True
+    manifest = json.loads((root / ".release-please-manifest.json").read_text(encoding="utf-8"))
+    assert "packages/fathom-ts" in manifest
+
+    workflow = (root / ".github" / "workflows" / "npm-publish.yml").read_text(encoding="utf-8")
+    tag_glob = f'"{sdk["component"]}-v*.*.*"'
+    assert tag_glob in workflow, f"npm-publish.yml must trigger on {tag_glob} only"
+    assert '- "v*.*.*"' not in workflow
 
 
 def test_absent_ts_sdk_is_not_skew(tmp_path: Path) -> None:
@@ -103,10 +115,10 @@ def test_absent_ts_sdk_is_not_skew(tmp_path: Path) -> None:
 
 
 def test_reports_every_skewed_source_at_once(tmp_path: Path) -> None:
-    result = run_script(_tree(tmp_path, "1.2.3", "1.2.4", ts="0.1.0"))
+    result = run_script(_tree(tmp_path, "1.2.3", "1.2.4", readme="0.1.0"))
     assert result.returncode != 0
     assert "src/fathom/__init__.py=1.2.4" in result.stderr
-    assert "packages/fathom-ts/package.json=0.1.0" in result.stderr
+    assert "README.md=0.1.0" in result.stderr
 
 
 def test_fails_when_readme_prose_version_lags(tmp_path: Path) -> None:
