@@ -12,6 +12,8 @@ gaps between 0.3.1 and 0.5.0 are explained under
 [Release history notes](#release-history-notes).
 
 ## [Unreleased]
+
+## [0.14.0] - 2026-10-21
 ### Changed
 - **An evaluation during which a rule errors now raises `EvaluationError`.**
   CLIPS reports a runtime error in a condition, a `test:` CE or an action by
