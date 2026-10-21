@@ -52,8 +52,9 @@ Python surface:
 `AttestationService`, `verify_token`, `ChainedAttestationLog`, and
 `verify_chain` are resolved on first attribute access rather than at import,
 because they need the optional `attestation` extra. Accessing one without that
-extra installed raises `ImportError` naming the extra — it is not an
-`AttributeError`, and the name is covered either way.
+extra installed raises `ImportError` naming the extra (so do `from fathom
+import *` and importing `fathom.attestation` or `fathom.chained_log`) — it is
+not an `AttributeError`, and the name is covered either way.
 
 Each of these submodules also declares its own `__all__`, which is covered on
 the same terms when imported directly (`from fathom.models import

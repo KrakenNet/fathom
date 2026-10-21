@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
+import sys
 from importlib.metadata import distribution
 from pathlib import Path
 
@@ -225,3 +227,36 @@ def test_convert_source_honours_template() -> None:
     result = rego.convert_source(source, template="req")
     assert result.templates[0]["name"] == "req"
     assert result.rules[0]["when"][0]["template"] == "req"
+
+
+@pytest.mark.parametrize(
+    ("module", "missing", "extra"),
+    [
+        ("fathom.attestation", "jwt", "attestation"),
+        ("fathom.chained_log", "jwt", "attestation"),
+        ("fathom.integrations.rest", "fastapi", "server"),
+    ],
+)
+def test_covered_extra_module_names_its_extra(module: str, missing: str, extra: str) -> None:
+    """Importing without the extra says which extra to install, not just the package."""
+    code = (
+        f"import sys; sys.modules[{missing!r}] = None\n"
+        f"try:\n    import {module}\n"
+        "except ImportError as exc:\n    print(exc)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    ).stdout
+    assert f"fathom-rules[{extra}]" in out
+
+
+def test_type_checkers_reject_a_misspelled_export(tmp_path: Path) -> None:
+    """The PEP 562 hook must not make every ``fathom.<typo>`` type as Any."""
+    api = pytest.importorskip("mypy.api")
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import fathom\nx = fathom.AttestationService\ny = fathom.Enigne\n", encoding="utf-8"
+    )
+    out, _, status = api.run(["--no-incremental", "--follow-imports=silent", str(probe)])
+    assert status == 1, out
+    assert '"Enigne"' in out and "probe.py:3:" in out and "probe.py:2:" not in out, out

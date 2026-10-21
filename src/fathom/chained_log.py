@@ -57,13 +57,19 @@ from typing import IO, TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-import jwt
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from cryptography.hazmat.primitives.serialization import (
-    Encoding,
-    PublicFormat,
-    load_pem_public_key,
-)
+try:
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        PublicFormat,
+        load_pem_public_key,
+    )
+except ImportError as _exc:
+    raise ImportError(
+        "pyjwt and cryptography are required for fathom.chained_log. "
+        "Install it with: pip install fathom-rules[attestation]"
+    ) from _exc
 
 from fathom.attestation import AttestationService, verify_token
 from fathom.errors import AttestationError
