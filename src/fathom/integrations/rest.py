@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -20,6 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from starlette.datastructures import State
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
     from fathom.attestation import AttestationService
@@ -146,6 +147,7 @@ def _resolve_user_ruleset(user_path: str) -> str:
 
 
 def _session_engine(
+    state: State,
     session_id: str,
     rules_path: str,
     attestation_service: AttestationService | None = None,
@@ -164,7 +166,7 @@ def _session_engine(
     escaping ``POST /v1/rules/reload`` at the same time. Neither is
     acceptable, so the mounted deployment serves stateless evaluation only.
     """
-    if getattr(app.state, "engine", None) is not None:
+    if getattr(state, "engine", None) is not None:
         raise HTTPException(
             status_code=400,
             detail={
@@ -177,7 +179,8 @@ def _session_engine(
             },
         )
     try:
-        return session_store.get_or_create(session_id, rules_path, attestation_service)
+        store: SessionStore = state.session_store
+        return store.get_or_create(session_id, rules_path, attestation_service)
     except SessionRulesetMismatchError as exc:
         raise HTTPException(
             status_code=409,
@@ -190,15 +193,17 @@ def _session_engine(
         ) from exc
 
 
-def _require_session_engine(session_id: str) -> Engine:
+def _require_session_engine(state: State, session_id: str) -> Engine:
     """Return the Engine for an existing session, or raise 404."""
-    engine = session_store.get(session_id)
+    store: SessionStore = state.session_store
+    engine = store.get(session_id)
     if engine is None:
         raise HTTPException(status_code=404, detail="session not found")
     return engine
 
 
 def _data_plane_engine(
+    state: State,
     resolved: str,
     attestation_service: AttestationService | None,
 ) -> Engine:
@@ -221,7 +226,7 @@ def _data_plane_engine(
             underlying diagnostic names server-side absolute paths, so it is
             logged rather than returned.
     """
-    mounted: Engine | None = getattr(app.state, "engine", None)
+    mounted: Engine | None = getattr(state, "engine", None)
     if mounted is not None:
         # The mounted Engine is usually constructed before the attestation
         # service is injected onto app.state, so attach it here rather than
@@ -306,16 +311,9 @@ class BodySizeLimitMiddleware:
 # (intended for local development only).
 _expose_docs = os.environ.get("FATHOM_EXPOSE_DOCS") == "1"
 
-app = FastAPI(
-    title="Fathom Rules Engine",
-    version=_fathom_version,
-    description="Deterministic reasoning runtime for AI agents",
-    docs_url="/docs" if _expose_docs else None,
-    redoc_url="/redoc" if _expose_docs else None,
-    openapi_url="/openapi.json" if _expose_docs else None,
-)
-
-app.add_middleware(BodySizeLimitMiddleware)
+# Routes live on a router so every app ``build_app`` returns gets its own
+# FastAPI instance (and its own ``state``) carrying the same API.
+router = APIRouter()
 
 
 # Slug used in the ``error`` field when an HTTPException carries only a
@@ -361,7 +359,6 @@ _SESSION_HEADER = {
 }
 
 
-@app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """Render every HTTPException through the single ErrorResponse envelope.
 
@@ -384,7 +381,6 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     )
 
 
-@app.exception_handler(RequestValidationError)
 async def request_validation_error_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
@@ -408,22 +404,16 @@ async def request_validation_error_handler(
 
 _metrics_enabled = _HAS_PROMETHEUS and os.environ.get("FATHOM_METRICS") == "1"
 
-if _metrics_enabled:
-    # Instrument without exposing a public /metrics; we register an
-    # auth-gated endpoint below instead.
-    Instrumentator().instrument(app)
 
-    @app.get("/metrics", dependencies=[Depends(_require_auth)])
-    async def metrics() -> Response:
-        """Serve Prometheus exposition format metrics (auth-gated)."""
-        body = prometheus_client.generate_latest()
-        return Response(
-            content=body,
-            media_type=prometheus_client.CONTENT_TYPE_LATEST,
-        )
+async def metrics() -> Response:
+    """Serve Prometheus exposition format metrics (auth-gated)."""
+    body = prometheus_client.generate_latest()
+    return Response(
+        content=body,
+        media_type=prometheus_client.CONTENT_TYPE_LATEST,
+    )
 
 
-@app.exception_handler(FathomValidationError)
 async def fathom_validation_error_handler(
     request: Request, exc: FathomValidationError
 ) -> JSONResponse:
@@ -432,22 +422,19 @@ async def fathom_validation_error_handler(
     return JSONResponse(status_code=422, content=body.model_dump())
 
 
-@app.get("/health")
+@router.get("/health")
 async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
 
 
-session_store = SessionStore()
-
-
-@app.post(
+@router.post(
     "/v1/evaluate",
     response_model=EvaluateResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def evaluate(request: EvaluateRequest) -> EvaluateResponse:
+def evaluate(request: EvaluateRequest, http_request: Request) -> EvaluateResponse:
     """Evaluate facts against a ruleset (stateless or stateful).
 
     Request-scoped: the supplied facts are asserted, evaluated, then
@@ -475,11 +462,12 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     # construction. Without this the response's `attestation_token` was a
     # field that could never be non-null: declared in the schema, published in
     # the OpenAPI document, and unreachable.
-    attestation = getattr(app.state, "attestation", None)
+    state = http_request.app.state
+    attestation = getattr(state, "attestation", None)
     if request.session_id:
-        engine = _session_engine(request.session_id, resolved, attestation)
+        engine = _session_engine(state, request.session_id, resolved, attestation)
     else:
-        engine = _data_plane_engine(resolved, attestation)
+        engine = _data_plane_engine(state, resolved, attestation)
 
     try:
         result = engine.evaluate_once(
@@ -525,52 +513,55 @@ def _require_session_id(request: Request) -> str:
     return x_session_id
 
 
-@app.get(
+@router.get(
     "/v1/templates",
     dependencies=[Depends(_require_auth)],
     responses=_ERROR_RESPONSES,
     openapi_extra=_SESSION_HEADER,
 )
 async def list_templates(
+    request: Request,
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all registered template definitions for a session."""
-    engine = _require_session_engine(session_id)
+    engine = _require_session_engine(request.app.state, session_id)
     items = [t.model_dump() for t in engine.template_registry.values()]
     return _make_list_response(items)
 
 
-@app.get(
+@router.get(
     "/v1/rules",
     dependencies=[Depends(_require_auth)],
     responses=_ERROR_RESPONSES,
     openapi_extra=_SESSION_HEADER,
 )
 async def list_rules(
+    request: Request,
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all loaded rule definitions for a session."""
-    engine = _require_session_engine(session_id)
+    engine = _require_session_engine(request.app.state, session_id)
     items = [r.model_dump() for r in engine.rule_registry.values()]
     return _make_list_response(items)
 
 
-@app.get(
+@router.get(
     "/v1/modules",
     dependencies=[Depends(_require_auth)],
     responses=_ERROR_RESPONSES,
     openapi_extra=_SESSION_HEADER,
 )
 async def list_modules(
+    request: Request,
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all registered module definitions for a session."""
-    engine = _require_session_engine(session_id)
+    engine = _require_session_engine(request.app.state, session_id)
     items = [m.model_dump() for m in engine.module_registry.values()]
     return _make_list_response(items)
 
 
-@app.post(
+@router.post(
     "/v1/compile",
     response_model=CompileResponse,
     responses=_ERROR_RESPONSES,
@@ -647,13 +638,13 @@ def compile_yaml(request: CompileRequest, http_request: Request) -> CompileRespo
     )
 
 
-@app.post(
+@router.post(
     "/v1/facts",
     response_model=AssertFactResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def assert_fact(request: AssertFactRequest) -> AssertFactResponse:
+def assert_fact(request: AssertFactRequest, http_request: Request) -> AssertFactResponse:
     """Assert a single fact into a session's working memory.
 
     Unlike ``/v1/evaluate``, this endpoint does **not** create sessions on
@@ -662,18 +653,18 @@ def assert_fact(request: AssertFactRequest) -> AssertFactResponse:
 
     Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine = _require_session_engine(request.session_id)
+    engine = _require_session_engine(http_request.app.state, request.session_id)
     engine.assert_fact(request.template, request.data)
     return AssertFactResponse(success=True)
 
 
-@app.post(
+@router.post(
     "/v1/query",
     response_model=QueryFactsResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def query_facts(request: QueryFactsRequest) -> QueryFactsResponse:
+def query_facts(request: QueryFactsRequest, http_request: Request) -> QueryFactsResponse:
     """Query a session's working memory for facts matching template + filter.
 
     The ``session_id`` must reference an existing session created via
@@ -681,18 +672,18 @@ def query_facts(request: QueryFactsRequest) -> QueryFactsResponse:
 
     Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine = _require_session_engine(request.session_id)
+    engine = _require_session_engine(http_request.app.state, request.session_id)
     facts = engine.query(request.template, request.filter)
     return QueryFactsResponse(facts=facts)
 
 
-@app.delete(
+@router.delete(
     "/v1/facts",
     response_model=RetractFactsResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
+def retract_facts(request: RetractFactsRequest, http_request: Request) -> RetractFactsResponse:
     """Retract facts matching template + optional filter from working memory.
 
     The ``session_id`` must reference an existing session created via
@@ -701,7 +692,7 @@ def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
 
     Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine = _require_session_engine(request.session_id)
+    engine = _require_session_engine(http_request.app.state, request.session_id)
     count = engine.retract(request.template, request.filter)
     return RetractFactsResponse(retracted_count=count)
 
@@ -749,7 +740,7 @@ def _write_audit(sink: Any | None, record: dict[str, Any]) -> None:
         logger.exception("audit sink write failed; dropped record: %r", record)
 
 
-@app.post(
+@router.post(
     "/v1/rules/reload",
     dependencies=[Depends(_require_admin_auth)],
     responses={
@@ -968,7 +959,7 @@ async def reload_rules(
     # them: a reload already discards working memory by design (see
     # docs/how-to/hot-reload.md), so surviving with stale *policy* is the
     # worse of the two.
-    session_store.clear()
+    state.session_store.clear()
 
     timestamp = _now_iso()
     attestation_token = attestation.sign_event(
@@ -1004,7 +995,7 @@ async def reload_rules(
     )
 
 
-@app.get("/v1/status")
+@router.get("/v1/status")
 async def status(request: Request) -> dict[str, str | None]:
     """Report engine liveness info: loaded ruleset hash, version, last-load time.
 
@@ -1123,7 +1114,9 @@ def _opa_undefined(engine: Engine, document_name: str) -> JSONResponse:
     )
 
 
-def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONResponse:
+def _opa_evaluate(
+    state: State, path: str, document: dict[str, Any], template: str
+) -> JSONResponse:
     """Shared body of the GET and POST forms of the Data API."""
     segments = [segment for segment in path.split("/") if segment]
     if not segments:
@@ -1146,9 +1139,9 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
     except HTTPException as exc:
         return _opa_error(exc.status_code, "invalid_parameter", str(exc.detail))
 
-    attestation = getattr(app.state, "attestation", None)
+    attestation = getattr(state, "attestation", None)
     try:
-        engine = _data_plane_engine(resolved, attestation)
+        engine = _data_plane_engine(state, resolved, attestation)
     except HTTPException as exc:
         # The loader's own text names the resolved server-side absolute path
         # ("/srv/rules/x is not a directory"), which must never reach a remote
@@ -1201,7 +1194,7 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
     )
 
 
-@app.post(
+@router.post(
     "/v1/data/{path:path}",
     responses=_OPA_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
@@ -1209,6 +1202,7 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
 def opa_data(
     path: str,
     request: OPADataRequest,
+    http_request: Request,
     template: str = _OPA_DEFAULT_TEMPLATE,
 ) -> JSONResponse:
     """Evaluate a ruleset through OPA's Data API.
@@ -1220,16 +1214,17 @@ def opa_data(
     Declared ``def`` for the same reason as ``/v1/evaluate``: CLIPS evaluation
     is blocking CPU work and belongs in the threadpool, not on the event loop.
     """
-    return _opa_evaluate(path, request.input, template)
+    return _opa_evaluate(http_request.app.state, path, request.input, template)
 
 
-@app.get(
+@router.get(
     "/v1/data/{path:path}",
     responses=_OPA_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
 def opa_data_get(
     path: str,
+    request: Request,
     # Named `input` on the wire because that is what OPA's Data API calls it;
     # the Python name differs only to avoid shadowing the builtin.
     input_json: str | None = Query(default=None, alias="input"),
@@ -1249,7 +1244,41 @@ def opa_data_get(
             return _opa_error(400, "invalid_parameter", f"input is not valid JSON: {exc}")
         if not isinstance(document, dict):
             return _opa_error(400, "invalid_parameter", "input must be a JSON object")
-    return _opa_evaluate(path, document, template)
+    return _opa_evaluate(request.app.state, path, document, template)
+
+
+def _new_app() -> FastAPI:
+    """Build a FastAPI app serving the API, with its own state and sessions."""
+    new = FastAPI(
+        title="Fathom Rules Engine",
+        version=_fathom_version,
+        description="Deterministic reasoning runtime for AI agents",
+        docs_url="/docs" if _expose_docs else None,
+        redoc_url="/redoc" if _expose_docs else None,
+        openapi_url="/openapi.json" if _expose_docs else None,
+        exception_handlers={
+            StarletteHTTPException: http_exception_handler,
+            RequestValidationError: request_validation_error_handler,
+            FathomValidationError: fathom_validation_error_handler,
+        },
+    )
+    new.add_middleware(BodySizeLimitMiddleware)
+    if _metrics_enabled:
+        # Instrument without exposing a public /metrics; register an
+        # auth-gated endpoint instead.
+        Instrumentator().instrument(new)
+        new.add_api_route("/metrics", metrics, dependencies=[Depends(_require_auth)])
+    new.include_router(router)
+    new.state.engine = None
+    new.state.attestation = None
+    new.state.audit_sink = None
+    new.state.session_store = SessionStore()
+    return new
+
+
+#: The app ``uvicorn fathom.integrations.rest:app`` (and the Docker image)
+#: serves. ``build_app`` returns a separate app on every call.
+app = _new_app()
 
 
 _RULESET_PUBKEY_ERROR = (
@@ -1258,7 +1287,11 @@ _RULESET_PUBKEY_ERROR = (
 
 
 def build_app(*, require_signature: bool = True) -> FastAPI:
-    """Return the REST app with ruleset pubkey bootstrapped onto ``app.state``.
+    """Return a new REST app with ruleset pubkey bootstrapped onto ``app.state``.
+
+    Each call builds an independent app -- its own ``state``, Engine slot and
+    session store -- so two apps in one process never share policy or sessions.
+    The module-level ``app`` is a different instance again.
 
     Fail-closed by default: when ``require_signature=True``, the pubkey at
     ``FATHOM_RULESET_PUBKEY_PATH`` must exist and be readable. The dev escape
@@ -1272,11 +1305,9 @@ def build_app(*, require_signature: bool = True) -> FastAPI:
     pubkey_path = os.environ.get("FATHOM_RULESET_PUBKEY_PATH")
     allow_unsigned = os.environ.get("FATHOM_ALLOW_UNSIGNED_RULESETS") == "1"
 
-    # Default state slots used by POST /v1/rules/reload. Callers inject
-    # real instances after build_app() returns.
-    app.state.engine = None
-    app.state.attestation = None
-    app.state.audit_sink = None
+    # Default state slots (engine, attestation, audit sink) are seeded by
+    # _new_app(); callers inject real instances after build_app() returns.
+    app = _new_app()
     # Both halves or neither. Assigning the flag verbatim here made
     # `require_signature=False` alone switch verification off, while the env
     # var below decided only whether a pubkey was loaded -- so a single stray

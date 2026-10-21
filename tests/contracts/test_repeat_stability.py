@@ -278,14 +278,10 @@ ENTRY_POINTS: dict[str, Callable[..., list[str | None]]] = {
 @pytest.fixture(autouse=True)
 def _server_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     """What the REST and gRPC servers refuse to start without."""
-    from fathom.integrations.rest import session_store
-
     monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
     monkeypatch.setenv("FATHOM_ALLOW_UNSIGNED_RULESETS", "1")
     monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
-    session_store.clear()
     yield
-    session_store.clear()
 
 
 @pytest.mark.parametrize("entry_point", list(ENTRY_POINTS), ids=list(ENTRY_POINTS))

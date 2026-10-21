@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from fathom.attestation import AttestationService
 from fathom.engine import Engine
-from fathom.integrations.rest import build_app, session_store
+from fathom.integrations.rest import build_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -73,7 +73,6 @@ def mounted_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[
     app = build_app(require_signature=False)
     app.state.engine = Engine.from_rules(str(pack))
     app.state.attestation = AttestationService.generate_keypair()
-    session_store.clear()
     with TestClient(app) as client:
         yield client
 
@@ -88,7 +87,6 @@ def unmounted_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterato
 
     app = build_app(require_signature=False)
     app.state.attestation = AttestationService.generate_keypair()
-    session_store.clear()
     with TestClient(app) as client:
         yield client
 
@@ -136,7 +134,7 @@ def test_a_mounted_server_refuses_a_session_rather_than_compiling_the_callers_ru
 
     assert refused["status"] == 400
     assert refused["body"]["error"] == "sessions_unavailable"
-    assert session_store.get("s-1") is None
+    assert mounted_client.app.state.session_store.get("s-1") is None
 
 
 def test_mounted_engine_still_signs_decisions(mounted_client: TestClient) -> None:

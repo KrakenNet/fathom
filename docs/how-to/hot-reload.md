@@ -55,6 +55,10 @@ app.state.engine = Engine.from_rules("/var/lib/fathom/rulesets/prod")
 app.state.attestation = AttestationService.generate_keypair()
 ```
 
+Each `build_app()` call returns a new app with its own `state` and session
+store, separate from the module-level `app` that
+`uvicorn fathom.integrations.rest:app` serves. Serve the object it returns.
+
 ## What carries over, and what does not
 
 A reload is a **rule-only** swap: the payload holds rules, and everything else
