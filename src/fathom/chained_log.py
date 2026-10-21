@@ -342,13 +342,8 @@ def _parse_line(line: bytes) -> ChainedRecord:
     )
 
 
-def write_private_key_atomic(service: AttestationService, path: str | Path) -> Path:
-    """Write the service's private key PEM atomically with mode 0600.
-
-    tmp write -> chmod 0600 (at create) -> fsync -> rename. The public half
-    is written beside it as ``<path>.pub.pem``. Returns the public key path.
-    """
-    path = Path(path)
+def _write_private_key_tmp(service: AttestationService, path: Path) -> Path:
+    """Write the private key PEM to a fresh 0600 file beside *path*, fsynced."""
     path.parent.mkdir(parents=True, exist_ok=True)
     # The tmp name must not be predictable and must not be opened by a name
     # something else may already hold: a planted `<key>.tmp` symlink sent the
@@ -365,23 +360,51 @@ def write_private_key_atomic(service: AttestationService, path: str | Path) -> P
         os.close(fd)
         tmp.unlink(missing_ok=True)
         raise
-    try:
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    return tmp
+
+
+def _write_public_key(service: AttestationService, path: Path) -> Path:
     pub_path = path.with_name(path.name + ".pub.pem")
     pub_path.write_bytes(service.public_key_pem())
     return pub_path
 
 
+def write_private_key_atomic(service: AttestationService, path: str | Path) -> Path:
+    """Write the service's private key PEM atomically with mode 0600.
+
+    tmp write -> chmod 0600 (at create) -> fsync -> rename. The public half
+    is written beside it as ``<path>.pub.pem``. Returns the public key path.
+    """
+    path = Path(path)
+    tmp = _write_private_key_tmp(service, path)
+    try:
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return _write_public_key(service, path)
+
+
 def load_or_create_key(path: str | Path) -> AttestationService:
-    """Load an Ed25519 private key PEM, creating it atomically if missing."""
+    """Load an Ed25519 private key PEM, creating it atomically if missing.
+
+    Safe against concurrent creators: the first to publish its key wins and
+    every other caller loads that key instead of returning its own.
+    """
     path = Path(path)
     if path.exists():
         return AttestationService.from_private_key_bytes(path.read_bytes())
     service = AttestationService.generate_keypair()
-    write_private_key_atomic(service, path)
+    tmp = _write_private_key_tmp(service, path)
+    # os.replace let racing creators each overwrite the key and go on signing
+    # with one that was no longer on disk. A hard link is create-exclusive.
+    try:
+        os.link(tmp, path)
+    except FileExistsError:
+        return AttestationService.from_private_key_bytes(path.read_bytes())
+    finally:
+        tmp.unlink(missing_ok=True)
+    _write_public_key(service, path)
     return service
 
 
