@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import stat
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import pytest
@@ -446,6 +448,22 @@ class TestKeyHandling:
         first = load_or_create_key(key_path)
         second = load_or_create_key(key_path)
         assert first.public_key_pem() == second.public_key_pem()
+
+    def test_concurrent_create_hands_out_one_key(self, tmp_path: Path) -> None:
+        """Racing creators must all get the key that ends up on disk."""
+        for trial in range(10):
+            key_path = tmp_path / f"k{trial}.key"
+            barrier = threading.Barrier(8)
+
+            def create(path: Path = key_path, gate: threading.Barrier = barrier) -> bytes:
+                gate.wait()
+                return load_or_create_key(path).public_key_pem()
+
+            with ThreadPoolExecutor(8) as pool:
+                pubs = {f.result() for f in [pool.submit(create) for _ in range(8)]}
+            on_disk = AttestationService.from_private_key_bytes(key_path.read_bytes())
+            assert pubs == {on_disk.public_key_pem()}
+            assert key_path.with_name(key_path.name + ".pub.pem").read_bytes() in pubs
 
     def test_write_private_key_atomic_returns_pub_path(
         self, tmp_path: Path, service: AttestationService

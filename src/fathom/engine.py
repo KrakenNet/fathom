@@ -10,13 +10,14 @@ import os
 import re
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import uuid4
 
 import clips
 import yaml
+from pydantic import BaseModel
 
 from fathom.audit import AuditLog, AuditSink, NullSink
 from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
@@ -24,11 +25,11 @@ from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, Va
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
 from fathom.metrics import MetricsCollector
-from fathom.models import Activation, HierarchyDefinition, RuleMatches
+from fathom.models import ActionType, Activation, HierarchyDefinition, RuleMatches
 from fathom.yaml_utils import safe_load, unknown_top_level_keys
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator
 
     from fathom.attestation import AttestationService
     from fathom.models import (
@@ -54,6 +55,8 @@ RESERVED_FUNCTION_PREFIX = "fathom-"
 # every other request on a shared server with it. Callers who genuinely want
 # an unbounded run pass ``Engine(run_limit=None)``.
 _DEFAULT_RUN_LIMIT = 100_000
+
+_M = TypeVar("_M", bound=BaseModel)
 
 # Max regex pattern/input length for fathom-matches.
 #
@@ -203,6 +206,27 @@ def dominates(
 _ACTIVATION_FACT_RE = re.compile(r"f-(\d+)")
 
 
+class _CopyingView(Mapping[str, _M]):
+    """Read-only registry view whose values are deep copies.
+
+    A plain ``MappingProxyType`` was read-only one level deep: clearing a
+    returned template's ``slots`` made every assert fail, and editing a
+    rule's ``then`` changed what ``rego.export_engine`` wrote.
+    """
+
+    def __init__(self, data: dict[str, _M]) -> None:
+        self._data = data
+
+    def __getitem__(self, key: str) -> _M:
+        return self._data[key].model_copy(deep=True)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+
 class _TraceRouter(clips.Router):  # type: ignore[misc]
     """Captures CLIPS ``watch`` output instead of letting it reach stdout.
 
@@ -247,9 +271,10 @@ class Engine:
         """Initialise a new Engine instance.
 
         Args:
-            default_decision: Decision returned when no rule fires.
-                Defaults to ``"deny"`` (fail-closed). Set to ``None``
-                to leave the decision unset.
+            default_decision: Decision returned when no rule fires: one of
+                the rule actions (``allow``, ``deny``, ``escalate``,
+                ``scope``, ``route``). Defaults to ``"deny"`` (fail-closed).
+                Set to ``None`` to leave the decision unset.
             audit_sink: Pluggable sink for audit records. Defaults to
                 :class:`NullSink` (no-op).
             session_id: Optional session identifier. A random UUID is
@@ -264,12 +289,16 @@ class Engine:
                 fire before :meth:`evaluate` gives up and raises
                 :class:`~fathom.errors.EvaluationLimitError`. ``None``
                 runs to quiescence with no budget. Defaults to
-                ``100_000``.
+                ``100_000``. Must not be negative.
             match_evidence: Record which facts, with which slot values,
                 fired each rule (:attr:`EvaluationResult.match_evidence`).
                 Off by default: it makes the compiler bind a pattern
                 address to every condition and assert an extra fact per
                 firing, so leaving it off costs nothing at all.
+
+        Raises:
+            ValueError: If *default_decision* is not a rule action or
+                *run_limit* is negative.
 
         Note:
             Engine is thread-safe: every public method serialises on an
@@ -278,6 +307,14 @@ class Engine:
             serialise — CLIPS has one environment and one agenda, so that
             is correctness rather than a regression.
         """
+        decisions = [action.value for action in ActionType]
+        if default_decision is not None and default_decision not in decisions:
+            raise ValueError(
+                f"default_decision must be one of {decisions} or None, got {default_decision!r}"
+            )
+        # A negative budget made CLIPS run unbounded while 0 refused any firing.
+        if run_limit is not None and run_limit < 0:
+            raise ValueError(f"run_limit must be >= 0 or None, got {run_limit}")
         # Re-entrant: public methods call one another (evaluate_once ->
         # evaluate, load_modules -> set_focus), so a plain Lock would
         # self-deadlock on the nested call.
@@ -350,18 +387,18 @@ class Engine:
 
     @property
     def template_registry(self) -> Mapping[str, TemplateDefinition]:
-        """Read-only view of registered template definitions."""
-        return MappingProxyType(self._template_registry)
+        """Read-only view of registered template definitions; values are copies."""
+        return _CopyingView(self._template_registry)
 
     @property
     def module_registry(self) -> Mapping[str, ModuleDefinition]:
-        """Read-only view of registered module definitions."""
-        return MappingProxyType(self._module_registry)
+        """Read-only view of registered module definitions; values are copies."""
+        return _CopyingView(self._module_registry)
 
     @property
     def rule_registry(self) -> Mapping[str, RuleDefinition]:
-        """Read-only view of loaded rule definitions, keyed by rule name."""
-        return MappingProxyType(self._rule_registry)
+        """Read-only view of loaded rule definitions, keyed by rule name; values are copies."""
+        return _CopyingView(self._rule_registry)
 
     @property
     def focus_order(self) -> list[str]:
@@ -942,8 +979,10 @@ class Engine:
             # integrations/ruleset_sig.py (raw bytes, sorted by path).
             loaded_bytes: list[bytes] = []
             for file in files:
-                file_bytes = file.read_bytes()
+                # Parse first: it raises CompilationError on a missing file,
+                # as every sibling loader does, where read_bytes would not.
                 ruleset = self._compiler.parse_rule_file(file)
+                file_bytes = file.read_bytes()
 
                 # Validate that the referenced module is registered
                 if ruleset.module not in self._module_registry:
@@ -1779,7 +1818,7 @@ class Engine:
         definition = self._hierarchy_registry.get(name)
         if definition is None:
             raise ValidationError(f"no loaded hierarchy named '{name}'")
-        return definition
+        return definition.model_copy(deep=True)
 
     def _find_rule(self, env: clips.Environment, rule: str) -> tuple[Any, str]:
         """Resolve *rule* to a clipspy rule and its module-qualified name.

@@ -9,6 +9,9 @@ document is current. These tests fail on that drift instead.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import sys
 from importlib.metadata import distribution
 from pathlib import Path
 
@@ -19,6 +22,7 @@ from fathom import (
     attestation,
     audit,
     chained_log,
+    compiler,
     engine,
     errors,
     fleet,
@@ -42,6 +46,7 @@ DOCUMENTED_MODULES = [
     attestation,
     audit,
     chained_log,
+    compiler,
     engine,
     errors,
     fleet,
@@ -168,8 +173,90 @@ def test_engine_registries_are_read_only(prop: str) -> None:
     assert not hasattr(view, "clear")
 
 
+@pytest.mark.parametrize("prop", ["template_registry", "module_registry", "rule_registry"])
+def test_engine_registry_values_are_copies(prop: str) -> None:
+    """Mutating a returned definition must not reach the engine."""
+    eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
+    name, value = next(iter(getattr(eng, prop).items()))
+    before = value.model_dump()
+    for field_name in type(value).model_fields:
+        attr = getattr(value, field_name)
+        if isinstance(attr, list):
+            attr.clear()
+    assert getattr(eng, prop)[name].model_dump() == before
+    assert next(iter(getattr(eng, prop).values())).model_dump() == before
+
+
+def test_engine_hierarchy_is_a_copy() -> None:
+    eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
+    eng.hierarchy("clearance").levels.clear()
+    assert eng.hierarchy("clearance").levels
+
+
 def test_engine_hierarchy_accessor() -> None:
     eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
     assert eng.hierarchy("clearance").levels[0] == "unclassified"
     with pytest.raises(fathom.ValidationError, match="nope"):
         eng.hierarchy("nope")
+
+
+def test_rego_surface_shape() -> None:
+    """Text in, keyword template like convert_ast; no private or constant names."""
+    import inspect
+
+    params = inspect.signature(rego.convert_source).parameters
+    assert list(params) == ["source", "filename", "template"]
+    assert (
+        params["template"].default
+        == inspect.signature(rego.convert_ast).parameters["template"].default
+    )
+    assert all(p.kind is p.KEYWORD_ONLY for n, p in params.items() if n != "source")
+    assert list(inspect.signature(rego.flatten_input).parameters) == ["document"]
+    assert "convert_file" not in rego.__all__
+    assert "OPA_DOWNLOAD_URL" not in rego.__all__
+    assert inspect.signature(rego.export_engine).parameters["engine"].annotation in (
+        "Engine",
+        engine.Engine,
+    )
+
+
+def test_convert_source_honours_template() -> None:
+    if shutil.which("opa") is None:
+        pytest.skip("opa binary not installed")
+    source = 'package p\n\nallow if input.role == "admin"\n'
+    result = rego.convert_source(source, template="req")
+    assert result.templates[0]["name"] == "req"
+    assert result.rules[0]["when"][0]["template"] == "req"
+
+
+@pytest.mark.parametrize(
+    ("module", "missing", "extra"),
+    [
+        ("fathom.attestation", "jwt", "attestation"),
+        ("fathom.chained_log", "jwt", "attestation"),
+        ("fathom.integrations.rest", "fastapi", "server"),
+    ],
+)
+def test_covered_extra_module_names_its_extra(module: str, missing: str, extra: str) -> None:
+    """Importing without the extra says which extra to install, not just the package."""
+    code = (
+        f"import sys; sys.modules[{missing!r}] = None\n"
+        f"try:\n    import {module}\n"
+        "except ImportError as exc:\n    print(exc)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    ).stdout
+    assert f"fathom-rules[{extra}]" in out
+
+
+def test_type_checkers_reject_a_misspelled_export(tmp_path: Path) -> None:
+    """The PEP 562 hook must not make every ``fathom.<typo>`` type as Any."""
+    api = pytest.importorskip("mypy.api")
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import fathom\nx = fathom.AttestationService\ny = fathom.Enigne\n", encoding="utf-8"
+    )
+    out, _, status = api.run(["--no-incremental", "--follow-imports=silent", str(probe)])
+    assert status == 1, out
+    assert '"Enigne"' in out and "probe.py:3:" in out and "probe.py:2:" not in out, out

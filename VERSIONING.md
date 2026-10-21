@@ -52,8 +52,9 @@ Python surface:
 `AttestationService`, `verify_token`, `ChainedAttestationLog`, and
 `verify_chain` are resolved on first attribute access rather than at import,
 because they need the optional `attestation` extra. Accessing one without that
-extra installed raises `ImportError` naming the extra — it is not an
-`AttributeError`, and the name is covered either way.
+extra installed raises `ImportError` naming the extra (so do `from fathom
+import *` and importing `fathom.attestation` or `fathom.chained_log`) — it is
+not an `AttributeError`, and the name is covered either way.
 
 Each of these submodules also declares its own `__all__`, which is covered on
 the same terms when imported directly (`from fathom.models import
@@ -69,6 +70,7 @@ RuleDefinition`):
 | `fathom.attestation` | Ed25519 signing and token verification |
 | `fathom.chained_log` | The hash-chained attestation log and its verifier |
 | `fathom.packs` | `RulePackLoader`, which `Engine.load_pack` and `Engine.load_pack_dir` use |
+| `fathom.compiler` | `Compiler`, the YAML parsers (`parse_*_file`, `parse_function_bundle`) and `compile_*` methods the engine loads with; the CLIPS text they return is not covered (see below) |
 | `fathom.rego` | The Rego converter and exporter behind `fathom convert rego` and `fathom export rego` |
 | `fathom.fleet_redis` | `RedisFactStore` (needs the `fleet` extra) |
 | `fathom.fleet_pg` | `PostgresFactStore` (needs the `fleet-pg` extra) |

@@ -7,17 +7,23 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-import jwt
-from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-    Ed25519PrivateKey,
-    Ed25519PublicKey,
-)
-from cryptography.hazmat.primitives.serialization import (
-    Encoding,
-    NoEncryption,
-    PrivateFormat,
-    PublicFormat,
-)
+try:
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+        Ed25519PublicKey,
+    )
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+        PublicFormat,
+    )
+except ImportError as _exc:
+    raise ImportError(
+        "pyjwt and cryptography are required for fathom.attestation. "
+        "Install it with: pip install fathom-rules[attestation]"
+    ) from _exc
 
 from fathom.errors import AttestationError
 

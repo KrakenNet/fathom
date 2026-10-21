@@ -39,7 +39,7 @@ import yaml
 
 from fathom.engine import Engine
 from fathom.errors import ValidationError as FathomValidationError
-from fathom.rego import convert_file, export_engine, flatten_input
+from fathom.rego import convert_source, export_engine, flatten_input
 from tests.test_rego_parity import _fathom_engine, _opa_decision
 
 if TYPE_CHECKING:
@@ -284,7 +284,7 @@ def _opa_parses(source: str, tmp_path: Path) -> subprocess.CompletedProcess[str]
 @pytest.mark.parametrize("name", sorted(POLICIES), ids=sorted(POLICIES))
 def test_an_exported_policy_is_a_policy_opa_accepts(name: str, tmp_path: Path) -> None:
     """Round trip: convert to a pack, export it back, and let OPA parse it."""
-    converted = convert_file(POLICIES[name])
+    converted = convert_source(POLICIES[name])
     assert converted.skipped == []
 
     engine = _pack_engine(tmp_path, converted.templates, converted.rules, converted.module)

@@ -11,9 +11,16 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+
+try:
+    from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse, Response
+except ImportError as _exc:
+    raise ImportError(
+        "fastapi is required for the REST server. "
+        "Install it with: pip install fathom-rules[server]"
+    ) from _exc
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 

@@ -35,6 +35,10 @@ If it is missing, the command fails with a message naming
 Only the parse step needs it; the conversion itself is pure Python, and
 nothing at Fathom runtime depends on OPA.
 
+From Python, `fathom.rego.convert_source(text, template="input")` takes the
+policy *text* (not a path) and returns the same result the command writes;
+`convert_ast` takes an already-parsed OPA AST.
+
 ## Convert a policy
 
 Given `authz.rego`:
@@ -185,7 +189,7 @@ Dropping a rule only narrows the policy when the rule is an `allow`. Dropping
 a `deny` takes a deny condition out, and the result allows input the policy
 denies. So when any `deny` rule is refused, for any reason in the table above,
 nothing is written: the command exits 3 and lists every refusal, and
-`convert_ast` raises `CompilationError`. Rewrite the `deny` into the
+`convert_source` / `convert_ast` raise `CompilationError`. Rewrite the `deny` into the
 convertible subset, or convert it by hand.
 
 ## Reading the output

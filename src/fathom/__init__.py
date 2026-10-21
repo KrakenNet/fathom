@@ -85,19 +85,25 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:
-    """Resolve the attestation exports on first access (PEP 562)."""
-    module_name = _LAZY_EXPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    try:
-        value = getattr(importlib.import_module(module_name), name)
-    except ImportError as exc:  # missing optional dependency, not a typo
-        raise ImportError(
-            f"fathom.{name} needs the 'attestation' extra: pip install 'fathom-rules[attestation]'"
-        ) from exc
-    globals()[name] = value
-    return value
+# Hidden from type checkers: a visible `__getattr__ -> Any` typed every
+# misspelled `fathom.<name>` as Any. The lazy names are declared to them by the
+# TYPE_CHECKING imports above instead.
+if not TYPE_CHECKING:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve the attestation exports on first access (PEP 562)."""
+        module_name = _LAZY_EXPORTS.get(name)
+        if module_name is None:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        try:
+            value = getattr(importlib.import_module(module_name), name)
+        except ImportError as exc:  # missing optional dependency, not a typo
+            raise ImportError(
+                f"fathom.{name} needs the 'attestation' extra: "
+                "pip install 'fathom-rules[attestation]'"
+            ) from exc
+        globals()[name] = value
+        return value
 
 
 def __dir__() -> list[str]:

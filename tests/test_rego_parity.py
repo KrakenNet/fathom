@@ -33,7 +33,7 @@ import pytest
 import yaml
 
 from fathom.engine import Engine
-from fathom.rego import convert_file, flatten_input
+from fathom.rego import convert_source, flatten_input
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -83,12 +83,12 @@ def _opa_decision(policy: str, document: dict[str, Any], package: str) -> str:
 
 def _skips(policy: str) -> list[str]:
     """What the converter declined to translate, as text."""
-    return [str(skip) for skip in convert_file(policy).skipped]
+    return [str(skip) for skip in convert_source(policy).skipped]
 
 
 def _fathom_engine(policy: str) -> tuple[Engine, list[str]]:
     """Convert *policy* and load the result as a real engine."""
-    converted = convert_file(policy)
+    converted = convert_source(policy)
     root = Path(tempfile.mkdtemp()) / "pack"
     for subdir in ("templates", "modules", "rules"):
         (root / subdir).mkdir(parents=True)
