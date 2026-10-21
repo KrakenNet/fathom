@@ -31,6 +31,8 @@ except ImportError as _exc:
 from fathom.errors import FleetConnectionError, FleetError
 from fathom.models import FactChangeNotification
 
+__all__ = ["PostgresFactStore"]
+
 # Callback type alias (mirrors fleet.py)
 _SubscriptionCallback = Callable[[FactChangeNotification], Coroutine[Any, Any, None]]
 

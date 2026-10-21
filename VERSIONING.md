@@ -65,6 +65,36 @@ RuleDefinition`):
 | `fathom.fleet` | `FleetEngine`, the fact-store protocol, and the in-memory store |
 | `fathom.attestation` | Ed25519 signing and token verification |
 | `fathom.chained_log` | The hash-chained attestation log and its verifier |
+| `fathom.packs` | `RulePackLoader`, which `Engine.load_pack` and `Engine.load_pack_dir` use |
+| `fathom.rego` | The Rego converter and exporter behind `fathom convert rego` and `fathom export rego` |
+| `fathom.fleet_redis` | `RedisFactStore` (needs the `fleet` extra) |
+| `fathom.fleet_pg` | `PostgresFactStore` (needs the `fleet-pg` extra) |
+| `fathom.integrations` | `PolicyViolation`, raised by every agent-framework adapter |
+| `fathom.integrations.rest` | The REST app (`app`, served by `uvicorn fathom.integrations.rest:app`) and `build_app` |
+| `fathom.integrations.grpc_server` | The gRPC servicer and `serve` |
+| `fathom.integrations.mcp_server` | `FathomMCPServer` |
+| `fathom.integrations.langchain` | The LangChain callback handlers and `fathom_guard` |
+| `fathom.integrations.crewai` | The CrewAI before-tool-call hook |
+| `fathom.integrations.openai_agents` | The OpenAI Agents tool guardrail |
+| `fathom.integrations.google_adk` | The Google ADK before-tool callback |
+
+`tests/test_public_surface.py` checks that every module in this table declares
+a sorted `__all__` whose names exist, and that the table and the test's list
+name the same modules.
+
+### Rule packs
+
+- **The pack format** — the `fathom.packs` entry-point group a distribution
+  registers a pack under; the pack directory layout (`templates/`,
+  `modules/`, `functions/`, `rules/` subdirectories, or loose `*.yaml` files
+  whose top-level key names the kind); and the `PACK_DEPENDENCIES` module
+  attribute naming packs to load first. See
+  [Loading a rule pack](docs/how-to/load-rule-pack.md).
+- **The shipped packs** — the entry-point names `cmmc`, `conflict-detection`,
+  `hipaa`, `nist-800-53`, `owasp-agentic`, `schema-denoising` and `ssvc`, and
+  in each pack the template names and slots a caller asserts facts against,
+  and the decision its rules reach for a given set of facts. A rule change
+  that alters that decision is a breaking change.
 
 ### Other covered surfaces
 
@@ -101,6 +131,9 @@ notice or a changelog entry:
   its own version line, and its routes — including the REST app it mounts
   under `/api` — are not covered here.
 - The Go and TypeScript SDKs, which are pre-release and version separately.
+- The server-side helper modules `fathom.integrations.auth`,
+  `fathom.integrations.paths` and `fathom.integrations.sessions`. Their
+  behavior reaches you through the REST, gRPC and MCP contracts above.
 - Test helpers, fixtures, and everything under `tests/` and `scripts/`.
 
 ## Pre-1.0 semantics

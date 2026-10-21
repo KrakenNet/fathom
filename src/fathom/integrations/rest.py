@@ -64,6 +64,8 @@ from fathom.models import (
 )
 from fathom.rego import flatten_input
 
+__all__ = ["app", "build_app"]
+
 logger = logging.getLogger(__name__)
 
 

@@ -239,7 +239,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines and [CHAN
 
 Fathom is pre-1.0. [VERSIONING.md](VERSIONING.md) names the surfaces that are
 covered — `fathom.__all__`, the YAML authoring keys, the REST/gRPC/MCP
-contracts, and the CLI — states what a `0.x` minor and patch bump each mean for
+contracts, the CLI, the rule packs and pack format, the framework
+integrations, the Rego converter, and the Redis/Postgres fleet stores — states what a `0.x` minor and patch bump each mean for
 them, and defines the deprecation period. The symbol list there is checked
 against the package on every test run.
 
