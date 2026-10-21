@@ -8,6 +8,12 @@ Minisign file layout (both `.pub` and `.minisig`):
     line 1: untrusted comment: ...
     line 2: base64(sig_algorithm[2] + key_id[8] + payload)
             payload is 32 bytes (pubkey) or 64 bytes (signature).
+
+A `.minisig` adds:
+    line 3: trusted comment: <text>
+    line 4: base64(global signature over signature[64] + <text>)
+
+Both signatures are checked, as `minisign -V` does.
 """
 
 from __future__ import annotations
@@ -31,18 +37,28 @@ class ReleaseSigError(Exception):
     """Raised on any minisign parse or Ed25519 verification failure."""
 
 
-def _decode_line2(path: Path, expected_len: int) -> tuple[bytes, bytes, bytes]:
-    """Return (sig_algorithm, key_id, payload) from line 2 of a minisign file."""
+def _read_lines(path: Path) -> list[str]:
     try:
-        lines = path.read_text().splitlines()
+        return path.read_text().splitlines()
     except OSError as e:
         raise ReleaseSigError(f"cannot read {path}: {e}") from e
-    if len(lines) < 2 or not lines[0].startswith("untrusted comment:"):
-        raise ReleaseSigError(f"malformed minisign file: {path}")
+    except UnicodeDecodeError as e:
+        raise ReleaseSigError(f"malformed minisign file (not UTF-8): {path}") from e
+
+
+def _b64(text: str, path: Path) -> bytes:
     try:
-        raw = base64.b64decode(lines[1], validate=True)
+        return base64.b64decode(text, validate=True)
     except (ValueError, binascii.Error) as e:
         raise ReleaseSigError(f"base64 decode failed for {path}: {e}") from e
+
+
+def _decode_line2(path: Path, expected_len: int) -> tuple[bytes, bytes, bytes]:
+    """Return (sig_algorithm, key_id, payload) from line 2 of a minisign file."""
+    lines = _read_lines(path)
+    if len(lines) < 2 or not lines[0].startswith("untrusted comment:"):
+        raise ReleaseSigError(f"malformed minisign file: {path}")
+    raw = _b64(lines[1], path)
     if len(raw) != 2 + 8 + expected_len:
         raise ReleaseSigError(
             f"unexpected payload length in {path}: got {len(raw)}, want {10 + expected_len}"
@@ -80,7 +96,21 @@ def verify_artifact(artifact: Path, sig: Path, pubkey: Path) -> None:
         signed = artifact_bytes
     else:
         raise ReleaseSigError(f"unsupported sig algorithm: {sig_algo!r}")
+    key = Ed25519PublicKey.from_public_bytes(pub_bytes)
     try:
-        Ed25519PublicKey.from_public_bytes(pub_bytes).verify(sig_bytes, signed)
+        key.verify(sig_bytes, signed)
     except InvalidSignature as e:
         raise ReleaseSigError(f"signature verification failed for {artifact}") from e
+    lines = _read_lines(sig)
+    prefix = "trusted comment: "
+    if len(lines) < 4 or not lines[2].startswith(prefix):
+        raise ReleaseSigError(f"malformed minisign file (no trusted comment): {sig}")
+    global_sig = _b64(lines[3], sig)
+    if len(global_sig) != 64:
+        raise ReleaseSigError(
+            f"unexpected payload length in {sig}: got {len(global_sig)}, want 64"
+        )
+    try:
+        key.verify(global_sig, sig_bytes + lines[2][len(prefix) :].encode())
+    except InvalidSignature as e:
+        raise ReleaseSigError(f"trusted comment signature verification failed for {sig}") from e

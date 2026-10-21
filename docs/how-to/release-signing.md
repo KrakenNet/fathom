@@ -101,9 +101,11 @@ fathom verify-artifact fathom_rules-1.2.0-py3-none-any.whl
 
 If `<artifact>.minisig` lives next to the artifact, the CLI picks it up
 automatically. Override either side with `--sig <path>` or `--pubkey
-<path>` when auditing a specific file. Exit code `0` means the
-signature verified; non-zero means the verification failed or the
-inputs were malformed — re-download the artifact before trusting it.
+<path>` when auditing a specific file. Like `minisign -V`, it checks both
+the artifact signature and the global signature over the trusted comment.
+Exit code `0` means both verified; `1` means a signature did not verify;
+`3` means the signature or key file is malformed (including not UTF-8, or
+missing its trusted comment) — re-download the artifact before trusting it.
 
 ### Option B — raw `minisign`
 
