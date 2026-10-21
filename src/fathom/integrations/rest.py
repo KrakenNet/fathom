@@ -346,6 +346,7 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: {"model": ErrorResponse, "description": "Conflict"},
     413: {"model": ErrorResponse, "description": "Request body too large"},
     422: {"model": ErrorResponse, "description": "Request body failed validation"},
+    500: {"model": ErrorResponse, "description": "Evaluation failed or server misconfigured"},
     503: {"model": ErrorResponse, "description": "Service unavailable"},
 }
 
@@ -420,6 +421,16 @@ async def fathom_validation_error_handler(
     """Return 422 for Fathom validation errors."""
     body = ErrorResponse(error="validation_error", detail=str(exc), field=exc.slot or None)
     return JSONResponse(status_code=422, content=body.model_dump())
+
+
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Render an unexpected failure as the declared 500 envelope, not plain text.
+
+    The exception itself is logged by Starlette; its text may carry server
+    detail, so it is not echoed.
+    """
+    body = ErrorResponse(error="internal_error", detail="internal server error", field=None)
+    return JSONResponse(status_code=500, content=body.model_dump())
 
 
 @router.get("/health")
@@ -1058,11 +1069,14 @@ class OPAErrorResponse(BaseModel):
 
 
 #: Errors these two routes can produce, in OPA's envelope rather than
-#: Fathom's. 401 is the exception: it comes from the shared auth dependency,
-#: which answers in Fathom's shape.
+#: Fathom's. 401, 413 and 422 are the exceptions: they come from the shared
+#: auth dependency, body-size middleware and body validation, which answer in
+#: Fathom's shape.
 _OPA_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": OPAErrorResponse, "description": "Invalid request"},
     401: {"model": ErrorResponse, "description": "Missing or invalid token"},
+    413: {"model": ErrorResponse, "description": "Request body too large"},
+    422: {"model": ErrorResponse, "description": "Request body failed validation"},
     500: {"model": OPAErrorResponse, "description": "Evaluation failed"},
 }
 
@@ -1260,6 +1274,7 @@ def _new_app() -> FastAPI:
             StarletteHTTPException: http_exception_handler,
             RequestValidationError: request_validation_error_handler,
             FathomValidationError: fathom_validation_error_handler,
+            Exception: unhandled_exception_handler,
         },
     )
     new.add_middleware(BodySizeLimitMiddleware)
