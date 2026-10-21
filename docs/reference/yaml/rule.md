@@ -390,6 +390,8 @@ Model- or compile-time errors you will hit:
   `ValueError` from `_require_action_or_asserts`.
 - `ConditionEntry` rejections listed under
   [What the validator rejects](#what-the-validator-rejects).
+- A top-level key other than `ruleset`, `version`, `module` and `rules`
+  — `CompilationError` from `parse_rule_file` / `reload_rules`.
 - A pattern whose `template` is not registered — `CompilationError`
   from `Engine.load_rules` / `reload_rules`, before the rule is built,
   whether or not the pattern has slot conditions. CLIPS would otherwise

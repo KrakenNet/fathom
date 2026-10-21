@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover
 from pydantic import ValidationError as PydanticValidationError
 
 from fathom import __version__ as _fathom_version
-from fathom.compiler import Compiler
+from fathom.compiler import Compiler, unknown_top_level_keys
 from fathom.engine import Engine
 from fathom.errors import CompilationError, EvaluationError, EvaluationLimitError
 from fathom.errors import ValidationError as FathomValidationError
@@ -577,6 +577,13 @@ def compile_yaml(request: CompileRequest, http_request: Request) -> CompileRespo
 
     if not isinstance(data, dict):
         return CompileResponse(clips="", errors=["invalid YAML: expected a mapping"])
+
+    for kind in ("templates", "modules", "rules"):
+        if kind in data:
+            unknown = unknown_top_level_keys(data, kind)
+            if unknown:
+                return CompileResponse(clips="", errors=[unknown])
+            break
 
     try:
         if "templates" in data:

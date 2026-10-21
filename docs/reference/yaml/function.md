@@ -219,6 +219,7 @@ prevent collisions with the runtime's own bindings.
 | `type: classification` without `hierarchy_ref`       | `compile_function`             | `CompilationError` |
 | `type: classification` with unknown `hierarchy_ref`  | `compile_function`             | `CompilationError` |
 | Any key not defined on the model, on `FunctionDefinition` or `HierarchyDefinition` | Pydantic (`extra="forbid"`) | `ValidationError` |
+| A top-level key in a function file other than `functions` | `parse_function_file` | `CompilationError` |
 | `HierarchyDefinition.name` that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 | A `levels` or `compartments` member that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 

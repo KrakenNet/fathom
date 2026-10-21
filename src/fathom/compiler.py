@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -28,6 +28,29 @@ from fathom.models import (
 #: Classification operators whose CLIPS function is per-hierarchy. The rest of
 #: `_CLASSIFICATION_OPS` map to `fathom-*` externals, which take no hierarchy.
 _HIERARCHY_SCOPED_OPS = frozenset({"below", "meets_or_exceeds", "within_scope"})
+
+#: The keys each kind of YAML file may hold at its top level. The models
+#: inside are `extra="forbid"`, but the file around them was not checked, so
+#: a misspelled `focus_order:` was dropped and declaration order used instead.
+TOP_LEVEL_KEYS: dict[str, frozenset[str]] = {
+    "templates": frozenset({"templates"}),
+    "modules": frozenset({"modules", "focus_order"}),
+    "functions": frozenset({"functions"}),
+    "rules": frozenset({"ruleset", "version", "module", "rules"}),
+}
+
+
+def unknown_top_level_keys(data: dict[str, Any], kind: str) -> str | None:
+    """Describe the keys of *data* a *kind* file may not hold, or None."""
+    unknown = sorted(str(key) for key in data if key not in TOP_LEVEL_KEYS[kind])
+    if not unknown:
+        return None
+    noun = "key" if len(unknown) == 1 else "keys"
+    return (
+        f"unknown top-level {noun} {', '.join(repr(k) for k in unknown)} in a {kind} file "
+        f"(allowed: {', '.join(sorted(TOP_LEVEL_KEYS[kind]))})"
+    )
+
 
 # Mapping from SlotType to CLIPS type strings
 _CLIPS_TYPE_MAP: dict[SlotType, str] = {
@@ -816,6 +839,13 @@ class Compiler:
                 file=file_str,
             )
 
+        unknown = unknown_top_level_keys(data, "templates")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse template failed: {unknown}",
+                file=file_str,
+            )
+
         raw_templates = data["templates"]
         if not isinstance(raw_templates, list):
             raise CompilationError(
@@ -907,6 +937,13 @@ class Compiler:
                 file=file_str,
             )
 
+        unknown = unknown_top_level_keys(data, "rules")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse rules failed: {unknown}",
+                file=file_str,
+            )
+
         if "module" not in data:
             raise CompilationError(
                 "[fathom.compiler] parse rules failed: "
@@ -988,6 +1025,13 @@ class Compiler:
             raise CompilationError(
                 "[fathom.compiler] parse module failed: "
                 "YAML file must contain a top-level 'modules' key",
+                file=file_str,
+            )
+
+        unknown = unknown_top_level_keys(data, "modules")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse module failed: {unknown}",
                 file=file_str,
             )
 
@@ -1076,6 +1120,13 @@ class Compiler:
             raise CompilationError(
                 "[fathom.compiler] parse function failed: "
                 "YAML file must contain a top-level 'functions' key",
+                file=file_str,
+            )
+
+        unknown = unknown_top_level_keys(data, "functions")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse function failed: {unknown}",
                 file=file_str,
             )
 

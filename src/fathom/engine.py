@@ -18,7 +18,7 @@ import clips
 import yaml
 
 from fathom.audit import AuditLog, AuditSink, NullSink
-from fathom.compiler import Compiler
+from fathom.compiler import Compiler, unknown_top_level_keys
 from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
@@ -1292,6 +1292,12 @@ class Engine:
             raise CompilationError(
                 "[fathom.engine] reload_rules: YAML must contain top-level "
                 "'module' and 'rules' keys",
+                construct="reload_rules:parse",
+            )
+        unknown = unknown_top_level_keys(data, "rules")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.engine] reload_rules: {unknown}",
                 construct="reload_rules:parse",
             )
         try:

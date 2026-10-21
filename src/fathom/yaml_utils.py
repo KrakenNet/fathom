@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 from pydantic import ValidationError as PydanticValidationError
 
+from fathom.compiler import unknown_top_level_keys
 from fathom.models import (
     FunctionDefinition,
     HierarchyDefinition,
@@ -161,6 +162,13 @@ def validate_document(
     Returns a list of error strings (empty on success).
     """
     errors: list[str] = []
+
+    for kind in ("templates", "modules", "functions", "rules"):
+        if kind in data:
+            unknown = unknown_top_level_keys(data, kind)
+            if unknown:
+                errors.append(f"{file_path}: {unknown}")
+            break
 
     if "templates" in data:
         for idx, raw in _list_entries(data["templates"], "templates", file_path, errors):

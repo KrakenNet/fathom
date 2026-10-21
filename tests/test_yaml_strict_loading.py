@@ -14,8 +14,10 @@ import pytest
 from typer.testing import CliRunner
 
 from fathom.cli import app
+from fathom.compiler import Compiler
 from fathom.engine import Engine
 from fathom.errors import CompilationError
+from fathom.yaml_utils import validate_document
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -104,3 +106,52 @@ def test_validate_single_rule_file_uses_sibling_templates(tmp_path: Path) -> Non
 def test_validate_accepts_registered_templates(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["validate", str(_pack(tmp_path))])
     assert result.exit_code == 0, result.output
+
+
+# --- 2. unknown top-level keys ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [
+        ("templates", TEMPLATES + "templatez: []\n"),
+        ("modules", "modules:\n  - name: m\nfocus_ordr: [m]\n"),
+        ("rules", RULES + "rulez: []\n"),
+    ],
+)
+def test_unknown_top_level_key_is_rejected(tmp_path: Path, kind: str, text: str) -> None:
+    pack = _pack(tmp_path, **{kind: text})
+    bad_key = text.rstrip().rsplit("\n", 1)[-1].split(":")[0]
+    with pytest.raises(CompilationError, match=f"unknown top-level key.*'{bad_key}'"):
+        Engine.from_rules(str(pack))
+    errors = CliRunner().invoke(app, ["validate", str(pack)])
+    assert errors.exit_code != 0
+    assert bad_key in errors.output
+
+
+def test_unknown_top_level_key_in_function_file(tmp_path: Path) -> None:
+    path = tmp_path / "f.yaml"
+    path.write_text(
+        "functions:\n  - {name: dbl, type: raw, params: [x],"
+        ' body: "(deffunction MAIN::dbl (?x) (* ?x 2))"}\nhierarchy: []\n'
+    )
+    with pytest.raises(CompilationError, match="'hierarchy'"):
+        Compiler().parse_function_file(path)
+    assert validate_document(
+        {"functions": [], "hierarchy": []},
+        path,
+    )
+
+
+def test_unknown_top_level_key_in_flat_pack(tmp_path: Path) -> None:
+    (tmp_path / "t.yaml").write_text(TEMPLATES)
+    (tmp_path / "m.yaml").write_text("modules:\n  - name: m\nfocus_ordr: [m]\n")
+    (tmp_path / "r.yaml").write_text(RULES)
+    with pytest.raises(CompilationError, match="'focus_ordr'"):
+        Engine().load_pack_dir(tmp_path)
+
+
+def test_reload_rules_rejects_unknown_top_level_key(tmp_path: Path) -> None:
+    engine = Engine.from_rules(str(_pack(tmp_path)))
+    with pytest.raises(CompilationError, match="'rulez'"):
+        engine.reload_rules((RULES + "rulez: []\n").encode())
