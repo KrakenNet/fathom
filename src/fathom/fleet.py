@@ -18,6 +18,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, Protocol, runtime_checkable
 
 from fathom.engine import Engine
+from fathom.facts import filter_template
 from fathom.models import FactChangeNotification
 
 logger = logging.getLogger(__name__)
@@ -275,5 +276,18 @@ class FleetEngine:
         template: str,
         fact_filter: FactFilter | None = None,
     ) -> list[FactData]:
-        """Query the shared :class:`FactStore` for facts matching *template*."""
+        """Query the shared :class:`FactStore` for facts matching *template*.
+
+        Raises:
+            ValidationError: *fact_filter* names a template or slot the rules
+                do not declare. The store would match a null-valued unknown
+                key against every row.
+        """
+        if fact_filter:
+            # Every session loads the same rules, so any one's registry serves.
+            # ponytail: with no session yet, loads the rules per filtered query.
+            engine = next(iter(self._sessions.values()), None) or Engine.from_rules(
+                self._rules_path, **self._engine_kwargs
+            )
+            filter_template(engine.template_registry, template, fact_filter)
         return await self._fact_store.query(template, fact_filter)

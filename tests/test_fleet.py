@@ -289,6 +289,20 @@ class TestFleetEngineSyncAndQuery:
         assert len(results) == 1
 
     @pytest.mark.asyncio
+    async def test_query_refuses_unknown_filter_slot(self) -> None:
+        """A typo'd filter key with a null value would otherwise match every row."""
+        from fathom.errors import ValidationError
+
+        store = InMemoryFactStore()
+        fleet = FleetEngine(fact_store=store, rules_path=FIXTURES_DIR)
+        await store.assert_fact("agent", {"id": "a1", "clearance": "secret"})
+        with pytest.raises(ValidationError, match="typo"):
+            await fleet.query("agent", {"typo": None})
+        fleet.create_session("sess-1")
+        with pytest.raises(ValidationError, match="typo"):
+            await fleet.query("agent", {"typo": None})
+
+    @pytest.mark.asyncio
     async def test_sync_fleet_facts_injects_fleet_scoped(self) -> None:
         """sync_fleet_facts pulls fleet-scoped facts into a session."""
         store = InMemoryFactStore()

@@ -14,7 +14,7 @@ from fathom.errors import ValidationError
 from fathom.models import SlotType
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from fathom.models import TemplateDefinition
 
@@ -49,6 +49,43 @@ def _plain(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     return value
+
+
+def _check_unknown_slots(template: TemplateDefinition, data: dict[str, Any]) -> None:
+    """Raise ValidationError if data contains slot names not in the template."""
+    known_slots = {s.name for s in template.slots}
+    unknown = set(data.keys()) - known_slots
+    if unknown:
+        # Suggest closest match for the first unknown slot
+        first_unknown = sorted(unknown)[0]
+        matches = difflib.get_close_matches(first_unknown, known_slots, n=1)
+        suggestion = f" Did you mean '{matches[0]}'?" if matches else ""
+        raise ValidationError(
+            f"Unknown slot(s) {sorted(unknown)} in template '{template.name}'.{suggestion}",
+            template=template.name,
+            slot=first_unknown,
+        )
+
+
+def filter_template(
+    registry: Mapping[str, TemplateDefinition],
+    template_name: str,
+    fact_filter: dict[str, Any] | None,
+) -> TemplateDefinition:
+    """Return *template_name*'s definition, refusing an unknown template or filter slot.
+
+    An unknown filter key would match nothing -- or, with a null value,
+    everything, since `row.get(k)` is then None for every fact.
+    """
+    template_def = registry.get(template_name)
+    if template_def is None:
+        raise ValidationError(
+            f"Unknown template '{template_name}'",
+            template=template_name,
+        )
+    if fact_filter:
+        _check_unknown_slots(template_def, fact_filter)
+    return template_def
 
 
 class FactManager:
@@ -216,16 +253,7 @@ class FactManager:
     ) -> list[dict[str, Any]]:
         """Query working memory for facts matching template and optional filter."""
         env = self._env_provider()
-        template_def = self._template_registry.get(template_name)
-        if template_def is None:
-            raise ValidationError(
-                f"Unknown template '{template_name}'",
-                template=template_name,
-            )
-        if fact_filter:
-            # An unknown key would match nothing -- or, with a null value,
-            # everything, since `row.get(k)` is then None for every fact.
-            self._check_unknown_slots(template_def, fact_filter)
+        template_def = filter_template(self._template_registry, template_name, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         results: list[dict[str, Any]] = []
@@ -272,15 +300,7 @@ class FactManager:
     ) -> int:
         """Retract matching facts from working memory. Returns count retracted."""
         env = self._env_provider()
-        template_def = self._template_registry.get(template_name)
-        if template_def is None:
-            raise ValidationError(
-                f"Unknown template '{template_name}'",
-                template=template_name,
-            )
-        if fact_filter:
-            # Same check as `query`.
-            self._check_unknown_slots(template_def, fact_filter)
+        template_def = filter_template(self._template_registry, template_name, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         # Collect (fact, slot_dict) pairs first to avoid mutating during
@@ -427,7 +447,7 @@ class FactManager:
             )
 
         # 2. Check unknown slots
-        self._check_unknown_slots(template, data)
+        _check_unknown_slots(template, data)
 
         # 3. Apply defaults
         data = self._apply_defaults(template, data)
@@ -445,21 +465,6 @@ class FactManager:
         self._check_allowed_values(template, data)
 
         return data
-
-    def _check_unknown_slots(self, template: TemplateDefinition, data: dict[str, Any]) -> None:
-        """Raise ValidationError if data contains slot names not in the template."""
-        known_slots = {s.name for s in template.slots}
-        unknown = set(data.keys()) - known_slots
-        if unknown:
-            # Suggest closest match for the first unknown slot
-            first_unknown = sorted(unknown)[0]
-            matches = difflib.get_close_matches(first_unknown, known_slots, n=1)
-            suggestion = f" Did you mean '{matches[0]}'?" if matches else ""
-            raise ValidationError(
-                f"Unknown slot(s) {sorted(unknown)} in template '{template.name}'.{suggestion}",
-                template=template.name,
-                slot=first_unknown,
-            )
 
     def _apply_defaults(
         self, template: TemplateDefinition, data: dict[str, Any]
