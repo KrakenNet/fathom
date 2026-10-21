@@ -98,7 +98,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
   Each is allowlist-only: the call proceeds when the decision is exactly
   `allow`, and every other outcome raises `PolicyViolation` (ADK returns an
   error dict instead)
-- **CLI** — `fathom validate`, `fathom compile`, `fathom test`, `fathom bench`, `fathom info`, `fathom status`, `fathom verify-artifact`, `fathom verify-chain`, `fathom repl`
+- **CLI** — `fathom validate`, `fathom compile`, `fathom test`, `fathom bench`, `fathom info`, `fathom status`, `fathom verify-artifact`, `fathom verify-chain`, `fathom repl`, `fathom mcp`, `fathom convert`
 - **Docker sidecar** (Debian slim + uv)
 - **Prometheus metrics** export (`/metrics` endpoint)
 - **Policy Studio** — browser UI over a real engine, shipped as its own
@@ -107,11 +107,15 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 
 **Rule packs**
 
-- `fathom-owasp-agentic` — OWASP Agentic Top 10 mitigations
-- `fathom-nist-800-53` — Access control, audit, information flow
-- `fathom-hipaa` — PHI handling, minimum necessary, breach triggers
-- `fathom-cmmc` — CMMC Level 2+ controls
-- `fathom-ssvc` — SSVC supplier, deployer, and CISA vulnerability-triage trees (144 rules)
+Load one by name with `Engine.load_pack("<name>")`:
+
+- `owasp-agentic` — OWASP Agentic Top 10 mitigations
+- `nist-800-53` — Access control, audit, information flow
+- `hipaa` — PHI handling, minimum necessary, breach triggers
+- `cmmc` — CMMC Level 2+ controls
+- `ssvc` — SSVC supplier, deployer, and CISA vulnerability-triage trees (144 rules)
+- `schema-denoising` — promotes a relation to stable schema once enough extracted facts carry it
+- `conflict-detection` — reports contradictions between claims about the same subject as `conflict` facts
 
 **SDKs (in progress)**
 
