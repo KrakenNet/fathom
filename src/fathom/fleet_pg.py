@@ -153,9 +153,9 @@ class PostgresFactStore:
 
     async def ensure_table(self) -> None:
         """Create the ``fleet_facts`` table if it does not exist."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         try:
-            async with self._pool.acquire() as conn:
+            async with pool.acquire() as conn:
                 await conn.execute(_CREATE_TABLE_SQL)
         except asyncpg.PostgresError as exc:
             raise FleetError(
@@ -165,6 +165,11 @@ class PostgresFactStore:
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
+
+    def _require_pool(self) -> asyncpg.Pool[asyncpg.Record]:
+        if self._pool is None:
+            raise FleetError("PostgresFactStore is not connected; call connect() first")
+        return self._pool
 
     def _channel_for(self, template: str) -> str:
         """Return the LISTEN/NOTIFY channel name for *template*."""
@@ -321,11 +326,11 @@ class PostgresFactStore:
 
     async def assert_fact(self, template: str, data: dict[str, Any]) -> str:
         """Assert a fact and return its unique fact_id."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         fact_id = uuid.uuid4().hex
         fact_uuid = uuid.UUID(fact_id)
         try:
-            async with self._pool.acquire() as conn, conn.transaction():
+            async with pool.acquire() as conn, conn.transaction():
                 # INSERT and NOTIFY commit together: a notify failure must not
                 # leave a durable row that no subscriber was ever told about.
                 await conn.execute(_INSERT_SQL, fact_uuid, template, json.dumps(data))
@@ -355,9 +360,9 @@ class PostgresFactStore:
         self, template: str, fact_filter: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Return facts matching the template and optional filter."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         try:
-            async with self._pool.acquire() as conn:
+            async with pool.acquire() as conn:
                 rows = await conn.fetch(_SELECT_SQL, template)
         except OSError as exc:
             raise FleetConnectionError(
@@ -378,7 +383,7 @@ class PostgresFactStore:
 
     async def retract(self, template: str, fact_filter: dict[str, Any] | None = None) -> int:
         """Retract facts matching the template and optional filter. Return count removed."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         try:
             if fact_filter:
                 # With a filter we must check each row in Python
@@ -396,7 +401,7 @@ class PostgresFactStore:
                     for m in matching
                 ]
                 # DELETE and NOTIFY commit together, as in assert_fact.
-                async with self._pool.acquire() as conn, conn.transaction():
+                async with pool.acquire() as conn, conn.transaction():
                     deleted = await conn.execute(
                         "DELETE FROM fleet_facts WHERE id = ANY($1::uuid[])", ids
                     )
@@ -407,7 +412,7 @@ class PostgresFactStore:
             else:
                 # No filter — delete all for template
                 notifs = []
-                async with self._pool.acquire() as conn, conn.transaction():
+                async with pool.acquire() as conn, conn.transaction():
                     rows = await conn.fetch(_DELETE_SQL, template)
                     for row in rows:
                         row_data: dict[str, Any] = (
@@ -438,13 +443,13 @@ class PostgresFactStore:
 
     async def count(self, template: str, fact_filter: dict[str, Any] | None = None) -> int:
         """Count facts matching the template and optional filter."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         if fact_filter:
             # Must filter in Python
             matching = await self.query(template, fact_filter)
             return len(matching)
         try:
-            async with self._pool.acquire() as conn:
+            async with pool.acquire() as conn:
                 row = await conn.fetchrow(_COUNT_SQL, template)
         except OSError as exc:
             raise FleetConnectionError(

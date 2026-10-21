@@ -315,3 +315,20 @@ class TestPostgresListenRecovery:
             await asyncio.sleep(0.25)
 
         assert [n.template for n in received] == ["tool"], "LISTEN delivery must arrive"
+
+
+class TestPostgresNotConnected:
+    """Every operation before connect() raises FleetError, not AssertionError."""
+
+    @pytest.mark.asyncio
+    async def test_operations_before_connect_raise_fleet_error(self) -> None:
+        s = PostgresFactStore("postgresql://unused")
+        for op in (
+            s.assert_fact("agent", {}),
+            s.query("agent"),
+            s.retract("agent"),
+            s.count("agent"),
+            s.ensure_table(),
+        ):
+            with pytest.raises(FleetError, match="call connect"):
+                await op
