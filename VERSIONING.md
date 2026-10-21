@@ -92,9 +92,11 @@ name the same modules.
   [Loading a rule pack](docs/how-to/load-rule-pack.md).
 - **The shipped packs** — the entry-point names `cmmc`, `conflict-detection`,
   `hipaa`, `nist-800-53`, `owasp-agentic`, `schema-denoising` and `ssvc`, and
-  in each pack the template names and slots a caller asserts facts against,
-  and the decision its rules reach for a given set of facts. A rule change
-  that alters that decision is a breaking change.
+  in each pack the template names and slot names a caller asserts facts
+  against. A pack's rules and slot constraints are not frozen: a rule fix
+  that changes a pack's decision for the same facts, or a new slot constraint
+  (such as `allowed_values`) that rejects a value the pack's rules never
+  handled, may ship in a minor release and is listed under `### Changed`.
 
 ### Other covered surfaces
 
