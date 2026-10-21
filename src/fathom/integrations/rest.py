@@ -7,7 +7,9 @@ import binascii
 import json
 import logging
 import os
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -36,7 +38,7 @@ except ImportError:  # pragma: no cover
 from pydantic import ValidationError as PydanticValidationError
 
 from fathom import __version__ as _fathom_version
-from fathom.compiler import Compiler
+from fathom.compiler import Compiler, compile_file_by_kind
 from fathom.engine import Engine
 from fathom.errors import CompilationError, EvaluationError, EvaluationLimitError
 from fathom.errors import ValidationError as FathomValidationError
@@ -55,16 +57,13 @@ from fathom.models import (
     ErrorResponse,
     EvaluateRequest,
     EvaluateResponse,
-    ModuleDefinition,
     QueryFactsRequest,
     QueryFactsResponse,
     RetractFactsRequest,
     RetractFactsResponse,
-    RulesetDefinition,
-    TemplateDefinition,
 )
 from fathom.rego import flatten_input
-from fathom.yaml_utils import file_kind, safe_load, unknown_top_level_keys
+from fathom.yaml_utils import safe_load
 
 __all__ = ["app", "build_app"]
 
@@ -572,6 +571,11 @@ async def list_modules(
     return _make_list_response(items)
 
 
+#: Kinds a compiled document returns, in build order. The focus order is a
+#: per-evaluation command, not a construct, so it is not returned.
+_COMPILE_KINDS = ("templates", "modules", "functions", "rules")
+
+
 @router.post(
     "/v1/compile",
     response_model=CompileResponse,
@@ -594,9 +598,6 @@ def compile_yaml(request: CompileRequest, http_request: Request) -> CompileRespo
     """
     state_engine = getattr(http_request.app.state, "engine", None)
     templates = state_engine.template_registry if state_engine is not None else None
-    compiler = Compiler()
-    errors: list[str] = []
-    constructs: list[str] = []
 
     try:
         data = safe_load(request.yaml_content)
@@ -606,47 +607,41 @@ def compile_yaml(request: CompileRequest, http_request: Request) -> CompileRespo
     if not isinstance(data, dict):
         return CompileResponse(clips="", errors=["invalid YAML: expected a mapping"])
 
-    kind = file_kind(data)
-    unknown = unknown_top_level_keys(data, kind) if kind else None
-    if unknown:
-        return CompileResponse(clips="", errors=[unknown])
-
-    try:
-        if "templates" in data:
-            for tmpl_data in data["templates"]:
-                defn = TemplateDefinition(**tmpl_data)
-                constructs.append(compiler.compile_template(defn))
-        elif "modules" in data:
-            for mod_data in data["modules"]:
-                mod_defn = ModuleDefinition(**mod_data)
-                constructs.append(compiler.compile_module(mod_defn))
-        elif "rules" in data or "ruleset" in data:
-            ruleset = RulesetDefinition(**data)
-            # Slot types decide how a literal is emitted (a STRING slot gets
-            # a quoted CLIPS string, a SYMBOL slot does not), so compile
-            # against the loaded engine's templates. Without them this
-            # endpoint returned CLIPS that the same server's engine would
-            # never build — and that CLIPS does not even accept
-            # ([CSTRNCHK1]) for a string slot holding e.g. an email address.
-            for rule_defn in ruleset.rules:
-                constructs.append(
-                    compiler.compile_rule(rule_defn, ruleset.module, templates),
+    # Compile through the same function `fathom compile` uses, so a document
+    # is classified (and refused) exactly as the CLI and loader do. It reads a
+    # file, so the content is written to a private temp dir; the file sits two
+    # levels down so the hierarchy lookup (file dir, ./hierarchies,
+    # ../hierarchies) never leaves that dir.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "inline" / "inline.yaml"
+        path.parent.mkdir()
+        path.write_text(request.yaml_content, encoding="utf-8")
+        try:
+            by_kind = compile_file_by_kind(path, Compiler(), templates)
+        except CompilationError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, PydanticValidationError):
+                # Surface the triggering message(s) but drop input values / URLs.
+                return CompileResponse(
+                    clips="",
+                    errors=[
+                        f"{'.'.join(str(p) for p in err.get('loc', ())) or 'body'}: "
+                        f"{err.get('msg', 'invalid value')}"
+                        for err in cause.errors()
+                    ],
                 )
-    except CompilationError as exc:
-        # Return the construct + message but not the raw detail/file paths.
-        errors.append(str(exc).split("\n", 1)[0])
-    except PydanticValidationError as exc:
-        # Surface the triggering message(s) but drop input values / URLs.
-        for err in exc.errors():
-            loc = ".".join(str(p) for p in err.get("loc", ())) or "body"
-            errors.append(f"{loc}: {err.get('msg', 'invalid value')}")
-    except Exception:
-        errors.append("internal compilation error")
+            # Return the construct + message but not the raw detail; the temp
+            # path is server-side detail too.
+            message = str(exc).split("\n", 1)[0].replace(str(path), "yaml_content")
+            return CompileResponse(clips="", errors=[message])
+        except Exception:
+            logger.warning("compile: internal compilation error", exc_info=True)
+            return CompileResponse(clips="", errors=["internal compilation error"])
 
-    return CompileResponse(
-        clips="\n".join(constructs),
-        errors=errors,
-    )
+    constructs = [c for kind in _COMPILE_KINDS for c in by_kind.get(kind, [])]
+    if not constructs:
+        return CompileResponse(clips="", errors=["no compilable constructs found"])
+    return CompileResponse(clips="\n".join(constructs), errors=[])
 
 
 @router.post(

@@ -25,7 +25,7 @@ from fathom.models import (
     TemplateDefinition,
     ThenBlock,
 )
-from fathom.yaml_utils import safe_load, unknown_top_level_keys
+from fathom.yaml_utils import file_kind, safe_load, unknown_top_level_keys
 
 __all__ = ["Compiler"]
 
@@ -1969,3 +1969,74 @@ class Compiler:
         events_e = Compiler._escape_clips_string(events_json)
         test_ce = f'(test (fathom-sequence-detected "{events_e}" {window_seconds}))'
         return slot_binding, test_ce
+
+
+def compile_file_by_kind(
+    file_path: Path,
+    compiler: Compiler,
+    templates: dict[str, TemplateDefinition] | None = None,
+) -> dict[str, list[str]]:
+    """Compile a single YAML file into CLIPS construct strings, by kind.
+
+    Auto-detects the document type (templates, modules, rules, functions)
+    from top-level YAML keys and compiles accordingly.
+
+    Keyed by kind rather than returned flat because CLIPS resolves
+    references at build time: a defrule naming a deftemplate that has not
+    been built yet is an error, and file order is not build order. The
+    caller reassembles the whole run in dependency order.
+
+    Args:
+        file_path: YAML file to compile.
+        compiler: Compiler instance.
+        templates: Slot-type context, so emitted literals match what
+            :meth:`Engine.from_rules` builds for the same ruleset.
+
+    Returns:
+        Mapping of kind (``templates``/``modules``/``focus``/``functions``/
+        ``rules``) to the CLIPS construct strings compiled from this file.
+    """
+    # Imported here: the engine imports this module.
+    from fathom.engine import Engine
+
+    constructs: dict[str, list[str]] = {}
+
+    content = file_path.read_text(encoding="utf-8")
+    data = safe_load(content)
+    if not isinstance(data, dict):
+        return constructs
+
+    kind = file_kind(data)
+    if kind == "templates":
+        constructs["templates"] = [
+            compiler.compile_template(tmpl_defn)
+            for tmpl_defn in compiler.parse_template_file(file_path)
+        ]
+    elif kind == "modules":
+        mod_definitions, focus_order = compiler.parse_module_file(file_path)
+        constructs["modules"] = [compiler.compile_module(m) for m in mod_definitions]
+        if focus_order:
+            constructs["focus"] = [compiler.compile_focus_stack(focus_order)]
+    elif kind == "functions":
+        # A classification function is only compilable with the hierarchy it
+        # references in hand -- `compile_function` raises without it. The
+        # engine resolves it off disk in `load_functions`; this did not, so
+        # `fathom compile` exited 1 on every pack with a classification
+        # function, including the shipped examples/03-classification-blp that
+        # `fathom validate` and `fathom info` both accept.
+        definitions, hierarchies = compiler.parse_function_bundle(file_path)
+        for defn in definitions:
+            if defn.hierarchy_ref:
+                name = defn.hierarchy_ref.rsplit(".", 1)[0]
+                if name not in hierarchies:
+                    hierarchies[name] = Engine._resolve_hierarchy(defn.hierarchy_ref, file_path)
+        compiled = [compiler.compile_function(f, hierarchies or None) for f in definitions]
+        constructs["functions"] = [c for c in compiled if c]
+    elif kind == "rules":
+        ruleset = compiler.parse_rule_file(file_path)
+        constructs["rules"] = [
+            compiler.compile_rule(rule_defn, ruleset.module, templates)
+            for rule_defn in ruleset.rules
+        ]
+
+    return constructs

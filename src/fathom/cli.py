@@ -20,14 +20,13 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import yaml
 
-from fathom.compiler import Compiler
+from fathom.compiler import Compiler, compile_file_by_kind
 from fathom.engine import _PREAMBLE, Engine
 from fathom.errors import CompilationError, ValidationError
 from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
 from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import (
-    file_kind,
     safe_load,
     safe_load_all,
     template_names_in,
@@ -294,74 +293,6 @@ def _dependency_template_files(path: Path) -> list[Path]:
     return files
 
 
-def _compile_yaml_file(
-    file_path: Path,
-    compiler: Compiler,
-    templates: dict[str, TemplateDefinition] | None = None,
-) -> dict[str, list[str]]:
-    """Compile a single YAML file into CLIPS construct strings, by kind.
-
-    Auto-detects the document type (templates, modules, rules, functions)
-    from top-level YAML keys and compiles accordingly.
-
-    Keyed by kind rather than returned flat because CLIPS resolves
-    references at build time: a defrule naming a deftemplate that has not
-    been built yet is an error, and file order is not build order. The
-    caller reassembles the whole run in dependency order.
-
-    Args:
-        file_path: YAML file to compile.
-        compiler: Compiler instance.
-        templates: Slot-type context, so emitted literals match what
-            :meth:`Engine.from_rules` builds for the same ruleset.
-
-    Returns:
-        Mapping of kind (``templates``/``modules``/``focus``/``functions``/
-        ``rules``) to the CLIPS construct strings compiled from this file.
-    """
-    constructs: dict[str, list[str]] = {}
-
-    content = file_path.read_text(encoding="utf-8")
-    data = safe_load(content)
-    if not isinstance(data, dict):
-        return constructs
-
-    kind = file_kind(data)
-    if kind == "templates":
-        constructs["templates"] = [
-            compiler.compile_template(tmpl_defn)
-            for tmpl_defn in compiler.parse_template_file(file_path)
-        ]
-    elif kind == "modules":
-        mod_definitions, focus_order = compiler.parse_module_file(file_path)
-        constructs["modules"] = [compiler.compile_module(m) for m in mod_definitions]
-        if focus_order:
-            constructs["focus"] = [compiler.compile_focus_stack(focus_order)]
-    elif kind == "functions":
-        # A classification function is only compilable with the hierarchy it
-        # references in hand -- `compile_function` raises without it. The
-        # engine resolves it off disk in `load_functions`; this did not, so
-        # `fathom compile` exited 1 on every pack with a classification
-        # function, including the shipped examples/03-classification-blp that
-        # `fathom validate` and `fathom info` both accept.
-        definitions, hierarchies = compiler.parse_function_bundle(file_path)
-        for defn in definitions:
-            if defn.hierarchy_ref:
-                name = defn.hierarchy_ref.rsplit(".", 1)[0]
-                if name not in hierarchies:
-                    hierarchies[name] = Engine._resolve_hierarchy(defn.hierarchy_ref, file_path)
-        compiled = [compiler.compile_function(f, hierarchies or None) for f in definitions]
-        constructs["functions"] = [c for c in compiled if c]
-    elif kind == "rules":
-        ruleset = compiler.parse_rule_file(file_path)
-        constructs["rules"] = [
-            compiler.compile_rule(rule_defn, ruleset.module, templates)
-            for rule_defn in ruleset.rules
-        ]
-
-    return constructs
-
-
 def _pretty_format(clips_str: str) -> str:
     """Add newlines after opening parens at depth 1 for readability."""
     lines: list[str] = []
@@ -488,7 +419,9 @@ def compile(  # noqa: A001
 
         for yaml_file in yaml_files:
             try:
-                for kind, constructs in _compile_yaml_file(yaml_file, compiler, templates).items():
+                for kind, constructs in compile_file_by_kind(
+                    yaml_file, compiler, templates
+                ).items():
                     by_kind.setdefault(kind, []).extend(constructs)
             except CompilationError as exc:
                 _print_error(f"[fathom.cli] compile failed: {_compilation_error_text(exc)}")
