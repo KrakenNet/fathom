@@ -177,7 +177,9 @@ Three implementations ship with Fathom:
   and the head is re-read from the file once it is held, so a writer opened
   while another was still running -- a rolling restart -- continues from the
   real head once the other has closed. A writer whose file was replaced by
-  another log is refused.
+  another log is refused, and so is a writer whose log shrank under it --
+  tail truncated, file emptied or deleted, whether it held the file open or
+  reopens it after `close()` -- rather than chaining onto what is left.
   The lock is OS-level and lives on a `<log>.lock` file beside the log, never
   on the log itself — Windows locks are mandatory, so locking the log would
   make it unreadable to `verify()` and `fathom verify-chain` while a writer

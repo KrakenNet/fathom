@@ -39,6 +39,9 @@ Operational guarantees:
   appends; :func:`verify_chain` reports the offending line instead of
   raising.
 - Reopened logs resume the chain from the existing tail (scan on open).
+  A writer whose log shrank under it -- tail truncated, file emptied,
+  replaced or deleted -- refuses further appends rather than chaining onto
+  what is left.
 """
 
 from __future__ import annotations
@@ -544,6 +547,18 @@ class ChainedAttestationLog:
     def _append_locked(self, record: dict[str, Any]) -> ChainedRecord:
         self._refuse_if_corrupt()
         fh = self._fh if self._fh is not None else self._open_for_append()
+        # The open handle bypasses the rescan, so a log deleted or truncated
+        # under it would take lines that chain onto a head no longer on disk
+        # (an unlinked inode swallows them outright). Check the file is still
+        # linked and still exactly as long as this writer left it.
+        st = os.fstat(fh.fileno())
+        if st.st_nlink == 0 or st.st_size != fh.tell():
+            self._corruption = (
+                f"log on disk changed under the open writer (size {st.st_size}, "
+                f"expected {fh.tell()}, links {st.st_nlink}); it was truncated, "
+                "emptied, replaced or deleted"
+            )
+            self._refuse_if_corrupt()
         iat = int(time.time())
         seq = self._next_seq
         prev = self._head_sha256
@@ -599,6 +614,15 @@ class ChainedAttestationLog:
                 self._corruption = (
                     f"log_id {state.log_id} on disk is not this log's {self._log_id}; "
                     "the file was replaced"
+                )
+            elif state.count < self._next_seq:
+                # This writer already wrote seq `_next_seq - 1`. Fewer lines
+                # on disk means the tail was cut, or the whole log deleted or
+                # emptied; chaining onto what is left would hide the loss
+                # (a cut tail re-verifies ok) or write a log with no genesis.
+                self._corruption = (
+                    f"log has {state.count} lines on disk but this writer's head is "
+                    f"seq {self._next_seq - 1}; it was truncated, emptied or deleted"
                 )
             self._refuse_if_corrupt()
             fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)

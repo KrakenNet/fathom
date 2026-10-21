@@ -240,6 +240,58 @@ class TestFailClosed:
             reopened.append({"event": "nope"})
 
 
+class TestShrunkLogRefused:
+    """A log that shrank under a writer must be refused, never silently re-chained."""
+
+    def test_truncated_tail_refused_on_reopen(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = _make_log(log_path, service, n=5)
+        log.close()
+        lines = log_path.read_bytes().splitlines(keepends=True)
+        log_path.write_bytes(b"".join(lines[:3]))
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after"})
+        assert log.corruption is not None
+        assert len(log_path.read_bytes().splitlines()) == 3
+
+    def test_deleted_log_refused_on_reopen(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = _make_log(log_path, service, n=1)
+        log.close()
+        log_path.unlink()
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after-delete"})
+        assert log.corruption is not None
+        assert not log_path.exists() or log_path.read_bytes() == b""
+
+    def test_emptied_log_refused_before_first_append(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        ChainedAttestationLog(log_path, service).close()
+        log = ChainedAttestationLog(log_path, service)
+        log_path.write_bytes(b"")
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after-empty"})
+        assert log_path.read_bytes() == b""
+
+    @pytest.mark.parametrize("damage", ["delete", "truncate"])
+    def test_log_shrunk_while_open_refused(
+        self, log_path: Path, service: AttestationService, damage: str
+    ) -> None:
+        log = _make_log(log_path, service, n=3)
+        if damage == "delete":
+            log_path.unlink()
+        else:
+            lines = log_path.read_bytes().splitlines(keepends=True)
+            log_path.write_bytes(b"".join(lines[:2]))
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after"})
+        assert log.corruption is not None
+        log.close()
+
+
 class TestAnchors:
     def test_truncation_undetectable_without_anchor(
         self, log_path: Path, service: AttestationService
