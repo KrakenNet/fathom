@@ -182,8 +182,9 @@ class TestTheAliasedPatternBindsTheVariable:
             then=ThenBlock(action="deny", reason="joined"),
         )
         clips = Compiler().compile_rule(rule, "governance")
-        assert "?a-id" in clips
-        assert "?who" in clips
+        # The join is renamed onto the author's bind, which is never renamed.
+        assert "(id ?who)" in clips
+        assert "(agent_id ?who)" in clips
 
 
 class TestUnknownAliasIsRejected:
@@ -298,3 +299,61 @@ class TestJoinsUnderMatchEvidence:
             _rule(("agent_id", "equals($a.id)", None)), "governance"
         )
         assert "?fathom-ev-0 <- (agent (clearance none) (id ?a-id))" in clips
+
+
+_BIND_TEMPLATES = """
+templates:
+  - name: subj
+    slots:
+      - {name: name, type: string}
+      - {name: limit, type: integer}
+  - name: req
+    slots:
+      - {name: owner, type: string}
+      - {name: amount, type: integer}
+"""
+
+
+@pytest.mark.parametrize(
+    ("slot", "expr", "hit", "miss"),
+    [
+        ("owner", "equals($s.name)", ("alice", 1), ("bob", 1)),
+        ("owner", "not_equals($s.name)", ("bob", 1), ("alice", 1)),
+        ("amount", "greater_than($s.limit)", ("x", 11), ("x", 9)),
+        ("amount", "less_than($s.limit)", ("x", 9), ("x", 11)),
+    ],
+)
+def test_a_bind_on_the_aliased_slot_joins_for_every_operator(
+    tmp_path: Path, slot: str, expr: str, hit: tuple[str, int], miss: tuple[str, int]
+) -> None:
+    """A ``bind:`` on the joined slot used to become ``(test (eq ?lim ?s-limit))``.
+
+    Only ``equals`` binds ``?s-limit`` in the referencing pattern; every other
+    operator only reads it, so the rule failed to build with ANALYSIS4. The
+    reference is now rewritten onto the author's bind variable.
+    """
+    joined = "limit" if slot == "amount" else "name"
+    rules = (
+        "module: governance\nrules:\n  - name: r\n    when:\n"
+        "      - template: subj\n        alias: $s\n"
+        f"        conditions: [{{slot: {joined}, bind: '?v'}}]\n"
+        "      - template: req\n"
+        f"        conditions: [{{slot: {slot}, expression: '{expr}'}}]\n"
+        "    then: {action: allow, reason: hit}\n"
+    )
+    root = tmp_path / "pack"
+    root.mkdir()
+    (root / "templates.yaml").write_text(_BIND_TEMPLATES)
+    (root / "modules.yaml").write_text("modules:\n  - name: governance\n")
+    (root / "rules.yaml").write_text(rules)
+    engine = Engine.from_rules(str(root))
+
+    def decide(owner: str, amount: int) -> str:
+        facts = [
+            ("subj", {"name": "alice", "limit": 10}),
+            ("req", {"owner": owner, "amount": amount}),
+        ]
+        return engine.evaluate_once(facts).decision
+
+    assert decide(*hit) == "allow"
+    assert decide(*miss) == "deny"

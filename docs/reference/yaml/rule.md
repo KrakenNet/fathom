@@ -185,8 +185,10 @@ when:
 ```
 
 Only one variable may bind a slot, so when the aliased slot already binds
-one the compiler reuses it where it can and falls back to an equality
-`(test ...)` where it cannot — a `bind:` you declared is never renamed.
+one the compiler reuses it: a generated variable is renamed to the join
+variable, and a `bind:` you declared (or another alias's join variable) is
+kept and every reference is rewritten onto it. A `bind:` you declared is never
+renamed, and the join works for every operator that takes `$alias.field`.
 
 **Stability.** The operator set and this grammar are covered by the 1.0
 compatibility promise. The generated CLIPS *variable names*
