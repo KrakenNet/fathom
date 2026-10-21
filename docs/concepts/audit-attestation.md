@@ -186,6 +186,12 @@ Three implementations ship with Fathom:
   held it. Readers are unaffected; network filesystems do not honour the lock
   reliably.
 
+  **Lines are canonical JSON.** Each line is exactly the bytes the writer
+  produced: sorted keys, no whitespace, integer `seq` and `iat`. The verifier
+  refuses any other encoding of the same content, and `append` refuses a
+  record holding NaN or Infinity, which are not JSON. A log is signed by one
+  key for its whole life; rotating keys means starting a new log.
+
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
 several of those — none of which Fathom provides out of the box, but all of

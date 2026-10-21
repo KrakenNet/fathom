@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import stat
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
@@ -536,6 +536,43 @@ class TestFormatV1:
         result = verify_chain(log_b.path, service.public_key, anchor_token=cp.jws)
         assert not result.ok
         assert result.anchor_ok is False
+
+
+class TestCanonicalLines:
+    """Format v1 lines are the writer's canonical bytes; anything else is refused."""
+
+    @pytest.mark.parametrize(
+        "rewrite",
+        [
+            lambda line: line.replace(b'"seq":2', b'"seq":2.0'),
+            lambda line: json.dumps(json.loads(line), separators=(", ", ": ")).encode(),
+            lambda line: line.replace(b'"i":1}', b'"i":"allow","i":1}'),
+        ],
+        ids=["float-seq", "whitespace", "duplicate-key"],
+    )
+    def test_non_canonical_tail_line_fails(
+        self, log_path: Path, service: AttestationService, rewrite: Any
+    ) -> None:
+        _make_log(log_path, service, n=2).close()
+        lines = log_path.read_bytes().splitlines()
+        log_path.write_bytes(b"\n".join([*lines[:-1], rewrite(lines[-1])]) + b"\n")
+        result = verify_chain(log_path, service.public_key)
+        assert not result.ok
+        assert result.error_line == 3
+
+    def test_nan_record_refused_at_append(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = ChainedAttestationLog(log_path, service)
+        with pytest.raises(AttestationError):
+            log.append({"x": float("nan")})
+        assert b"NaN" not in log_path.read_bytes()
+        assert log.append({"x": 1}).seq == 1
+        assert log.verify().ok
+
+    def test_pem_str_accepted_as_key(self, log_path: Path, service: AttestationService) -> None:
+        _make_log(log_path, service, n=1).close()
+        assert verify_chain(log_path, service.public_key_pem().decode()).ok
 
 
 class TestKeyHandling:

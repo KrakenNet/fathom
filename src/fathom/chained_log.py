@@ -10,8 +10,9 @@ Each line is a compact JSON object (format version 1)::
   ``{iss, iat, seq, prev_sha256, record_sha256, log_id, v}`` so every line
   binds its position, predecessor, record content, owning log, and format
   version under the signing key. The JWS protected header carries
-  ``kid`` -- the SHA-256 (hex) of the raw 32-byte Ed25519 public key --
-  so multi-key verification (rotation) can resolve the right key.
+  ``kid`` -- the SHA-256 (hex) of the raw 32-byte Ed25519 public key.
+  A log is signed by one key for its whole life: the genesis pins it and
+  the writer refuses any other, so rotating keys means starting a new log.
 - Line 1 is always a **genesis record**
   ``{"type": "fathom.genesis", "log_id": ..., "key_fingerprint": ...}``
   written automatically when a log is created. ``log_id`` (uuid4 hex) is
@@ -149,7 +150,9 @@ __all__ = [
 
 
 def _canonical(obj: Any) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+    # allow_nan=False: NaN/Infinity are not JSON, so other verifiers could
+    # not parse a line carrying them.
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -267,6 +270,15 @@ def _scan(
                     f"malformed line {lineno}: line fields must be exactly {sorted(_LINE_FIELDS)}",
                     lineno,
                 )
+            # Only the writer's exact bytes are a valid line. A re-encoding with
+            # the same meaning (whitespace, a duplicate key, seq 2.0) would
+            # verify yet change the head hash an out-of-band mirror pinned.
+            try:
+                canonical = _canonical(obj) == line
+            except ValueError:
+                canonical = False
+            if not canonical or type(obj["seq"]) is not int or type(obj["iat"]) is not int:
+                return _fail(f"malformed line {lineno}: not canonical format v1 JSON", lineno)
             if obj["v"] != FORMAT_VERSION:
                 return _fail(
                     f"unsupported format version {obj['v']!r} at line {lineno} "
@@ -548,6 +560,12 @@ class ChainedAttestationLog:
 
     def _append_locked(self, record: dict[str, Any]) -> ChainedRecord:
         self._refuse_if_corrupt()
+        try:
+            record_sha256 = _sha256_hex(_canonical(record))
+        except ValueError as exc:
+            raise AttestationError(
+                f"record is not canonical JSON: {exc}", operation="append"
+            ) from exc
         fh = self._fh if self._fh is not None else self._open_for_append()
         # The open handle bypasses the rescan, so a log deleted or truncated
         # under it would take lines that chain onto a head no longer on disk
@@ -569,7 +587,7 @@ class ChainedAttestationLog:
             "iat": iat,
             "seq": seq,
             "prev_sha256": prev,
-            "record_sha256": _sha256_hex(_canonical(record)),
+            "record_sha256": record_sha256,
             "log_id": self._log_id,
             "v": FORMAT_VERSION,
         }
@@ -688,7 +706,12 @@ class ChainedAttestationLog:
 def _load_public_key(public_key: Ed25519PublicKey | bytes | str | Path) -> Ed25519PublicKey:
     if isinstance(public_key, Ed25519PublicKey):
         return public_key
-    pem = Path(public_key).read_bytes() if isinstance(public_key, str | Path) else public_key
+    if isinstance(public_key, str) and public_key.lstrip().startswith("-----BEGIN"):
+        pem = public_key.encode()
+    elif isinstance(public_key, str | Path):
+        pem = Path(public_key).read_bytes()
+    else:
+        pem = public_key
     key = load_pem_public_key(pem)
     if not isinstance(key, Ed25519PublicKey):
         raise AttestationError("Public key is not Ed25519", operation="verify")
@@ -706,7 +729,8 @@ def verify_chain(
 
     Args:
         path: Chained JSONL log file.
-        public_key: Ed25519 public key (object, PEM bytes, or PEM path).
+        public_key: Ed25519 public key (object, PEM bytes or str, or a
+            path to a PEM file; a str starting with ``-----BEGIN`` is PEM).
         expected_head: Out-of-band mirrored line hash. Verification fails
             (``anchor_ok=False``) if it is not one of the log's line
             hashes — i.e. the tail containing it was truncated.
