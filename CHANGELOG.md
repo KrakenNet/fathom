@@ -214,6 +214,18 @@ gaps between 0.3.1 and 0.5.0 are explained under
   names.
 
 ### Fixed
+- **`RedisFactStore.subscribe` delivers every change made after it
+  returns.** A change written before the listener's first read, or between
+  two idle reads, was lost. `subscribe()` now reads the stream's last entry
+  id before it returns, so it can raise `FleetConnectionError` or
+  `FleetError`.
+- **A filtered `PostgresFactStore.retract` announces only the rows it
+  deleted.** Two concurrent retracts of one fact each announced it; now each
+  fact is counted and announced once, as on the other stores.
+- **`PostgresFactStore` splits connection errors from other errors.** A
+  connection lost mid-statement raises `FleetConnectionError` (it raised
+  `FleetError`), and asyncpg `InterfaceError` is wrapped in `FleetError`
+  (it escaped unwrapped), on every operation including `subscribe`.
 - **`pip install fathom-rules[cli]` installs a CLI whose every command
   runs.** The `cli` extra now declares `httpx`, `cryptography` and `pyjwt`,
   which the CLI imports; without them every command, `fathom --version`
