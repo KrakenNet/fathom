@@ -10,9 +10,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
-
-class RulesetSignatureError(Exception):
-    """Raised on any Ed25519 verification or pubkey parse failure."""
+# Re-exported so the old import path keeps working.
+from fathom.errors import RulesetSignatureError as RulesetSignatureError
 
 
 def verify_ruleset_signature(yaml_bytes: bytes, sig_bytes: bytes, pubkey_bytes: bytes) -> None:

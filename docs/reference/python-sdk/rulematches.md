@@ -1,0 +1,3 @@
+# `fathom.RuleMatches`
+
+::: fathom.RuleMatches

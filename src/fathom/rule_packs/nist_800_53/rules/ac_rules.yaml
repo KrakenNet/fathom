@@ -34,7 +34,7 @@ rules:
           - slot: classification
             expression: "in([secret, top_secret, confidential])"
           - slot: destination
-            expression: "matches(external|public|untrusted)"
+            expression: "matches((?i)external|public|untrusted)"
     then:
       action: deny
       reason: "Data transfer blocked: classified data cannot flow to external destination (AC-4)"
@@ -53,7 +53,7 @@ rules:
           - slot: action
             expression: "in([admin, escalate, override, delete])"
           - slot: context
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
     then:
       action: deny
       reason: "Privileged action requires explicit context justification (AC-6)"
@@ -70,7 +70,7 @@ rules:
       - template: access_request
         conditions:
           - slot: context
-            expression: "matches(remote|vpn|external)"
+            expression: "matches((?i)remote|vpn|external)"
           - slot: action
             expression: "in([admin, escalate, override])"
     then:

@@ -457,12 +457,12 @@ func TestGRPC_Subscribe_YieldsEventsThenReloadSentinel(t *testing.T) {
 				t.Errorf("session_id: got %q", req.GetSessionId())
 			}
 			_ = stream.Send(&pb.FactChange{
-				ChangeType: pb.ChangeType_ASSERT,
+				ChangeType: pb.ChangeType_CHANGE_TYPE_ASSERT,
 				Template:   "user",
 				DataJson:   `{"name":"alice"}`,
 			})
 			_ = stream.Send(&pb.FactChange{
-				ChangeType: pb.ChangeType_RETRACT,
+				ChangeType: pb.ChangeType_CHANGE_TYPE_RETRACT,
 				Template:   "user",
 				DataJson:   `{"name":"bob"}`,
 			})
@@ -496,7 +496,7 @@ func TestGRPC_Subscribe_YieldsEventsThenReloadSentinel(t *testing.T) {
 func TestGRPC_Subscribe_CleanEOF(t *testing.T) {
 	mock := &mockServer{
 		subscribe: func(_ *pb.SubscribeRequest, stream grpc.ServerStreamingServer[pb.FactChange]) error {
-			_ = stream.Send(&pb.FactChange{ChangeType: pb.ChangeType_ASSERT, Template: "t"})
+			_ = stream.Send(&pb.FactChange{ChangeType: pb.ChangeType_CHANGE_TYPE_ASSERT, Template: "t"})
 			return nil // clean server close → EOF on client
 		},
 	}

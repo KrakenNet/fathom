@@ -396,8 +396,14 @@ class TestOperatorDiagnostics:
         with pytest.raises(CompilationError) as exc_info:
             compiler._compile_condition("x", "bogus(a)", {}, None)
         message = str(exc_info.value)
-        for op in ("equals", "dominates", "in_compartment", "has_compartments", "last_n"):
+        for op in ("equals", "in_compartment", "has_compartments", "last_n"):
             assert op in message
+
+    def test_dominates_is_not_an_operator(self, compiler: Compiler) -> None:
+        """It compiled to a two-argument call of the five-argument built-in,
+        so it loaded clean and raised on every evaluation."""
+        with pytest.raises(CompilationError, match="unsupported condition operator"):
+            compiler._compile_condition("x", "dominates(secret)", {}, None)
 
     @pytest.mark.parametrize(
         "expression",
@@ -413,6 +419,29 @@ class TestOperatorDiagnostics:
         self, compiler: Compiler, expression: str
     ) -> None:
         with pytest.raises(CompilationError, match="(?i)requires at least"):
+            compiler._compile_condition("name", expression, {}, None)
+
+    @pytest.mark.parametrize(
+        ("expression", "message"),
+        [
+            ("count_exceeds(a, b, c, 3, 999)", "at most 4"),
+            ("rate_exceeds(a, b, c, 3, 60, ts, extra)", "at most 6"),
+            ("distinct_count(a, b, c, 1, extra)", "at most 4"),
+            ("changed_within(60, 1)", "at most 1"),
+            ("count_exceeds(a, b, c, abc)", "number"),
+            ("rate_exceeds(a, b, c, 3, soon)", "number"),
+            ("last_n(a, b, c, nan)", "number"),
+            ("changed_within(x)", "number"),
+            ("sequence_detected(not-json, 60)", "JSON"),
+            ('sequence_detected([{"template": "a"}], 60)', "JSON"),
+        ],
+    )
+    def test_temporal_arguments_checked_at_compile(
+        self, compiler: Compiler, expression: str, message: str
+    ) -> None:
+        # Surplus arguments used to be dropped, and a bad threshold or event
+        # list compiled cleanly and raised on every evaluation.
+        with pytest.raises(CompilationError, match=message):
             compiler._compile_condition("name", expression, {}, None)
 
 

@@ -24,7 +24,7 @@ Report how far a rule got toward firing: matches, partials, activations
   "required": [
     "rule"
   ],
-  "title": "tool_rule_matchesArguments",
+  "title": "fathom_rule_matchesArguments",
   "type": "object"
 }
 ```

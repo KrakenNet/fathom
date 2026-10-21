@@ -5,7 +5,10 @@ number change means for them, and how long a released version is supported. It
 is enforced where it can be: `tests/test_public_surface.py` fails if the symbol
 list below stops matching `fathom.__all__`.
 
-Fathom is pre-1.0. Read [Pre-1.0 semantics](#pre-10-semantics) before you pin.
+Fathom is pre-1.0. Read [Pre-1.0 semantics](#pre-10-semantics) before you pin;
+[From 1.0](#from-10) says what changes when 1.0.0 ships. Where a section has
+two halves, the pre-1.0 half applies to every `0.x` release and the 1.0 half
+to every release from `1.0.0` on.
 
 ## Covered surfaces
 
@@ -15,6 +18,7 @@ These names are importable from the `fathom` package and are the covered
 Python surface:
 
 <!-- BEGIN COVERED SYMBOLS -->
+- `Activation`
 - `AssertSpec`
 - `AssertedFact`
 - `AttestationError`
@@ -36,6 +40,8 @@ Python surface:
 - `FleetError`
 - `InMemoryFactStore`
 - `NullSink`
+- `RuleMatches`
+- `RulesetSignatureError`
 - `ScopeError`
 - `ValidationError`
 - `__version__`
@@ -46,8 +52,9 @@ Python surface:
 `AttestationService`, `verify_token`, `ChainedAttestationLog`, and
 `verify_chain` are resolved on first attribute access rather than at import,
 because they need the optional `attestation` extra. Accessing one without that
-extra installed raises `ImportError` naming the extra — it is not an
-`AttributeError`, and the name is covered either way.
+extra installed raises `ImportError` naming the extra (so do `from fathom
+import *` and importing `fathom.attestation` or `fathom.chained_log`) — it is
+not an `AttributeError`, and the name is covered either way.
 
 Each of these submodules also declares its own `__all__`, which is covered on
 the same terms when imported directly (`from fathom.models import
@@ -62,12 +69,53 @@ RuleDefinition`):
 | `fathom.fleet` | `FleetEngine`, the fact-store protocol, and the in-memory store |
 | `fathom.attestation` | Ed25519 signing and token verification |
 | `fathom.chained_log` | The hash-chained attestation log and its verifier |
+| `fathom.packs` | `RulePackLoader`, which `Engine.load_pack` and `Engine.load_pack_dir` use |
+| `fathom.compiler` | `Compiler`, the YAML parsers (`parse_*_file`, `parse_function_bundle`) and `compile_*` methods the engine loads with; the CLIPS text they return is not covered (see below) |
+| `fathom.rego` | The Rego converter and exporter behind `fathom convert rego` and `fathom export rego` |
+| `fathom.fleet_redis` | `RedisFactStore` (needs the `fleet` extra) |
+| `fathom.fleet_pg` | `PostgresFactStore` (needs the `fleet-pg` extra) |
+| `fathom.integrations` | `PolicyViolation`, raised by every agent-framework adapter |
+| `fathom.integrations.rest` | The REST app (`app`, served by `uvicorn fathom.integrations.rest:app`) and `build_app` |
+| `fathom.integrations.grpc_server` | The gRPC servicer and `serve` |
+| `fathom.integrations.mcp_server` | `FathomMCPServer` |
+| `fathom.integrations.langchain` | The LangChain callback handlers and `fathom_guard` |
+| `fathom.integrations.crewai` | The CrewAI before-tool-call hook |
+| `fathom.integrations.openai_agents` | The OpenAI Agents tool guardrail |
+| `fathom.integrations.google_adk` | The Google ADK before-tool callback |
+
+`tests/test_public_surface.py` checks that every module in this table declares
+a sorted `__all__` whose names exist, and that the table and the test's list
+name the same modules.
+
+### Rule packs
+
+- **The pack format** — the `fathom.packs` entry-point group a distribution
+  registers a pack under; the pack directory layout (`templates/`,
+  `modules/`, `functions/`, `rules/` subdirectories, or loose `*.yaml` files
+  whose top-level key names the kind); and the `PACK_DEPENDENCIES` module
+  attribute naming packs to load first. See
+  [Loading a rule pack](docs/how-to/load-rule-pack.md).
+- **The shipped packs** — the entry-point names `cmmc`, `conflict-detection`,
+  `hipaa`, `nist-800-53`, `owasp-agentic`, `schema-denoising` and `ssvc`, and
+  in each pack the template names and slot names a caller asserts facts
+  against. A pack's rules and slot constraints are not frozen: a rule fix
+  that changes a pack's decision for the same facts, or a new slot constraint
+  (such as `allowed_values`) that rejects a value the pack's rules never
+  handled, may ship in a minor release and is listed under `### Changed`.
 
 ### Other covered surfaces
 
 - **The YAML authoring surface** — every key documented under
   [`docs/reference/yaml/`](docs/reference/yaml/index.md): the fields each
   construct accepts, the condition-expression grammar, and the operator set.
+- **The classification built-ins** — the CLIPS functions the Engine
+  registers for `test:` conditions and `raw` bodies:
+  `(fathom-dominates level-a comps-a level-b comps-b hierarchy)`,
+  `(fathom-parse-compartments comps)`, `(fathom-has-compartment comps name)`
+  and `(fathom-compartments-superset comps required)`, where every `comps`
+  argument is a pipe-delimited string (`"a|b"`) and `hierarchy` names a
+  hierarchy loaded with the ruleset. Use these rather than the Python helpers
+  in `fathom.engine`, which are not covered.
 - **The REST API** — the paths, request bodies, and response bodies published
   in [`docs/reference/rest/openapi.json`](docs/reference/rest/openapi.json).
 - **The gRPC service** — the messages and RPCs in
@@ -98,6 +146,9 @@ notice or a changelog entry:
   its own version line, and its routes — including the REST app it mounts
   under `/api` — are not covered here.
 - The Go and TypeScript SDKs, which are pre-release and version separately.
+- The server-side helper modules `fathom.integrations.auth`,
+  `fathom.integrations.paths` and `fathom.integrations.sessions`. Their
+  behavior reaches you through the REST, gRPC and MCP contracts above.
 - Test helpers, fixtures, and everything under `tests/` and `scripts/`.
 
 ## Pre-1.0 semantics
@@ -115,10 +166,25 @@ this project does within it:
   with what to do instead. `CHANGELOG.md` is hand-written for exactly this
   reason.
 
-Pin accordingly: `fathom-rules>=0.10,<0.11` is the pre-1.0 equivalent of a
-caret range. `fathom-rules~=0.10.0` has the same effect.
+Pin accordingly: `fathom-rules>=0.13,<0.14` (substitute the minor you tested
+against) is the pre-1.0 equivalent of a caret range. `fathom-rules~=0.13.0`
+has the same effect.
 
-After 1.0 this becomes ordinary semver: breaking changes only in a major.
+## From 1.0
+
+From `1.0.0` the covered surfaces follow ordinary semver:
+
+- **A major bump (`1.x` → `2.0.0`) is the only release that may break a
+  covered surface.**
+- **A minor bump (`1.4.0` → `1.5.0`) adds**: new covered names, options,
+  endpoints and fields, and deprecations. It never breaks a covered surface.
+- **A patch bump (`1.4.0` → `1.4.1`) fixes** bugs and adds nothing to the
+  covered surface.
+- **Every break is in the changelog**, under `### Changed` or `### Removed`,
+  with what to do instead.
+
+Pin accordingly: `fathom-rules>=1,<2`. A lower bound inside 1.x
+(`>=1.4,<2`) is fine when you need a feature that minor added.
 
 ## Deprecation
 
@@ -127,9 +193,14 @@ A covered name is never removed without a deprecation period first:
 1. The name keeps working and starts emitting `DeprecationWarning`, naming its
    replacement.
 2. The changelog entry for that release records the deprecation.
-3. Removal comes no earlier than the **second** minor release after the
-   warning first shipped — so a name deprecated in `0.10.0` may not be removed
-   before `0.12.0`.
+3. Removal:
+   - **Pre-1.0:** no earlier than the **second** minor release after the
+     warning first shipped — so a name deprecated in `0.10.0` may not be
+     removed before `0.12.0`.
+   - **From 1.0:** only in the next major release, and only after the warning
+     has shipped in at least one minor release first — so a name deprecated
+     in `1.4.0` keeps working through every `1.x` and may be removed in
+     `2.0.0`.
 
 A name that never worked (it raised on every call, or was documented but not
 implemented) can be removed without this period; the changelog says so.
@@ -137,9 +208,12 @@ implemented) can be removed without this period; the changelog says so.
 ## Supported versions
 
 The latest released minor is supported. Fixes — including security fixes — are
-released as a new patch of that minor, not backported to earlier ones. Pre-1.0
-that is the whole support window; upgrading to the current minor is the
-supported response to a fix.
+released as a new patch of that minor, not backported to earlier ones.
+
+- **Pre-1.0:** that is the whole support window; upgrading to the current
+  minor is the supported response to a fix.
+- **From 1.0:** upgrading within the major is never breaking, so the same
+  holds: take the latest `1.x`.
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability and what
 happens after you do.

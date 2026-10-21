@@ -10,7 +10,7 @@ import asyncpg  # type: ignore[import-untyped]
 import pytest
 import pytest_asyncio
 
-from fathom.errors import FleetError
+from fathom.errors import FleetConnectionError, FleetError
 from fathom.fleet_pg import PostgresFactStore
 from tests.test_fleet_integration import (
     POSTGRES_IMAGE,
@@ -77,17 +77,16 @@ class TestPostgresAssertFact:
         await store.subscribe("agent", on_change)
         fact_id = await store.assert_fact("agent", {"id": "a1"})
 
-        # Subscribers are reached twice: once by the direct local dispatch and
-        # once by the out-of-band LISTEN delivery of the same pg_notify.
+        # Delivered by the LISTEN connection only, as to any peer: once.
         for _ in range(20):
             if received:
                 break
             await asyncio.sleep(0.25)
+        await asyncio.sleep(0.25)
 
-        assert received
-        assert {n.action for n in received} == {"assert"}
-        assert all(n.fact_id == fact_id for n in received)
-        assert all(n.data == {"id": "a1"} for n in received)
+        assert [(n.action, n.fact_id, n.data) for n in received] == [
+            ("assert", fact_id, {"id": "a1"})
+        ]
 
     @pytest.mark.asyncio
     async def test_notify_failure_leaves_no_orphan_row(
@@ -145,11 +144,11 @@ class TestPostgresRetract:
         await store.assert_fact("agent", {"id": "a1"})
         await store.retract("agent")
 
-        # Each change reaches the subscriber twice (local dispatch + LISTEN).
-        actions = [n.action for n in received]
-        assert set(actions) == {"assert", "retract"}
-        assert actions[0] == "assert"
-        assert actions[-1] == "retract"
+        for _ in range(20):
+            if len(received) >= 2:
+                break
+            await asyncio.sleep(0.25)
+        assert [n.action for n in received] == ["assert", "retract"]
 
 
 class TestPostgresQueryAndCount:
@@ -310,13 +309,65 @@ class TestPostgresListenRecovery:
         await store.subscribe("tool", on_change)
         await store.assert_fact("tool", {"id": "t1"})
 
-        # The local dispatch lands first and says nothing about LISTEN; wait
-        # for the out-of-band delivery, which is the one under test.
         for _ in range(20):
-            if len(received) >= 2:
+            if received:
                 break
             await asyncio.sleep(0.25)
 
-        assert [n.template for n in received] == ["tool", "tool"], (
-            "the local dispatch and the LISTEN delivery must both arrive"
-        )
+        assert [n.template for n in received] == ["tool"], "LISTEN delivery must arrive"
+
+
+class TestPostgresNotConnected:
+    """Every operation before connect() raises FleetError, not AssertionError."""
+
+    @pytest.mark.asyncio
+    async def test_operations_before_connect_raise_fleet_error(self) -> None:
+        s = PostgresFactStore("postgresql://unused")
+        for op in (
+            s.assert_fact("agent", {}),
+            s.query("agent"),
+            s.retract("agent"),
+            s.count("agent"),
+            s.ensure_table(),
+        ):
+            with pytest.raises(FleetError, match="call connect"):
+                await op
+
+
+class TestPostgresErrorSplit:
+    """Connection-class failures raise FleetConnectionError; the rest FleetError."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("exc", "expected"),
+        [
+            # What asyncpg raises when the backend dies mid-statement.
+            (asyncpg.exceptions.ConnectionDoesNotExistError("lost"), FleetConnectionError),
+            (asyncpg.exceptions.ConnectionFailureError("lost"), FleetConnectionError),
+            (asyncpg.exceptions.InterfaceError("pool is closing"), FleetError),
+            (asyncpg.exceptions.UndefinedTableError("no table"), FleetError),
+        ],
+    )
+    async def test_errors_are_split(
+        self,
+        store: PostgresFactStore,
+        monkeypatch: pytest.MonkeyPatch,
+        exc: Exception,
+        expected: type[FleetError],
+    ) -> None:
+        def failing_acquire(*_a: object, **_k: object) -> object:
+            raise exc
+
+        assert store._pool is not None
+        for op in (
+            lambda: store.assert_fact("agent", {"id": "a1"}),
+            lambda: store.query("agent"),
+            lambda: store.retract("agent"),
+            lambda: store.retract("agent", {"id": "a1"}),
+            lambda: store.count("agent"),
+        ):
+            with monkeypatch.context() as m:
+                m.setattr(type(store._pool), "acquire", failing_acquire)
+                with pytest.raises(FleetError) as info:
+                    await op()
+            assert type(info.value) is expected

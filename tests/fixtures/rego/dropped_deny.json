@@ -1,0 +1,231 @@
+{
+  "package": {
+    "path": [
+      {
+        "type": "var",
+        "value": "data"
+      },
+      {
+        "type": "string",
+        "value": "authz"
+      },
+      {
+        "type": "string",
+        "value": "dropped_deny"
+      }
+    ]
+  },
+  "imports": [
+    {
+      "path": {
+        "type": "ref",
+        "value": [
+          {
+            "type": "var",
+            "value": "rego"
+          },
+          {
+            "type": "string",
+            "value": "v1"
+          }
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": {
+            "type": "boolean",
+            "value": true
+          }
+        }
+      ],
+      "default": true,
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": false
+        },
+        "assign": true,
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "user"
+                },
+                {
+                  "type": "string",
+                  "value": "role"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "value": "admin"
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "allow",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "allow"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "gte"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "user"
+                },
+                {
+                  "type": "string",
+                  "value": "mfa_age"
+                }
+              ]
+            },
+            {
+              "type": "number",
+              "value": 300
+            }
+          ]
+        }
+      ],
+      "head": {
+        "name": "deny",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "deny"
+          }
+        ]
+      }
+    },
+    {
+      "body": [
+        {
+          "index": 0,
+          "negated": true,
+          "terms": {
+            "type": "ref",
+            "value": [
+              {
+                "type": "var",
+                "value": "input"
+              },
+              {
+                "type": "string",
+                "value": "user"
+              },
+              {
+                "type": "string",
+                "value": "mfa"
+              }
+            ]
+          }
+        }
+      ],
+      "head": {
+        "name": "deny",
+        "value": {
+          "type": "boolean",
+          "value": true
+        },
+        "ref": [
+          {
+            "type": "var",
+            "value": "deny"
+          }
+        ]
+      }
+    }
+  ],
+  "comments": [
+    {
+      "Text": "IEFuIGBhbGxvd2AgdGhhdCBjb252ZXJ0cywgYW5kIHR3byBgZGVueWAgYm9kaWVzIHRoYXQgZG8gbm90LiBEcm9wcGluZyBh",
+      "Location": {
+        "file": "tests/fixtures/rego/dropped_deny.rego",
+        "row": 1,
+        "col": 1
+      }
+    },
+    {
+      "Text": "IGRlbnkgdGFrZXMgYSB3aG9sZSBkZW55IGNvbmRpdGlvbiBvdXQgb2YgdGhlIHBvbGljeSwgc28gdGhlIGNvbnZlcnRlciBtdXN0",
+      "Location": {
+        "file": "tests/fixtures/rego/dropped_deny.rego",
+        "row": 2,
+        "col": 1
+      }
+    },
+    {
+      "Text": "IHJlZnVzZSB0aGUgcG9saWN5IHJhdGhlciB0aGFuIHdyaXRlIG9uZSB0aGF0IGFsbG93cyB3aGF0IE9QQSBkZW5pZXMu",
+      "Location": {
+        "file": "tests/fixtures/rego/dropped_deny.rego",
+        "row": 3,
+        "col": 1
+      }
+    }
+  ]
+}

@@ -12,12 +12,16 @@ import yaml
 
 from fathom.compiler import Compiler
 from fathom.errors import CompilationError
+from fathom.yaml_utils import file_kind, safe_load
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from types import ModuleType
 
     from fathom.engine import Engine
     from fathom.models import TemplateDefinition
+
+__all__ = ["RulePackLoader"]
 
 #: Module attribute a rule pack may define to declare packs that must be
 #: loaded before it, by their ``fathom.packs`` entry-point name.
@@ -77,18 +81,20 @@ def _group_flat_files(pack_dir: Path) -> dict[str, list[Path]]:
     """
     grouped: dict[str, list[Path]] = {kind: [] for kind in LOAD_ORDER}
     for yaml_file in sorted(pack_dir.glob(TEMPLATE_GLOB)):
-        with open(yaml_file) as handle:
-            data = yaml.safe_load(handle)
+        try:
+            with open(yaml_file, encoding="utf-8") as handle:
+                data = safe_load(handle)
+        except (yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
+            raise CompilationError(
+                f"[fathom.packs] load pack failed: cannot read {yaml_file}",
+                file=str(yaml_file),
+                detail=str(exc),
+            ) from exc
         if not isinstance(data, dict):
             continue
-        if "templates" in data:
-            grouped["templates"].append(yaml_file)
-        elif "modules" in data or "focus_order" in data:
-            grouped["modules"].append(yaml_file)
-        elif "functions" in data:
-            grouped["functions"].append(yaml_file)
-        elif "rules" in data or "ruleset" in data:
-            grouped["rules"].append(yaml_file)
+        kind = file_kind(data)
+        if kind:
+            grouped[kind].append(yaml_file)
     return grouped
 
 
@@ -141,13 +147,24 @@ class RulePackLoader:
                 unknown, forms a dependency cycle, redefines a template
                 another pack already registered, or fails to load.
         """
-        RulePackLoader._load_pack(engine, pack_name, ())
+        RulePackLoader._load_pack(engine, pack_name)
 
     @staticmethod
-    def _load_pack(engine: Engine, pack_name: str, chain: tuple[str, ...]) -> None:
-        """Load *pack_name* and its dependencies, tracking the resolution *chain*."""
-        state = _pack_state.setdefault(engine, _PackState())
-        if pack_name in state.loaded:
+    def dependency_closure(
+        pack_name: str,
+        skip: set[str] | None = None,
+        chain: tuple[str, ...] = (),
+    ) -> Iterator[tuple[str, Path]]:
+        """Yield ``(name, directory)`` for *pack_name* and its dependencies, dependencies first.
+
+        Each pack is yielded once and a pack in *skip* (with its dependencies)
+        not at all; yielded names are added to *skip*.
+
+        Raises:
+            CompilationError: A pack is unknown or the dependencies form a cycle.
+        """
+        skip = set() if skip is None else skip
+        if pack_name in skip:
             return
         if pack_name in chain:
             raise CompilationError(
@@ -155,21 +172,26 @@ class RulePackLoader:
                 construct=f"pack:{pack_name}",
             )
         module, pack_dir = RulePackLoader._resolve(pack_name)
-
         for dependency in getattr(module, DEPENDENCIES_ATTR, ()):
-            RulePackLoader._load_pack(engine, dependency, (*chain, pack_name))
+            yield from RulePackLoader.dependency_closure(dependency, skip, (*chain, pack_name))
+        skip.add(pack_name)
+        yield pack_name, pack_dir
 
-        try:
-            RulePackLoader._load_from_dir(engine, pack_name, pack_dir, state)
-        except ValueError as exc:
-            # Engine loading raises a bare ValueError for e.g. an unknown
-            # module in a focus order; the documented pack failure mode is
-            # CompilationError.
-            raise CompilationError(
-                f"Rule pack '{pack_name}' failed to load",
-                construct=f"pack:{pack_name}",
-                detail=str(exc),
-            ) from exc
+    @staticmethod
+    def _load_pack(engine: Engine, pack_name: str) -> None:
+        """Load *pack_name* and its dependencies, dependencies first."""
+        state = _pack_state.setdefault(engine, _PackState())
+        for name, pack_dir in RulePackLoader.dependency_closure(pack_name, set(state.loaded)):
+            try:
+                RulePackLoader._load_from_dir(engine, name, pack_dir, state)
+            except ValueError as exc:
+                # The documented pack failure mode is CompilationError; keep
+                # a stray ValueError from engine loading inside it.
+                raise CompilationError(
+                    f"Rule pack '{name}' failed to load",
+                    construct=f"pack:{name}",
+                    detail=str(exc),
+                ) from exc
 
     @staticmethod
     def load_dir(engine: Engine, path: str | Path, *, require_content: bool = True) -> None:

@@ -234,6 +234,19 @@ class TestRefusals:
         """The failure that matters: half a rule permits more than the whole one."""
         assert "matches more broadly than the policy it came from" in _reasons(_load("refusals"))
 
+    def test_a_dropped_deny_refuses_the_whole_policy(self) -> None:
+        """Dropping a `deny` body allows what the policy denies.
+
+        Dropping a rule whole only keeps the output honest for `allow`. A
+        dropped `deny` takes a deny condition out of the policy, and the
+        converted pack then allowed `{"user": {"role": "admin"}}` where OPA
+        denies it, with a successful exit.
+        """
+        with pytest.raises(CompilationError, match="deny") as raised:
+            _load("dropped_deny")
+        assert "no negation" in str(raised.value)
+        assert "`>= n` as `> n-1`" in str(raised.value)
+
     def test_a_dropped_rule_leaves_no_slots_behind(self) -> None:
         """Every slot in the emitted template is one a converted rule reads."""
         assert _slot_types(_load("refusals")) == {}
@@ -408,6 +421,13 @@ class TestCli:
         """Default is best-effort; --strict is for pipelines that want all or nothing."""
         assert self._run(tmp_path, "mixed").exit_code == 0
         assert self._run(tmp_path, "mixed", "--strict").exit_code != 0
+
+    def test_a_dropped_deny_fails_without_strict_and_writes_nothing(self, tmp_path) -> None:
+        out = tmp_path / "pack"
+        result = self._run(tmp_path, "dropped_deny", "-o", str(out))
+        assert result.exit_code == 3
+        assert "deny" in result.stderr
+        assert not out.exists()
 
     def test_a_missing_policy_file_is_rejected_before_anything_runs(self, tmp_path) -> None:
         from typer.testing import CliRunner

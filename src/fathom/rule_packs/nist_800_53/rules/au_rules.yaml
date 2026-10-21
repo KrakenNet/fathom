@@ -30,7 +30,7 @@ rules:
       - template: audit_event
         conditions:
           - slot: subject
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
     then:
       action: deny
       reason: "Audit record missing required subject field (AU-3)"
@@ -66,9 +66,9 @@ rules:
       - template: audit_event
         conditions:
           - slot: resource
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
           - slot: event_type
-            expression: "in([access, modify, delete])"
+            expression: "in([access, modify, delete, export])"
     then:
       action: deny
       reason: "Audit generation requires resource identification for data events (AU-12)"

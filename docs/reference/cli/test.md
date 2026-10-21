@@ -16,10 +16,10 @@ last_verified: 2026-04-15
  Run YAML test cases against a rule pack.                                       
                                                                                 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
-│ *    rules_path      PATH  Path to a rule pack directory. [required]         │
-│ *    test_path       PATH  Path to a YAML test file or directory of test     │
-│                            files.                                            │
-│                            [required]                                        │
+│ *    rules_path      DIRECTORY  Path to a rule pack directory. [required]    │
+│ *    test_path       PATH       Path to a YAML test file or directory of     │
+│                                 test files.                                  │
+│                                 [required]                                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --help          Show this message and exit.                                  │

@@ -47,14 +47,14 @@
               },
               {
                 "type": "string",
-                "value": "authenticated"
+                "value": "suspended"
               }
             ]
           }
         }
       ],
       "head": {
-        "name": "deny",
+        "name": "allow",
         "value": {
           "type": "boolean",
           "value": true
@@ -62,7 +62,7 @@
         "ref": [
           {
             "type": "var",
-            "value": "deny"
+            "value": "allow"
           }
         ]
       }

@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 ---
 
 # Function
@@ -33,7 +33,7 @@ Python callables instead of authoring CLIPS, see
 |-----------------|--------------------------------------------------|--------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`          | `str`                                            | —                  | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$` (validated by `_name_must_be_clips_ident`). For `raw` functions this is authoring metadata only — the emitted CLIPS name comes from `body`. For `classification` the hierarchy name drives the emitted function names (see below). |
 | `description`   | `str`                                            | `""`               | no       | Author-facing prose. Not emitted to CLIPS.                                                                                                                             |
-| `params`        | `list[str]`                                      | —                  | yes      | Parameter names. Used when authoring `raw` bodies; the classification path ignores `params` and generates its own `(?level)` / `(?a ?b)` signatures from the hierarchy. |
+| `params`        | `list[str]`                                      | `[]`               | no       | Parameter names. Used when authoring `raw` bodies; the classification path ignores `params` and generates its own `(?level)` / `(?a ?b)` signatures from the hierarchy. |
 | `hierarchy_ref` | `str \| None`                                    | `None`             | no       | **Required** when `type == "classification"`. Names the hierarchy whose `levels` drive emission. A trailing `.yaml` is stripped: `hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]`. Ignored for `raw`. |
 | `type`          | `Literal["classification", "raw"]`               | `"classification"` | no       | Selects the emission strategy. Default is `classification`.                                                                                                            |
 | `body`          | `str \| None`                                    | `None`             | no       | Raw CLIPS source. **Required** when `type == "raw"`. Ignored for `classification`.                                                                                     |
@@ -55,10 +55,13 @@ identifiers all begin with the hierarchy name (e.g. `clearance-rank`,
 `clearance-below`). The expansion, from
 `_compile_classification_functions`, is:
 
-- `(deffunction MAIN::<hier>-rank (?level) (switch ?level (case LEVEL then INDEX) … (default -1)))` — one `case` per level, in declaration order; out-of-hierarchy inputs return `-1`.
+- `(deffunction MAIN::<hier>-rank (?level) (switch (str-cat ?level) (case "LEVEL" then INDEX) … (default (fathom-unknown-level "<hier>" ?level))))` — one `case` per level, in declaration order. An out-of-hierarchy input has no rank: `fathom-unknown-level` raises, and the evaluation fails with `EvaluationError`.
 - `(deffunction MAIN::<hier>-below (?a ?b) (< (<hier>-rank ?a) (<hier>-rank ?b)))`.
 - `(deffunction MAIN::<hier>-meets-or-exceeds (?a ?b) (>= (<hier>-rank ?a) (<hier>-rank ?b)))`.
-- `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — both inputs must be in-hierarchy.
+- `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — true when both inputs are in the hierarchy.
+
+All four rank both sides, so a mis-cased or unknown label on either side stops
+the evaluation; no rule, allow or deny, decides on it.
 
 The compiler also emits **unscoped backward-compat shims** —
 `below`, `meets-or-exceeds`, `within-scope` — that delegate to the
@@ -70,16 +73,17 @@ unscoped shims.
 A rule's classification operator does **not** compile to a shim. It compiles to
 the scoped deffunction of the hierarchy that owns the level it names — see
 [`meets_or_exceeds` in the rule reference](./rule.md#supported-operators). The
-shims exist for a deffunction supplied directly through `load_clips_function`,
-and for the cross-fact form (`$other.level`), whose hierarchy is not knowable at
-compile time. Routing every rule through them is what made a second hierarchy
-unusable: its levels ranked `-1` through the first hierarchy's table, so
-`meets_or_exceeds` was true for every value and `below` false for every value.
+shims exist for a deffunction supplied directly through `load_clips_function`.
+The cross-fact form (`$other.level`) names no level, so it compiles to the
+scoped deffunction of the only hierarchy loaded, and is a `CompilationError`
+when more than one is loaded. Routing it through the first hierarchy's shim
+ranked every level of a second hierarchy as unknown.
 
 Compilation failures:
 
 - Missing `hierarchy_ref` → `CompilationError`.
-- `hierarchy_ref` not registered in the bundle → `CompilationError`.
+- `hierarchy_ref` that names neither a hierarchy in the file's
+  `hierarchies:` nor a hierarchy file on disk → `CompilationError`.
 
 ### `raw`
 
@@ -108,13 +112,20 @@ the external-function path and
 
 ## `HierarchyDefinition` fields
 
-Classification functions consume a `HierarchyDefinition` from the same
-YAML bundle.
+Classification functions consume a `HierarchyDefinition`. A function's
+`hierarchy_ref` is looked up first in the `hierarchies:` list of the same
+function file (as in the worked example below). If no hierarchy there has
+that name, it is resolved as a file on disk: `<ref>`, `<ref>.yaml` or
+`<ref>.yml`, holding a single top-level `name:` / `levels:` mapping,
+searched next to the function file, then in its `hierarchies/`
+subdirectory, then in a `hierarchies/` directory beside it (a pack's
+`hierarchies/`). Every hierarchy in a function file's `hierarchies:` list
+is registered, referenced or not.
 
 | Field          | Type               | Default | Required | Description                                                                                                                                       |
 |----------------|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`         | `str`              | —       | yes      | Hierarchy name. Drives the emitted deffunction prefix (`<name>-rank`, `<name>-below`, …).                                                          |
-| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; out-of-hierarchy inputs rank `-1`. |
+| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; an out-of-hierarchy input fails the evaluation with `EvaluationError`. |
 | `compartments` | `list[str] \| None`| `None`  | no       | Accepted by the model but **not** consumed by `_compile_classification_functions` today. Reserved for future compartment-aware emission.           |
 
 ## Worked example — `classification`
@@ -137,12 +148,12 @@ functions:
 
 ```
 (deffunction MAIN::clearance-rank (?level)
-    (switch ?level
-        (case unclassified then 0)
-        (case confidential then 1)
-        (case secret then 2)
-        (case top-secret then 3)
-        (default -1)))
+    (switch (str-cat ?level)
+        (case "unclassified" then 0)
+        (case "confidential" then 1)
+        (case "secret" then 2)
+        (case "top-secret" then 3)
+        (default (fathom-unknown-level "clearance" ?level))))
 
 (deffunction MAIN::clearance-below (?a ?b)
     (< (clearance-rank ?a) (clearance-rank ?b)))
@@ -203,11 +214,16 @@ Engine-registered builtins (`fathom-matches`, `fathom-count-exceeds`,
 `fathom-rate-exceeds`, `fathom-changed-within`, `fathom-last-n`,
 `fathom-distinct-count`, `fathom-sequence-detected`,
 `fathom-parse-compartments`, `fathom-has-compartment`,
-`fathom-compartments-superset`, `fathom-dominates`). Python callers of
+`fathom-compartments-superset`, `fathom-dominates`, `fathom-unknown-level`). Python callers of
 `Engine.register_function` are rejected with `ValueError` if the
 requested name starts with `fathom-`. YAML `raw` bodies are not
 re-checked by the compiler, but avoid the prefix in authored CLIPS to
 prevent collisions with the runtime's own bindings.
+
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` raises when
+either level is not a level of `hierarchy`, or the hierarchy is not loaded, so
+the evaluation fails with `EvaluationError`. The Python
+`fathom.engine.dominates` raises `EvaluationError` in the same cases.
 
 ## Validators — what is rejected
 
@@ -219,6 +235,8 @@ prevent collisions with the runtime's own bindings.
 | `type: classification` without `hierarchy_ref`       | `compile_function`             | `CompilationError` |
 | `type: classification` with unknown `hierarchy_ref`  | `compile_function`             | `CompilationError` |
 | Any key not defined on the model, on `FunctionDefinition` or `HierarchyDefinition` | Pydantic (`extra="forbid"`) | `ValidationError` |
+| A top-level key in a function file other than `functions` and `hierarchies` | `parse_function_file` | `CompilationError` |
+| An invalid or duplicate entry in `hierarchies:` | `parse_function_file` | `CompilationError` |
 | `HierarchyDefinition.name` that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 | A `levels` or `compartments` member that is not a valid CLIPS identifier | Pydantic validator | `ValueError` |
 

@@ -31,19 +31,27 @@ type ChangeType int32
 
 const (
 	ChangeType_CHANGE_TYPE_UNSPECIFIED ChangeType = 0
-	ChangeType_ASSERT                  ChangeType = 1
-	ChangeType_RETRACT                 ChangeType = 2
+	ChangeType_CHANGE_TYPE_ASSERT      ChangeType = 1
+	ChangeType_CHANGE_TYPE_RETRACT     ChangeType = 2
+	// Deprecated: Marked as deprecated in fathom.proto.
+	ChangeType_ASSERT ChangeType = 1
+	// Deprecated: Marked as deprecated in fathom.proto.
+	ChangeType_RETRACT ChangeType = 2
 )
 
 // Enum value maps for ChangeType.
 var (
 	ChangeType_name = map[int32]string{
 		0: "CHANGE_TYPE_UNSPECIFIED",
-		1: "ASSERT",
-		2: "RETRACT",
+		1: "CHANGE_TYPE_ASSERT",
+		2: "CHANGE_TYPE_RETRACT",
+		// Duplicate value: 1: "ASSERT",
+		// Duplicate value: 2: "RETRACT",
 	}
 	ChangeType_value = map[string]int32{
 		"CHANGE_TYPE_UNSPECIFIED": 0,
+		"CHANGE_TYPE_ASSERT":      1,
+		"CHANGE_TYPE_RETRACT":     2,
 		"ASSERT":                  1,
 		"RETRACT":                 2,
 	}
@@ -79,7 +87,8 @@ func (ChangeType) EnumDescriptor() ([]byte, []int) {
 type FactInput struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Template string                 `protobuf:"bytes,1,opt,name=template,proto3" json:"template,omitempty"`
-	// JSON-encoded slot data (e.g. {"tool_name": "bash", "agent_id": "a1"}).
+	// JSON-encoded slot data, a JSON object (e.g. {"tool_name": "bash",
+	// "agent_id": "a1"}). Anything else is INVALID_ARGUMENT.
 	DataJson      string `protobuf:"bytes,2,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -130,10 +139,17 @@ func (x *FactInput) GetDataJson() string {
 }
 
 type EvaluateRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Ruleset       string                 `protobuf:"bytes,2,opt,name=ruleset,proto3" json:"ruleset,omitempty"`
-	Facts         []*FactInput           `protobuf:"bytes,3,rep,name=facts,proto3" json:"facts,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional. Empty: a stateless evaluation against the server's engine.
+	// Set: the session's working memory is used, and Evaluate is the call that
+	// opens it -- an unknown id is created, bound to `ruleset` (empty if none
+	// is named). A known id is joined; naming a different ruleset than the
+	// session was opened with is FAILED_PRECONDITION. A server that mounts an
+	// engine refuses sessions with FAILED_PRECONDITION.
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Ruleset path relative to FATHOM_RULESET_ROOT.
+	Ruleset       string       `protobuf:"bytes,2,opt,name=ruleset,proto3" json:"ruleset,omitempty"`
+	Facts         []*FactInput `protobuf:"bytes,3,rep,name=facts,proto3" json:"facts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -290,10 +306,13 @@ func (x *EvaluateResponse) GetAttestationToken() string {
 }
 
 type AssertFactRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Template  string                 `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
-	// JSON-encoded slot data.
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+	// refused with INVALID_ARGUMENT.
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+	// JSON-encoded slot data, a JSON object; anything else is INVALID_ARGUMENT.
 	DataJson      string `protobuf:"bytes,3,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -395,10 +414,15 @@ func (x *AssertFactResponse) GetSuccess() bool {
 }
 
 type QueryRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Template  string                 `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
-	// Optional JSON-encoded filter (e.g. {"agent_id": "a1"}).
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+	// refused with INVALID_ARGUMENT.
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+	// Optional JSON-object filter (e.g. {"agent_id": "a1"}). Empty matches
+	// every fact of the template; any non-object JSON, `null` included, is
+	// INVALID_ARGUMENT.
 	FilterJson    string `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -501,10 +525,14 @@ func (x *QueryResponse) GetFactsJson() []string {
 }
 
 type RetractRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Template  string                 `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
-	// Optional JSON-encoded filter.
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+	// refused with INVALID_ARGUMENT.
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Template  string `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"`
+	// Optional JSON-object filter. Empty retracts every fact of the template;
+	// any non-object JSON, `null` included, is INVALID_ARGUMENT.
 	FilterJson    string `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -606,8 +634,11 @@ func (x *RetractResponse) GetRetractedCount() int32 {
 }
 
 type SubscribeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. Working memory is per session; create the session with
+	// Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+	// refused with INVALID_ARGUMENT.
+	SessionId     string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -930,13 +961,14 @@ const file_fathom_proto_rawDesc = "" +
 	"\x0eReloadResponse\x12.\n" +
 	"\x13ruleset_hash_before\x18\x01 \x01(\tR\x11rulesetHashBefore\x12,\n" +
 	"\x12ruleset_hash_after\x18\x02 \x01(\tR\x10rulesetHashAfter\x12+\n" +
-	"\x11attestation_token\x18\x03 \x01(\tR\x10attestationToken*B\n" +
+	"\x11attestation_token\x18\x03 \x01(\tR\x10attestationToken*\x7f\n" +
 	"\n" +
 	"ChangeType\x12\x1b\n" +
-	"\x17CHANGE_TYPE_UNSPECIFIED\x10\x00\x12\n" +
-	"\n" +
-	"\x06ASSERT\x10\x01\x12\v\n" +
-	"\aRETRACT\x10\x022\xa6\x03\n" +
+	"\x17CHANGE_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12CHANGE_TYPE_ASSERT\x10\x01\x12\x17\n" +
+	"\x13CHANGE_TYPE_RETRACT\x10\x02\x12\x0e\n" +
+	"\x06ASSERT\x10\x01\x1a\x02\b\x01\x12\x0f\n" +
+	"\aRETRACT\x10\x02\x1a\x02\b\x01\x1a\x02\x10\x012\xa6\x03\n" +
 	"\rFathomService\x12C\n" +
 	"\bEvaluate\x12\x1a.fathom.v1.EvaluateRequest\x1a\x1b.fathom.v1.EvaluateResponse\x12I\n" +
 	"\n" +

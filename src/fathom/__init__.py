@@ -21,11 +21,19 @@ from fathom.errors import (
     FathomError,
     FleetConnectionError,
     FleetError,
+    RulesetSignatureError,
     ScopeError,
     ValidationError,
 )
 from fathom.fleet import FactStore, FleetEngine, InMemoryFactStore
-from fathom.models import AssertedFact, AssertSpec, AuditRecord, EvaluationResult
+from fathom.models import (
+    Activation,
+    AssertedFact,
+    AssertSpec,
+    AuditRecord,
+    EvaluationResult,
+    RuleMatches,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import-time typing only
     from fathom.attestation import AttestationService, verify_token
@@ -45,6 +53,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 }
 
 __all__ = [
+    "Activation",
     "AssertSpec",
     "AssertedFact",
     "AttestationError",
@@ -66,6 +75,8 @@ __all__ = [
     "FleetError",
     "InMemoryFactStore",
     "NullSink",
+    "RuleMatches",
+    "RulesetSignatureError",
     "ScopeError",
     "ValidationError",
     "__version__",
@@ -74,19 +85,25 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:
-    """Resolve the attestation exports on first access (PEP 562)."""
-    module_name = _LAZY_EXPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    try:
-        value = getattr(importlib.import_module(module_name), name)
-    except ImportError as exc:  # missing optional dependency, not a typo
-        raise ImportError(
-            f"fathom.{name} needs the 'attestation' extra: pip install 'fathom-rules[attestation]'"
-        ) from exc
-    globals()[name] = value
-    return value
+# Hidden from type checkers: a visible `__getattr__ -> Any` typed every
+# misspelled `fathom.<name>` as Any. The lazy names are declared to them by the
+# TYPE_CHECKING imports above instead.
+if not TYPE_CHECKING:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve the attestation exports on first access (PEP 562)."""
+        module_name = _LAZY_EXPORTS.get(name)
+        if module_name is None:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        try:
+            value = getattr(importlib.import_module(module_name), name)
+        except ImportError as exc:  # missing optional dependency, not a typo
+            raise ImportError(
+                f"fathom.{name} needs the 'attestation' extra: "
+                "pip install 'fathom-rules[attestation]'"
+            ) from exc
+        globals()[name] = value
+        return value
 
 
 def __dir__() -> list[str]:

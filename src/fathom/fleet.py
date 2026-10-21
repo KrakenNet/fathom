@@ -1,12 +1,4 @@
-"""FactStore protocol and in-memory implementation for Fathom fleet coordination.
-
-Known limitation: fleet retraction does not propagate. :class:`FleetEngine`
-exposes no ``retract`` method and never calls :meth:`FactStore.subscribe`, and
-:meth:`FleetEngine.sync_fleet_facts` only ever asserts. A fact removed from the
-shared store (explicitly, or by Redis TTL expiry) therefore stays in the working
-memory of every session that already synced it. Callers that need removal to
-reach peers must recreate the affected sessions.
-"""
+"""FactStore protocol and in-memory implementation for Fathom fleet coordination."""
 
 from __future__ import annotations
 
@@ -18,6 +10,8 @@ from collections.abc import Callable, Coroutine
 from typing import Any, Protocol, runtime_checkable
 
 from fathom.engine import Engine
+from fathom.errors import FleetError
+from fathom.facts import filter_template
 from fathom.models import FactChangeNotification
 
 logger = logging.getLogger(__name__)
@@ -56,12 +50,33 @@ class FactStore(Protocol):
         template: str,
         callback: Callable[[FactChangeNotification], Coroutine[Any, Any, None]],
     ) -> Callable[[], None]:
-        """Subscribe to changes on a template. Return an unsubscribe callable."""
+        """Subscribe to changes on a template. Return an unsubscribe callable.
+
+        A change is delivered once to each subscriber. A callback that raises
+        is logged and skipped: it never fails the write that caused the
+        change, and it never ends the subscription or reaches the other
+        subscribers.
+        """
         ...
 
 
 # Callback type alias for readability
 _SubscriptionCallback = Callable[[FactChangeNotification], Coroutine[Any, Any, None]]
+
+
+async def _dispatch(
+    callbacks: list[_SubscriptionCallback], notification: FactChangeNotification
+) -> None:
+    """Run every callback, isolating each one's failure (see :meth:`FactStore.subscribe`)."""
+    for cb in list(callbacks):
+        try:
+            await cb(notification)
+        except Exception:
+            logger.exception(
+                "fact store subscriber raised on %s of '%s'; continuing",
+                notification.action,
+                notification.template,
+            )
 
 
 class InMemoryFactStore:
@@ -84,8 +99,7 @@ class InMemoryFactStore:
         return all(data.get(k) == v for k, v in fact_filter.items())
 
     async def _notify(self, notification: FactChangeNotification) -> None:
-        for cb in self._subscribers.get(notification.template, []):
-            await cb(notification)
+        await _dispatch(self._subscribers.get(notification.template, []), notification)
 
     # ------------------------------------------------------------------
     # FactStore interface
@@ -144,7 +158,16 @@ class FleetEngine:
     """Manages multiple session-scoped Engines backed by a shared :class:`FactStore`.
 
     Fleet-scoped facts (those whose template has ``scope="fleet"``) are
-    visible across all sessions via :meth:`sync_fleet_facts`.
+    visible across all sessions via :meth:`sync_fleet_facts`. Every method
+    that addresses a session takes its id and raises ``KeyError`` for an id
+    with no session.
+
+    Known limitation: fleet retraction does not propagate. FleetEngine has no
+    ``retract`` method and never calls :meth:`FactStore.subscribe`, and
+    :meth:`sync_fleet_facts` only ever asserts. A fact removed from the shared
+    store (explicitly, or by Redis TTL expiry) therefore stays in the working
+    memory of every session that already synced it. To drop it from a session,
+    rebuild that session with :meth:`replace_session` and sync it again.
     """
 
     def __init__(
@@ -168,10 +191,49 @@ class FleetEngine:
 
         The engine is loaded from the configured rules path and stored
         internally so it can be retrieved later.
+
+        Raises:
+            FleetError: *session_id* already has a session. Use
+                :meth:`replace_session` to rebuild it.
         """
+        if session_id in self._sessions:
+            raise FleetError(
+                f"session '{session_id}' already exists; use replace_session() to rebuild it",
+                session_id=session_id,
+            )
+        return self._new_session(session_id)
+
+    def replace_session(self, session_id: str) -> Engine:
+        """Discard *session_id*'s engine and return a freshly loaded one.
+
+        The new engine starts with empty working memory; call
+        :meth:`sync_fleet_facts` to pull the fleet state back in.
+
+        Raises:
+            KeyError: *session_id* has no session.
+        """
+        self._session(session_id)
+        return self._new_session(session_id)
+
+    def remove_session(self, session_id: str) -> None:
+        """Forget *session_id*'s engine.
+
+        Raises:
+            KeyError: *session_id* has no session.
+        """
+        self._session(session_id)
+        del self._sessions[session_id]
+
+    def _new_session(self, session_id: str) -> Engine:
         engine = Engine.from_rules(self._rules_path, **self._engine_kwargs)
         self._sessions[session_id] = engine
         return engine
+
+    def _session(self, session_id: str) -> Engine:
+        try:
+            return self._sessions[session_id]
+        except KeyError:
+            raise KeyError(f"unknown session '{session_id}'") from None
 
     async def assert_fact(
         self,
@@ -182,15 +244,15 @@ class FleetEngine:
         """Assert a fact into *session_id*, routing fleet-scoped facts to the store.
 
         Returns the assigned ``fact_id`` for fleet-scoped templates, or ``None``
-        for session-scoped templates.
+        for session-scoped templates. The store receives the fact as the
+        engine accepted it, defaults applied and values coerced, so
+        :meth:`query` filters match the values this session's rules see.
 
         Raises:
             KeyError: if *session_id* has no associated Engine.
             ValidationError: if the template is not registered on that Engine.
         """
-        if session_id not in self._sessions:
-            raise KeyError(f"unknown session '{session_id}'")
-        engine = self._sessions[session_id]
+        engine = self._session(session_id)
 
         tmpl_def = engine.template_registry.get(template)
         if tmpl_def is None:
@@ -204,9 +266,12 @@ class FleetEngine:
         if tmpl_def.scope == "fleet":
             # Validate locally FIRST: a fact this engine rejects must never reach
             # the shared store, where it would abort every peer's sync.
-            handles = engine._assert_local(template, data)
+            # Write what the engine accepted (defaults applied, values
+            # coerced), not the raw caller dict, so store rows, peers and
+            # `query` filters see the same values this node's rules match on.
+            validated, handles = engine._assert_local(template, data)
             try:
-                return await self._fact_store.assert_fact(template, data)
+                return await self._fact_store.assert_fact(template, validated)
             except Exception:
                 # The store write failed after the local assert; undo it so this
                 # session does not hold a fleet fact the store never accepted.
@@ -235,14 +300,18 @@ class FleetEngine:
         engine.assert_fact(template, data)
         return None
 
-    async def sync_fleet_facts(self, session: Engine) -> None:
-        """Pull fleet-scoped facts from the :class:`FactStore` into *session*.
+    async def sync_fleet_facts(self, session_id: str) -> None:
+        """Pull fleet-scoped facts from the :class:`FactStore` into *session_id*.
 
         Queries the fact store for every fleet-scoped template and
         asserts matching facts into the session's working memory. A fact the
         session rejects is logged and skipped, so one malformed row in the
         shared store cannot stop the rest of the fleet state from syncing.
+
+        Raises:
+            KeyError: *session_id* has no session.
         """
+        session = self._session(session_id)
         # Discover fleet-scoped templates from the session's loaded templates
         for tmpl_name, tmpl_def in session.template_registry.items():
             scope = tmpl_def.scope
@@ -270,5 +339,18 @@ class FleetEngine:
         template: str,
         fact_filter: FactFilter | None = None,
     ) -> list[FactData]:
-        """Query the shared :class:`FactStore` for facts matching *template*."""
+        """Query the shared :class:`FactStore` for facts matching *template*.
+
+        Raises:
+            ValidationError: *fact_filter* names a template or slot the rules
+                do not declare. The store would match a null-valued unknown
+                key against every row.
+        """
+        if fact_filter:
+            # Every session loads the same rules, so any one's registry serves.
+            # ponytail: with no session yet, loads the rules per filtered query.
+            engine = next(iter(self._sessions.values()), None) or Engine.from_rules(
+                self._rules_path, **self._engine_kwargs
+            )
+            filter_template(engine.template_registry, template, fact_filter)
         return await self._fact_store.query(template, fact_filter)

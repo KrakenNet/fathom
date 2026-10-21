@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import stat
 import sys
-from typing import TYPE_CHECKING
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
@@ -240,6 +242,123 @@ class TestFailClosed:
             reopened.append({"event": "nope"})
 
 
+class TestHostileContent:
+    def test_deeply_nested_line_reported_not_raised(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = _make_log(log_path, service, n=1)
+        log.close()
+        with open(log_path, "ab") as fh:
+            fh.write(b"[" * 100_000 + b"\n")
+        result = verify_chain(log_path, service.public_key)
+        assert not result.ok
+        assert result.error_line == 3
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after"})
+        with pytest.raises(AttestationError, match="malformed line 3"):
+            log.records()
+        cli = runner.invoke(
+            app, ["verify-chain", str(log_path), "--pubkey", str(log.public_key_path)]
+        )
+        assert cli.exit_code == 1
+        assert "malformed line 3" in cli.output
+
+    def test_close_concurrent_with_appends_never_leaks_io_errors(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        import threading
+
+        log = ChainedAttestationLog(log_path, service)
+        errors: list[BaseException] = []
+        stop = threading.Event()
+
+        def writer() -> None:
+            for i in range(100):
+                try:
+                    log.append({"i": i})
+                except BaseException as exc:  # noqa: BLE001 - collected for the assert
+                    errors.append(exc)
+
+        def closer() -> None:
+            while not stop.is_set():
+                log.close()
+
+        threads = [threading.Thread(target=writer) for _ in range(4)]
+        closing = threading.Thread(target=closer)
+        closing.start()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        stop.set()
+        closing.join()
+        log.close()
+        assert errors == []
+        assert verify_chain(log_path, service.public_key).count == 400
+
+
+class TestShrunkLogRefused:
+    """A log that shrank under a writer must be refused, never silently re-chained."""
+
+    def test_truncated_tail_refused_on_reopen(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = _make_log(log_path, service, n=5)
+        log.close()
+        lines = log_path.read_bytes().splitlines(keepends=True)
+        log_path.write_bytes(b"".join(lines[:3]))
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after"})
+        assert log.corruption is not None
+        assert len(log_path.read_bytes().splitlines()) == 3
+
+    def test_deleted_log_refused_on_reopen(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = _make_log(log_path, service, n=1)
+        log.close()
+        log_path.unlink()
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after-delete"})
+        assert log.corruption is not None
+        assert not log_path.exists() or log_path.read_bytes() == b""
+
+    def test_emptied_log_refused_before_first_append(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        ChainedAttestationLog(log_path, service).close()
+        log = ChainedAttestationLog(log_path, service)
+        log_path.write_bytes(b"")
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after-empty"})
+        assert log_path.read_bytes() == b""
+
+    @pytest.mark.parametrize(
+        "damage",
+        [
+            # Windows refuses to delete a file another handle holds open.
+            pytest.param(
+                "delete",
+                marks=pytest.mark.skipif(sys.platform == "win32", reason="open file"),
+            ),
+            "truncate",
+        ],
+    )
+    def test_log_shrunk_while_open_refused(
+        self, log_path: Path, service: AttestationService, damage: str
+    ) -> None:
+        log = _make_log(log_path, service, n=3)
+        if damage == "delete":
+            log_path.unlink()
+        else:
+            lines = log_path.read_bytes().splitlines(keepends=True)
+            log_path.write_bytes(b"".join(lines[:2]))
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after"})
+        assert log.corruption is not None
+        log.close()
+
+
 class TestAnchors:
     def test_truncation_undetectable_without_anchor(
         self, log_path: Path, service: AttestationService
@@ -431,6 +550,43 @@ class TestFormatV1:
         assert result.anchor_ok is False
 
 
+class TestCanonicalLines:
+    """Format v1 lines are the writer's canonical bytes; anything else is refused."""
+
+    @pytest.mark.parametrize(
+        "rewrite",
+        [
+            lambda line: line.replace(b'"seq":2', b'"seq":2.0'),
+            lambda line: json.dumps(json.loads(line), separators=(", ", ": ")).encode(),
+            lambda line: line.replace(b'"i":1}', b'"i":"allow","i":1}'),
+        ],
+        ids=["float-seq", "whitespace", "duplicate-key"],
+    )
+    def test_non_canonical_tail_line_fails(
+        self, log_path: Path, service: AttestationService, rewrite: Any
+    ) -> None:
+        _make_log(log_path, service, n=2).close()
+        lines = log_path.read_bytes().splitlines()
+        log_path.write_bytes(b"\n".join([*lines[:-1], rewrite(lines[-1])]) + b"\n")
+        result = verify_chain(log_path, service.public_key)
+        assert not result.ok
+        assert result.error_line == 3
+
+    def test_nan_record_refused_at_append(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = ChainedAttestationLog(log_path, service)
+        with pytest.raises(AttestationError):
+            log.append({"x": float("nan")})
+        assert b"NaN" not in log_path.read_bytes()
+        assert log.append({"x": 1}).seq == 1
+        assert log.verify().ok
+
+    def test_pem_str_accepted_as_key(self, log_path: Path, service: AttestationService) -> None:
+        _make_log(log_path, service, n=1).close()
+        assert verify_chain(log_path, service.public_key_pem().decode()).ok
+
+
 class TestKeyHandling:
     def test_atomic_key_creation_0600(self, tmp_path: Path) -> None:
         key_path = tmp_path / "keys" / "chain.key"
@@ -446,6 +602,22 @@ class TestKeyHandling:
         first = load_or_create_key(key_path)
         second = load_or_create_key(key_path)
         assert first.public_key_pem() == second.public_key_pem()
+
+    def test_concurrent_create_hands_out_one_key(self, tmp_path: Path) -> None:
+        """Racing creators must all get the key that ends up on disk."""
+        for trial in range(10):
+            key_path = tmp_path / f"k{trial}.key"
+            barrier = threading.Barrier(8)
+
+            def create(path: Path = key_path, gate: threading.Barrier = barrier) -> bytes:
+                gate.wait()
+                return load_or_create_key(path).public_key_pem()
+
+            with ThreadPoolExecutor(8) as pool:
+                pubs = {f.result() for f in [pool.submit(create) for _ in range(8)]}
+            on_disk = AttestationService.from_private_key_bytes(key_path.read_bytes())
+            assert pubs == {on_disk.public_key_pem()}
+            assert key_path.with_name(key_path.name + ".pub.pem").read_bytes() in pubs
 
     def test_write_private_key_atomic_returns_pub_path(
         self, tmp_path: Path, service: AttestationService

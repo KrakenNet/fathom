@@ -9,7 +9,7 @@ sources:
   - src/fathom/engine.py
   - src/fathom/facts.py
   - src/fathom/integrations/rest.py
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 ---
 
 # Fact
@@ -72,9 +72,11 @@ engine.assert_facts([
 ])
 ```
 
-`Engine.assert_fact` raises `ScopeError` when the referenced template's
+`Engine.assert_fact`, `Engine.assert_facts`, `Engine.step(facts=)` and
+`Engine.evaluate_once` raise `ScopeError` when a referenced template's
 `scope` is `"fleet"` — fleet-scoped facts must go through
-`FleetEngine.assert_fact`.
+`FleetEngine.assert_fact`. The batch forms check every template before
+asserting anything, so a refused batch leaves working memory unchanged.
 
 ### Rule RHS — `then.assert`
 
@@ -126,19 +128,23 @@ the assertion.
 4. **Required check** (`_check_required`, lines 274–283). Slots marked
    `required: true` still missing after defaults raise
    `ValidationError("Missing required slot(s) […] in template 'X'")`.
+   A `None` value (JSON `null`) counts as missing.
    **Note:** [Template reference](./template.md) documents
    `SlotDefinition.required` as "not currently enforced" — that is
    accurate for the compiler and CLIPS emission, but `FactManager`
    enforces it at assertion time on the SDK and REST paths.
 5. **Type coercion** (`_coerce_types`, lines 386–415):
-   - `INTEGER` slot with a `float` value where `value == int(value)` →
+   - `INTEGER` slot with a `float` value where `value.is_integer()` →
      coerced to `int` (excluding `bool`).
    - `FLOAT` slot with an `int` value → widened to `float` (excluding
      `bool`). CLIPS types a bare `3` as INTEGER and would reject it
      against a FLOAT slot, so without this the assert failed after
      validation had already passed it. JSON has one number type, so a
      REST or TypeScript caller cannot send `3.0` at all.
-   - `STRING` slot with a non-`str` value → coerced via `str(value)`.
+   - `STRING` slot with an `int` or `float` value → coerced via
+     `str(value)`. `bool`, `None`, dicts and lists are not coerced and
+     fail the type check below, so `null` never becomes the string
+     `"None"` and `true` never becomes `"True"`.
    `SYMBOL` slots are wrapped later — see
    [CLIPS coercion](#clips-coercion).
 6. **Type check** (`_check_types`, lines 428–464). Validates against
@@ -153,7 +159,13 @@ the assertion.
 
    `bool` is **explicitly rejected** for `INTEGER` and `FLOAT` slots
    (facts.py lines 438–450) even though Python's `bool` is a subclass
-   of `int` — the check runs before the `isinstance` comparison.
+   of `int` — the check runs before the `isinstance` comparison. A
+   `bool` in a `STRING` slot is never coerced, so it fails as well.
+   A non-finite `float` (`NaN`, `inf`, `-inf`) is rejected for both:
+   CLIPS compares `NaN` true against `<` and `>` alike, so a `NaN`
+   score would satisfy `less_than(0.3)` and `greater_than(0.8)` at
+   once. This covers every fact entry path (SDK, REST, gRPC, MCP,
+   fleet), since all of them validate through `FactManager`.
 7. **Allowed-values check** (`_check_allowed_values`, lines 322–337).
    When `SlotDefinition.allowed_values` is set, the value is coerced
    with `str(value)` and compared against the list. Comparison is by
@@ -189,7 +201,9 @@ stringified on readout (facts.py lines 96–98), so callers receive plain
 fact matches only when **every** filter key satisfies
 `row.get(k) == v` (facts.py lines 100–104) — equality is Python `==`,
 values are not coerced. A `None` or empty filter returns all facts.
-Unknown template raises `ValidationError("Unknown template 'X'")`.
+Unknown template raises `ValidationError("Unknown template 'X'")`, and
+a filter key that is not a slot of the template raises the same
+`ValidationError("Unknown slot(s) […]")` as an assert does.
 `Engine.count` is `len(query(...))` (facts.py lines 107–113).
 
 ```python
@@ -201,8 +215,8 @@ engine.query("access-request", {"subject": "alice"})
 
 `Engine.retract(template, fact_filter=None) -> int` forwards to
 `FactManager.retract` (`src/fathom/facts.py` lines 115–147). Filter
-semantics match `query`: a `None`/empty filter retracts **all** facts
-of the template. Matches are collected first, then retracted, to avoid
+semantics match `query`, including the unknown-slot rejection: a
+`None`/empty filter retracts **all** facts of the template. Matches are collected first, then retracted, to avoid
 mutating the CLIPS fact list during iteration. Returns the retracted
 count. Accessible via `DELETE /v1/facts`
 (`src/fathom/integrations/rest.py` lines 404–420), which takes a

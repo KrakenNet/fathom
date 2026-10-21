@@ -81,12 +81,12 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - YAML compiler for templates, rules, modules, and functions
 - Forward-chaining evaluation with rule + module traces
 - Working memory persistence across evaluations within a session
-- Classification-aware operators (`below`, `meets_or_exceeds`, `dominates`, compartments)
+- Classification-aware operators (`below`, `meets_or_exceeds`, `within_scope`, `in_compartment`, `has_compartments`) and the `fathom-dominates` built-in
 - Temporal operators (`count_exceeds`, `rate_exceeds`, `changed_within`, `last_n`, `distinct_count`, `sequence_detected`)
 - Rule-assertion actions (`then.assert` + `bind`) and user-defined Python functions (`Engine.register_function`)
 - Structured JSON audit log with append-only sinks
 - Ed25519 attestation service for signed evaluation results
-- Fleet reasoning with Redis and Postgres backends for shared working memory
+- [Fleet reasoning](docs/how-to/fleet.md) with Redis and Postgres backends for shared working memory
 
 **Integrations**
 
@@ -98,7 +98,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
   Each is allowlist-only: the call proceeds when the decision is exactly
   `allow`, and every other outcome raises `PolicyViolation` (ADK returns an
   error dict instead)
-- **CLI** — `fathom validate`, `fathom compile`, `fathom test`, `fathom bench`, `fathom info`, `fathom status`, `fathom verify-artifact`, `fathom verify-chain`, `fathom repl`
+- **CLI** — `fathom validate`, `fathom compile`, `fathom test`, `fathom bench`, `fathom info`, `fathom status`, `fathom verify-artifact`, `fathom verify-chain`, `fathom repl`, `fathom mcp`, `fathom convert`
 - **Docker sidecar** (Debian slim + uv)
 - **Prometheus metrics** export (`/metrics` endpoint)
 - **Policy Studio** — browser UI over a real engine, shipped as its own
@@ -107,11 +107,15 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 
 **Rule packs**
 
-- `fathom-owasp-agentic` — OWASP Agentic Top 10 mitigations
-- `fathom-nist-800-53` — Access control, audit, information flow
-- `fathom-hipaa` — PHI handling, minimum necessary, breach triggers
-- `fathom-cmmc` — CMMC Level 2+ controls
-- `fathom-ssvc` — SSVC supplier, deployer, and CISA vulnerability-triage trees (144 rules)
+Load one by name with `Engine.load_pack("<name>")`:
+
+- `owasp-agentic` — OWASP Agentic Top 10 mitigations
+- `nist-800-53` — Access control, audit, information flow
+- `hipaa` — PHI handling, minimum necessary, breach triggers
+- `cmmc` — CMMC Level 2+ controls
+- `ssvc` — SSVC supplier, deployer, and CISA vulnerability-triage trees (144 rules)
+- `schema-denoising` — promotes a relation to stable schema once enough extracted facts carry it
+- `conflict-detection` — reports contradictions between claims about the same subject as `conflict` facts
 
 **SDKs (in progress)**
 
@@ -155,25 +159,34 @@ result = engine.evaluate()
 **As a REST sidecar**
 
 ```bash
-docker run -p 8080:8080 -v ./rules:/rules ghcr.io/krakennet/fathom:latest
-curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8080/v1/evaluate \
-  -d '{"facts": [...], "ruleset": "access-control"}'
+# ./rules/access-control/ holds a ruleset (templates/, rules/, ...);
+# the image serves rulesets from /rules (FATHOM_RULESET_ROOT).
+export TOKEN=change-me
+docker run -p 8080:8080 -e FATHOM_API_TOKEN="$TOKEN" \
+  -v "$PWD/rules:/rules:ro" ghcr.io/krakennet/fathom:latest
+curl -X POST localhost:8080/v1/evaluate \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"facts": [], "ruleset": "access-control"}'
 ```
 
 **As a gRPC sidecar**
 
 ```bash
-# protos/fathom.proto — regenerate Go/TS clients from the proto
-grpcurl -H "authorization: Bearer $TOKEN" \
-  -d '{"facts": [...]}' localhost:50051 fathom.v1.Fathom/Evaluate
+# Server: fathom.integrations.grpc_server.serve(), TLS by default
+# (docs/reference/configuration.md#grpc-tls). It has no reflection, so
+# grpcurl reads protos/fathom.proto — regenerate Go/TS clients from it too.
+grpcurl -import-path protos -proto fathom.proto \
+  -H "authorization: Bearer $TOKEN" \
+  -d '{"ruleset": "access-control", "facts": []}' \
+  localhost:50051 fathom.v1.FathomService/Evaluate
 ```
 
 **As an MCP tool**
 
 ```python
 from fathom.integrations.mcp_server import FathomMCPServer
-server = FathomMCPServer(engine)
-server.serve()
+server = FathomMCPServer("rules/")
+server.run()  # stdio
 ```
 
 ## Documentation
@@ -239,7 +252,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines and [CHAN
 
 Fathom is pre-1.0. [VERSIONING.md](VERSIONING.md) names the surfaces that are
 covered — `fathom.__all__`, the YAML authoring keys, the REST/gRPC/MCP
-contracts, and the CLI — states what a `0.x` minor and patch bump each mean for
+contracts, the CLI, the rule packs and pack format, the framework
+integrations, the Rego converter, and the Redis/Postgres fleet stores — states what a `0.x` minor and patch bump each mean for
 them, and defines the deprecation period. The symbol list there is checked
 against the package on every test run.
 

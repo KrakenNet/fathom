@@ -4,7 +4,7 @@ summary: How authored YAML becomes CLIPS source — parse, validate, compile —
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 sources:
   - src/fathom/compiler.py
   - src/fathom/models.py
@@ -26,7 +26,7 @@ with two models in between:
 
 ```
 YAML text
-  │  yaml.safe_load()       (parse)
+  │  safe_load()            (parse)
   ▼
 Python dicts / lists
   │  Pydantic validation    (validate)
@@ -40,8 +40,10 @@ CLIPS source string
 Construct live in the CLIPS environment
 ```
 
-Parsing is boring: `yaml.safe_load` turns text into nested Python
-containers. Validation is where the interesting work happens — Pydantic
+Parsing is boring: `fathom.yaml_utils.safe_load`, PyYAML's safe loader
+that also rejects a mapping key given twice, turns text into nested
+Python containers. PyYAML alone keeps the last of two equal keys, so a
+second `expression:` would silently replace the first. Validation is where the interesting work happens — Pydantic
 rejects malformed or unsafe input *before* any CLIPS source is generated.
 Compilation is a string transform: each validated model goes through a
 matching `Compiler.compile_*` method that returns a CLIPS construct as

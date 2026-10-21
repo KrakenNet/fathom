@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from fathom.attestation import AttestationService, verify_token
-from fathom.integrations.rest import SessionStore, app, session_store
+from fathom.integrations.rest import SessionStore, app
 from fathom.integrations.sessions import SessionLimitError
 
 if TYPE_CHECKING:  # pragma: no cover - annotation-only import
@@ -22,7 +22,7 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 @pytest.fixture(autouse=True)
 def _reset_session_store() -> None:
     """Clear the module-level session store between tests."""
-    session_store._sessions.clear()
+    app.state.session_store._sessions.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -270,7 +270,7 @@ class TestStatelessEvaluate:
             },
             headers=auth_headers,
         )
-        assert len(session_store._sessions) == 0
+        assert len(app.state.session_store._sessions) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ class TestStatefulEvaluate:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        assert "sess-1" in session_store._sessions
+        assert "sess-1" in app.state.session_store._sessions
 
     def test_session_reuses_engine(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         """Second request with same session_id reuses the Engine."""
@@ -427,7 +427,7 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine1 = session_store._sessions["sess-reuse"].engine
+        engine1 = app.state.session_store._sessions["sess-reuse"].engine
 
         client.post(
             "/v1/evaluate",
@@ -438,7 +438,7 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine2 = session_store._sessions["sess-reuse"].engine
+        engine2 = app.state.session_store._sessions["sess-reuse"].engine
         assert engine1 is engine2
 
     def test_facts_persist_across_requests(
@@ -505,8 +505,8 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine_a = session_store._sessions["sess-A"].engine
-        engine_b = session_store._sessions["sess-B"].engine
+        engine_a = app.state.session_store._sessions["sess-A"].engine
+        engine_b = app.state.session_store._sessions["sess-B"].engine
         assert engine_a is not engine_b
 
     def test_stateful_returns_200(self, client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -729,6 +729,42 @@ class TestEvaluateMetadata:
             headers=auth_headers,
         )
         assert response.json()["metadata"] == {}
+
+
+class TestEvaluateNonFinite:
+    """A raw JSON ``NaN`` in a float slot is refused, not compared."""
+
+    def test_nan_score_is_422(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # NaN satisfies `less_than(0.3)` in CLIPS, so this allow-only rule
+        # granted a NaN score before float slots were checked for finiteness.
+        for sub, body in {
+            "templates": "templates:\n"
+            "  - name: req\n"
+            "    slots:\n"
+            "      - {name: score, type: float, required: true}\n",
+            "modules": "modules:\n  - name: m\nfocus_order: [m]\n",
+            "rules": "module: m\n"
+            "rules:\n"
+            "  - name: allow_low_risk\n"
+            "    when: [{template: req, conditions:\n"
+            "      [{slot: score, expression: less_than(0.3)}]}]\n"
+            "    then: {action: allow, reason: low risk}\n",
+        }.items():
+            (tmp_path / sub).mkdir()
+            (tmp_path / sub / f"{sub}.yaml").write_text(body, encoding="utf-8")
+        monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
+        response = client.post(
+            "/v1/evaluate",
+            content=b'{"facts": [{"template": "req", "data": {"score": NaN}}], "ruleset": ""}',
+            headers={**auth_headers, "Content-Type": "application/json"},
+        )
+        assert response.status_code == 422, response.text
 
 
 class TestEvaluateAttestation:

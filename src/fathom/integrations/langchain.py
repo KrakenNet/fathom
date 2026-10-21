@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any
 # was the only import path before this class was shared.
 from fathom.integrations import PolicyViolation as PolicyViolation
 
+__all__ = ["FathomAsyncCallbackHandler", "FathomCallbackHandler", "fathom_guard"]
+
 try:
     from langchain_core.callbacks import (
         AsyncCallbackHandler,

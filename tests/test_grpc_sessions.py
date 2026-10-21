@@ -15,7 +15,7 @@ import grpc
 import pytest
 
 from fathom.integrations.grpc_server import FathomServicer
-from fathom.integrations.sessions import SessionStore
+from fathom.integrations.sessions import MAX_SESSION_ID_LENGTH, SessionStore
 
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples" / "01-hello-allow-deny"
 
@@ -96,6 +96,15 @@ class TestGrpcSessionBounds:
             _evaluate(svc, ctx, "strict", "s2")
         assert ctx.aborted is not None
         assert ctx.aborted[0] is grpc.StatusCode.RESOURCE_EXHAUSTED
+
+    def test_overlong_session_id_aborts_invalid_argument(self, ruleset_root: Path) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+        with pytest.raises(RuntimeError, match="aborted"):
+            _evaluate(svc, ctx, "strict", "s" * (MAX_SESSION_ID_LENGTH + 1))
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+        assert svc._session_store.get("s" * (MAX_SESSION_ID_LENGTH + 1)) is None
 
     def test_expired_sessions_are_reclaimed(self, ruleset_root: Path) -> None:
         svc = FathomServicer()
@@ -238,3 +247,175 @@ class TestGrpcSessionsOnAMountedServer:
 
         assert ctx.aborted is None
         assert len(svc._session_store) == 1
+
+
+class TestGrpcWorkingMemoryNeedsASession:
+    """AssertFact/Query/Retract/SubscribeChanges are session-scoped, as on REST.
+
+    A session-less call used to reach the servicer's default engine -- the
+    mounted, served policy -- so one caller's AssertFact or Retract changed
+    every later caller's decision. REST answers the same calls 400
+    ``X-Session-Id header required``.
+    """
+
+    @pytest.mark.parametrize("rpc", ["AssertFact", "Query", "Retract", "SubscribeChanges"])
+    def test_session_less_working_memory_rpc_is_refused(
+        self, ruleset_root: Path, rpc: str
+    ) -> None:
+        from fathom.engine import Engine
+
+        svc = FathomServicer(default_engine=Engine.from_rules(str(ruleset_root / "strict")))
+        ctx = _FakeContext()
+        request = SimpleNamespace(
+            session_id="", template="agent", data_json='{"id": "x"}', filter_json=""
+        )
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            result = getattr(svc, rpc)(request, ctx)
+            next(iter(result))  # SubscribeChanges is a generator
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+        assert "session_id required" in ctx.aborted[1]
+
+    def test_a_refused_assert_cannot_change_a_later_decision(self, ruleset_root: Path) -> None:
+        from fathom.engine import Engine
+
+        svc = FathomServicer(default_engine=Engine.from_rules(str(ruleset_root / "strict")))
+        facts = [
+            SimpleNamespace(template="agent", data_json='{"id": "a", "clearance": "secret"}'),
+            SimpleNamespace(
+                template="data_request",
+                data_json='{"agent_id": "a", "classification": "secret", "resource": "r"}',
+            ),
+        ]
+        req = SimpleNamespace(session_id="", ruleset="", facts=facts)
+        before = svc.Evaluate(req, _FakeContext()).decision
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            svc.AssertFact(
+                SimpleNamespace(
+                    session_id="",
+                    template="agent",
+                    data_json='{"id": "a", "clearance": "unclassified"}',
+                ),
+                _FakeContext(),
+            )
+
+        assert svc.Evaluate(req, _FakeContext()).decision == before
+
+
+class TestGrpcBadInputIsInvalidArgument:
+    """A fact or filter the engine refuses is the caller's error, as REST's 422.
+
+    It used to escape the handler as a bare exception, which grpc reports as
+    UNKNOWN with no hint that the request itself was wrong.
+    """
+
+    @pytest.mark.parametrize(
+        ("rpc", "fields"),
+        [
+            ("AssertFact", {"template": "agent", "data_json": '{"id": "a", "nope": 1}'}),
+            ("AssertFact", {"template": "agent", "data_json": "{not json"}),
+            ("Query", {"template": "agent", "filter_json": '{"nope": 1}'}),
+            ("Retract", {"template": "agent", "filter_json": '{"nope": 1}'}),
+        ],
+    )
+    def test_session_rpc(self, ruleset_root: Path, rpc: str, fields: dict[str, str]) -> None:
+        svc = FathomServicer()
+        _evaluate(svc, _FakeContext(), "strict", "S")
+        ctx = _FakeContext()
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            getattr(svc, rpc)(SimpleNamespace(session_id="S", **fields), ctx)
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+
+    def test_evaluate(self, ruleset_root: Path) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+        bad = SimpleNamespace(template="agent", data_json='{"id": null}')
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            svc.Evaluate(SimpleNamespace(session_id="", ruleset="strict", facts=[bad]), ctx)
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+
+
+class TestGrpcNonObjectJsonIsInvalidArgument:
+    """JSON that parses but is not an object is refused, not UNKNOWN.
+
+    ``[1]``, ``5``, ``"s"`` and ``null`` reached the engine and failed with
+    ``'list' object has no attribute 'keys'``; REST answers 422. A
+    ``filter_json`` of ``null`` used to mean "no filter", so Retract deleted
+    every fact of the template. Only an empty ``filter_json`` means that now.
+    """
+
+    @pytest.mark.parametrize("raw", ["[1]", "5", '"s"', "null"])
+    @pytest.mark.parametrize(
+        ("rpc", "field"),
+        [("AssertFact", "data_json"), ("Query", "filter_json"), ("Retract", "filter_json")],
+    )
+    def test_session_rpc(self, ruleset_root: Path, rpc: str, field: str, raw: str) -> None:
+        svc = FathomServicer()
+        _evaluate(svc, _FakeContext(), "strict", "S")
+        svc.AssertFact(
+            SimpleNamespace(
+                session_id="S", template="agent", data_json='{"id": "a", "clearance": "secret"}'
+            ),
+            _FakeContext(),
+        )
+        ctx = _FakeContext()
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            getattr(svc, rpc)(
+                SimpleNamespace(session_id="S", template="agent", **{field: raw}), ctx
+            )
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+        assert "JSON object" in ctx.aborted[1]
+        assert len(svc._session_store.get("S").query("agent")) == 1  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize("raw", ["[1]", "5", '"s"', "null"])
+    def test_evaluate(self, ruleset_root: Path, raw: str) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+        fact = SimpleNamespace(template="agent", data_json=raw)
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            svc.Evaluate(SimpleNamespace(session_id="", ruleset="strict", facts=[fact]), ctx)
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+
+
+class TestGrpcEvaluateOpensASession:
+    """Evaluate is the call that creates a session, with or without a ruleset.
+
+    A session-scoped Evaluate with no ruleset on an unknown id answered
+    NOT_FOUND "create it with Evaluate first" -- from Evaluate itself. REST
+    opens a session bound to the empty ruleset for the same request.
+    """
+
+    def test_evaluate_without_a_ruleset_creates_the_session(self, ruleset_root: Path) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+
+        _evaluate(svc, ctx, "", "fresh")
+
+        assert ctx.aborted is None
+        assert svc._session_store.get("fresh") is not None
+
+    def test_evaluate_without_a_ruleset_still_joins_an_existing_session(
+        self, ruleset_root: Path
+    ) -> None:
+        svc = FathomServicer()
+        _evaluate(svc, _FakeContext(), "strict", "S")
+        ctx = _FakeContext()
+
+        _evaluate(svc, ctx, "", "S")
+
+        assert ctx.aborted is None

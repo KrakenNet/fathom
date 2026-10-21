@@ -197,11 +197,11 @@ class TestClassificationFunctionsRank:
         for level, idx in expected_cases:
             assert f'(case "{level}" then {idx})' in result
 
-    def test_rank_default_minus_one(self, compiler: Compiler) -> None:
+    def test_rank_default_refuses_unknown_level(self, compiler: Compiler) -> None:
         hier = self._make_hierarchy("cls", ["low", "high"])
         defn = self._make_defn("cls", "cls.yaml")
         result = compiler.compile_function(defn, hierarchy=hier)
-        assert "(default -1)" in result
+        assert '(default (fathom-unknown-level "cls" ?level))' in result
 
     @pytest.mark.parametrize(
         "levels",
@@ -631,11 +631,13 @@ class TestParseFunctionFileErrors:
         with pytest.raises(CompilationError, match="(?i)invalid YAML"):
             compiler.parse_function_file(yaml_file)
 
-    def test_missing_params_field(self, compiler: Compiler, tmp_path: Path) -> None:
+    def test_missing_params_field_defaults_to_empty(
+        self, compiler: Compiler, tmp_path: Path
+    ) -> None:
+        # Neither function type reads `params`, so it is not required.
         yaml_file = tmp_path / "no_params.yaml"
         yaml_file.write_text("functions:\n  - name: fn\n    type: raw\n")
-        with pytest.raises(CompilationError, match="(?i)invalid function"):
-            compiler.parse_function_file(yaml_file)
+        assert compiler.parse_function_file(yaml_file)[0].params == []
 
 
 # ---------------------------------------------------------------------------

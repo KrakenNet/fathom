@@ -4,7 +4,7 @@ summary: Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed
 audience: [operators]
 diataxis: how-to
 status: stable
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/integrations/grpc_server.py
@@ -54,6 +54,10 @@ app = build_app()
 app.state.engine = Engine.from_rules("/var/lib/fathom/rulesets/prod")
 app.state.attestation = AttestationService.generate_keypair()
 ```
+
+Each `build_app()` call returns a new app with its own `state` and session
+store, separate from the module-level `app` that
+`uvicorn fathom.integrations.rest:app` serves. Serve the object it returns.
 
 ## What carries over, and what does not
 
@@ -123,6 +127,10 @@ Nothing else about the swap changes: the new environment is still built and
 compiled outside the lock, and a failed compile still leaves the old one
 serving.
 
+In-process, pass `signature=` and `pubkey_pem=` to verify the payload first. A
+failed check raises `fathom.RulesetSignatureError`, a `FathomError`, before any
+compile work, and the old ruleset keeps serving.
+
 What it costs is the property the default has. The swap stops being a pointer
 assignment and becomes a copy proportional to working memory, taken with the
 engine lock held, so concurrent `evaluate()` and `assert_fact()` calls wait on
@@ -149,11 +157,12 @@ Content-Type: application/json
 
 Request body — supply **exactly one** of `ruleset_path` or
 `ruleset_yaml`; `signature` is required in production (fail-closed
-default):
+default). `ruleset_path` is relative to `FATHOM_RULESET_ROOT`; an absolute
+path or one that escapes the root is refused with 400:
 
 ```json
 {
-  "ruleset_path": "/etc/fathom/rulesets/prod-2026-04-22.yaml",
+  "ruleset_path": "prod/rules/access.yaml",
   "signature":    "<base64 Ed25519 over the raw YAML bytes>"
 }
 ```
@@ -163,7 +172,7 @@ on the Fathom host:
 
 ```json
 {
-  "ruleset_yaml": "rules:\n  - id: ...\n",
+  "ruleset_yaml": "ruleset: prod\nmodule: gov\nrules:\n  - name: ...\n",
   "signature":    "<base64 Ed25519 over the ruleset_yaml bytes>"
 }
 ```
@@ -181,19 +190,23 @@ Response (200):
 Error codes:
 
 - `400 invalid_request` — both or neither of `ruleset_path` /
-  `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
-  not valid base64; ruleset failed to compile. Each emits
-  `ruleset_reload_rejected` to the audit sink.
+  `ruleset_yaml` supplied; `ruleset_path` outside the root or
+  unreadable; `signature` is not valid base64.
+- `400 invalid_ruleset` — the ruleset failed to compile.
 - `400 unsigned_ruleset` — `require_signature=true` (the default) and
   either `signature` is missing or Ed25519 verification failed. Also
   emits `ruleset_reload_rejected` to the audit sink.
 - `413 payload_too_large` — the request body exceeds the reload size
   cap (see below). Enforced before any YAML parsing.
+- `422 validation_error` — the body is not a valid request object.
 - `500 server_misconfigured` — `require_signature=true` but the
   pubkey never loaded (should have failed at boot; treated as
   defence-in-depth).
 - `503 not_ready` — engine or attestation service not yet configured
-  on `app.state`.
+  on `app.state`. Checked first, and the only refusal that is not
+  audited (there is no engine to report a hash for).
+
+Every other refusal emits `ruleset_reload_rejected` to the audit sink.
 
 ## Admin token, body size cap, and rate limiting
 
@@ -304,7 +317,9 @@ is missing, unset, or unreadable, `build_app()` raises a
 `RuntimeError` with the message `ruleset pubkey unreadable or missing;
 set FATHOM_RULESET_PUBKEY_PATH or enable dev escape` and the server
 never starts. This is deliberate — failing at boot beats failing on
-first reload attempt.
+first reload attempt. The check lives in `build_app()` only: the
+module-level `fathom.integrations.rest:app` mounts no Engine, never reads
+the key, and starts without it, answering every reload `503 not_ready`.
 
 ## Dev escape (development only)
 
@@ -399,15 +414,17 @@ configured audit sink. Successful reloads emit:
 Every rejected reload emits `event_type: ruleset_reload_rejected` with a
 `reason` field and the *unchanged* `ruleset_hash_before`. The reasons are
 `missing_signature`, the verification failure text, `compile_failed`,
-`unreadable_ruleset_path`, `malformed_signature`, `invalid_request` (both or
-neither source named), and `server_misconfigured`. Both transports emit them;
+`unreadable_ruleset_path`, `path_rejected`, `malformed_signature`,
+`invalid_request` (both or neither source named), `payload_too_large`,
+`validation_error`, and `server_misconfigured`. Both transports emit them;
 neither returns the compiler's diagnostic or the resolved server-side path to
 the caller, so the audit sink is where an operator reads what happened.
 
 The `attestation_token` returned from a successful reload is a JWT
 signed by the server's `AttestationService.sign_event()` (C6); you can
-verify it offline with the service's pubkey and replay it in your
-audit trail as a non-repudiation proof.
+verify it offline with the service's pubkey —
+`verify_token(token, public_key, typ="fathom.event")` — and replay it in
+your audit trail as a non-repudiation proof.
 
 ## Rotating the runtime pubkey
 
@@ -441,9 +458,11 @@ operator has ever had a "signatures optional" hot-reload in
 production. However, operators who have been experimenting with
 pre-release dev builds that accepted unsigned rulesets need to know:
 
-- **The default is fail-closed.** After upgrading, a server started
-  without `FATHOM_RULESET_PUBKEY_PATH` will refuse to boot with
-  `ruleset pubkey unreadable or missing…`. This is intentional.
+- **The default is fail-closed.** After upgrading, a server built with
+  `build_app()` and started without `FATHOM_RULESET_PUBKEY_PATH` will
+  refuse to boot with `ruleset pubkey unreadable or missing…`. This is
+  intentional. The module-level `fathom.integrations.rest:app` has no
+  reloadable Engine and boots either way.
 - **Before restart, pick one of:**
   1. **Production path (recommended).** Generate a runtime keypair
      (or decide to reuse the release key), publish the pubkey file,

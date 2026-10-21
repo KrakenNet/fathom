@@ -4,7 +4,7 @@ summary: Mount the bundled Fathom REST app or wrap Engine directly to add rule e
 audience: [app-developers]
 diataxis: how-to
 status: stable
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 sources:
   - src/fathom/integrations/rest.py
   - src/fathom/engine.py
@@ -95,7 +95,8 @@ def evaluate(fact: FactInput):
 ## Auth
 
 The bundled `app` enforces bearer-token authentication on every endpoint
-except `GET /health`. The implementation lives in
+except `GET /health` and `GET /v1/status`, which serve liveness and
+ruleset-hash information to probes. The implementation lives in
 `src/fathom/integrations/auth.py` and works as follows:
 
 1. Every protected endpoint declares `Depends(_require_auth)`.

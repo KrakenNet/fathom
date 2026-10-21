@@ -3,7 +3,7 @@ title: YAML Reference
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 ---
 
 # YAML Reference
@@ -20,6 +20,32 @@ Schemas are regenerated from `fathom.models` on every docs build.
 | Module | [Module](module.md) |
 | Function | [Function](function.md) |
 | Fact | [Fact](fact.md) |
+
+## File-level keys
+
+Each YAML file holds one kind of construct, named by its top-level key.
+Any other top-level key is a `CompilationError` at load (`parse_*_file`,
+`Engine.reload_rules`), an error from `fathom validate`, and an error
+from `POST /v1/compile`:
+
+| File | Allowed top-level keys |
+|---|---|
+| Template | `templates` |
+| Module | `modules`, `focus_order` |
+| Function | `functions`, `hierarchies` |
+| Rule | `ruleset`, `version`, `module`, `rules` |
+
+A mapping key given twice anywhere in a file (two `expression:` keys in
+one condition, say) is invalid YAML to Fathom: every loader rejects it
+instead of keeping the last value. Overriding a key merged in with `<<`
+is not a duplicate.
+
+A file with none of these keys (only unknown keys, `{}`, or a
+`focus_order` with no `modules`) holds no construct: `fathom compile`,
+`fathom validate` and `POST /v1/compile` all refuse it.
+`POST /v1/compile` compiles a document through the same function as
+`fathom compile`, so the two accept and refuse the same files, function
+files included.
 
 ## Downloads
 

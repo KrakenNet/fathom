@@ -4,7 +4,7 @@ summary: Export the stateless subset of a Fathom ruleset to Rego with fathom con
 audience: [app-developers, rule-authors]
 diataxis: how-to
 status: stable
-last_verified: 2026-08-27
+last_verified: 2026-10-21
 sources:
   - src/fathom/rego.py
   - src/fathom/cli.py
@@ -113,15 +113,18 @@ with a count rather than once per rule.
 | More than one fact pattern | The rule joins across facts; Rego has one input document to join against. |
 | `then.assert` | The rule adds to working memory. Rego derives documents from one input and cannot. |
 | No `then.action` | Pure inference — the part of Fathom Rego does not have. |
-| `then.scope` | The decision carries a scope value; a Rego document is a boolean here. |
 | A temporal operator | `changed_within`, `count_exceeds` and the rest ask about history, and Rego has no memory of the last input. |
 | A classification operator | `below`, `meets_or_exceeds` and the rest resolve against a hierarchy, which is engine state. |
 | `bind:` or `test:` | A bind is a join; a raw CLIPS conditional element has no translation. |
 | A `$alias.field` reference | A cross-fact reference. |
+| A `matches` regex RE2 cannot evaluate | Lookahead, lookbehind, backreferences (`\1`, `(?P=name)`), atomic groups and conditionals. OPA's `regex.match` is RE2; on one of these it errors, OPA's default mode reads the error as undefined, and the rule would never fire. |
 
-A refused rule is left out entirely. `--strict` exits non-zero when anything
-was refused; without it the command exits non-zero only when *nothing*
-exported.
+A refused rule is left out entirely, unless it decides `deny`: leaving a
+deny out would make the Rego allow what the ruleset denied, so a refused
+`deny` rule fails the whole export -- the command exits 3 and writes nothing,
+and `export_engine` raises `CompilationError`. Otherwise `--strict` exits
+non-zero when anything was refused; without it the command exits non-zero only
+when *nothing* exported.
 
 ## What the export changes even when it succeeds
 

@@ -393,11 +393,15 @@ class TestAuditEvents:
         assert "AU-2" not in (result.reason or "")
 
     def test_non_audit_event_not_escalated(self, nist_engine: Engine) -> None:
-        """Non-auditable event type with unknown outcome should NOT trigger AU-2."""
+        """An event type outside AU-2's list, with unknown outcome, should NOT trigger AU-2.
+
+        `event_type` is a closed vocabulary, so this is a listed type AU-2
+        does not name, not a free-form one such as `heartbeat`.
+        """
         nist_engine.assert_fact(
             "audit_event",
             {
-                "event_type": "heartbeat",
+                "event_type": "export",
                 "subject": "system",
                 "outcome": "unknown",
                 "ts": 1700000000.0,
@@ -776,3 +780,17 @@ class TestSalienceOrdering:
         assert "nist::audit-review-analysis" in result.rule_trace
         assert result.decision == "deny"
         assert "AC-3" in (result.reason or "")
+
+
+@pytest.mark.parametrize("event_type", ["access", "modify", "delete", "export"])
+def test_every_data_event_needs_a_resource(event_type: str) -> None:
+    engine = Engine(default_decision="allow")
+    engine.load_pack("nist-800-53")
+    fact = {
+        "event_type": event_type,
+        "subject": "bob",
+        "resource": "",
+        "outcome": "success",
+        "ts": 1.0,
+    }
+    assert "nist::audit-generation" in engine.evaluate_once([("audit_event", fact)]).rule_trace

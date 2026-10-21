@@ -157,3 +157,34 @@ def test_malformed_sig(artifact: Path, keypair: tuple[Path, Path]) -> None:
     sig.write_bytes(b"this is not a valid minisign signature file\n")
     result = _invoke(artifact, sig, pub)
     assert result.exit_code == 3
+
+
+@pytest.mark.parametrize("target", ["sig", "pubkey"])
+def test_non_utf8_input_is_malformed(
+    artifact: Path, keypair: tuple[Path, Path], target: str
+) -> None:
+    """A non-UTF-8 .minisig or pubkey is malformed input → exit 3, not a crash."""
+    pub, priv = keypair
+    sig = _sign(artifact, priv)
+    (sig if target == "sig" else pub).write_bytes(b"\xff\xfe untrusted comment\n")
+    result = _invoke(artifact, sig, pub)
+    assert result.exit_code == 3, result.output
+
+
+def test_forged_trusted_comment_fails(artifact: Path, keypair: tuple[Path, Path]) -> None:
+    """The trusted comment is covered by the global signature, as `minisign -V` checks."""
+    pub, priv = keypair
+    sig = _sign(artifact, priv)
+    lines = sig.read_text().splitlines()
+    lines[2] = "trusted comment: forged"
+    sig.write_text("\n".join(lines) + "\n")
+    result = _invoke(artifact, sig, pub)
+    assert result.exit_code == 1, result.output
+
+
+def test_missing_trusted_comment_is_malformed(artifact: Path, keypair: tuple[Path, Path]) -> None:
+    pub, priv = keypair
+    sig = _sign(artifact, priv)
+    sig.write_text("\n".join(sig.read_text().splitlines()[:2]) + "\n")
+    result = _invoke(artifact, sig, pub)
+    assert result.exit_code == 3, result.output

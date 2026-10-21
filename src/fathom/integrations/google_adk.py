@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 # was the only import path before this class was shared.
 from fathom.integrations import PolicyViolation as PolicyViolation
 
+__all__ = ["fathom_before_tool_callback"]
+
 try:
     from google.adk import agents  # noqa: F401
 except ImportError as _exc:

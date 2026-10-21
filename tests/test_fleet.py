@@ -266,6 +266,42 @@ class TestFleetEngineCreateSession:
         assert e1 is not e2
         assert len(fleet.sessions) == 2
 
+    def test_duplicate_id_raises(self) -> None:
+        from fathom.errors import FleetError
+
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        first = fleet.create_session("sess-1")
+        with pytest.raises(FleetError, match="replace_session") as info:
+            fleet.create_session("sess-1")
+        assert info.value.session_id == "sess-1"
+        assert fleet.sessions["sess-1"] is first
+
+    def test_replace_session_rebuilds(self) -> None:
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        first = fleet.create_session("sess-1")
+        second = fleet.replace_session("sess-1")
+        assert second is not first
+        assert fleet.sessions["sess-1"] is second
+
+    def test_remove_session(self) -> None:
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        fleet.create_session("sess-1")
+        fleet.remove_session("sess-1")
+        assert fleet.sessions == {}
+        fleet.create_session("sess-1")
+
+    @pytest.mark.asyncio
+    async def test_unknown_id_raises_key_error_everywhere(self) -> None:
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        with pytest.raises(KeyError, match="nope"):
+            fleet.replace_session("nope")
+        with pytest.raises(KeyError, match="nope"):
+            fleet.remove_session("nope")
+        with pytest.raises(KeyError, match="nope"):
+            await fleet.sync_fleet_facts("nope")
+        with pytest.raises(KeyError, match="nope"):
+            await fleet.assert_fact("nope", "agent", {"id": "a1"})
+
 
 class TestFleetEngineSyncAndQuery:
     """FleetEngine fleet-scoped sync and query."""
@@ -287,6 +323,20 @@ class TestFleetEngineSyncAndQuery:
         await store.assert_fact("agent", {"id": "a2", "clearance": "top-secret"})
         results = await fleet.query("agent", {"clearance": "secret"})
         assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_query_refuses_unknown_filter_slot(self) -> None:
+        """A typo'd filter key with a null value would otherwise match every row."""
+        from fathom.errors import ValidationError
+
+        store = InMemoryFactStore()
+        fleet = FleetEngine(fact_store=store, rules_path=FIXTURES_DIR)
+        await store.assert_fact("agent", {"id": "a1", "clearance": "secret"})
+        with pytest.raises(ValidationError, match="typo"):
+            await fleet.query("agent", {"typo": None})
+        fleet.create_session("sess-1")
+        with pytest.raises(ValidationError, match="typo"):
+            await fleet.query("agent", {"typo": None})
 
     @pytest.mark.asyncio
     async def test_sync_fleet_facts_injects_fleet_scoped(self) -> None:
@@ -315,7 +365,7 @@ class TestFleetEngineSyncAndQuery:
         await store.assert_fact("shared_status", {"status": "online"})
 
         # Sync should inject the fact into the session
-        await fleet.sync_fleet_facts(session)
+        await fleet.sync_fleet_facts("sess-1")
 
         # Verify fact is now in session's working memory
         facts = list(session._env.facts())
@@ -331,7 +381,7 @@ class TestFleetEngineSyncAndQuery:
 
         # "agent" template is loaded from fixtures as session-scoped (default)
         await store.assert_fact("agent", {"id": "a1"})
-        await fleet.sync_fleet_facts(session)
+        await fleet.sync_fleet_facts("sess-1")
 
         # Session-scoped template facts should NOT be synced
         facts = list(session._env.facts())
@@ -371,7 +421,7 @@ async def test_fleet_assert_fact_write_through(tmp_path: Path) -> None:
     await fleet.assert_fact("A", "user_session", {"user": "alice"})
 
     # Session B pulls fleet facts
-    await fleet.sync_fleet_facts(eng_b)
+    await fleet.sync_fleet_facts("B")
     facts = eng_b.query("user_session")
     assert any(f["user"] == "alice" for f in facts)
 
@@ -542,6 +592,45 @@ class TestFleetEngineValidateBeforeWrite:
         assert len(await store.query("shared_status")) == 1
 
 
+class TestFleetStoreHoldsTheValidatedFact:
+    """The store row must equal the fact the engine accepted."""
+
+    @pytest.mark.asyncio
+    async def test_defaults_and_coercion_reach_the_store(self, tmp_path: Path) -> None:
+        """The raw caller dict was written, so `query(filter)` disagreed with rules.
+
+        A defaulted slot was missing from the store row, and a value the
+        engine coerced (int 123 -> "123" for a STRING slot) kept its original
+        type there, so peers synced, and queries filtered, on different
+        values than this node's rules saw.
+        """
+        from fathom.models import SlotDefinition, SlotType, TemplateDefinition
+
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        store = InMemoryFactStore()
+        fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
+        engine = fleet.create_session("A")
+        engine._template_registry["beat"] = TemplateDefinition(
+            name="beat",
+            scope="fleet",
+            slots=[
+                SlotDefinition(name="agent", type=SlotType.STRING, required=True),
+                SlotDefinition(name="n", type=SlotType.INTEGER, default=0),
+            ],
+        )
+        engine._safe_build(
+            "(deftemplate beat (slot agent (type STRING)) (slot n (type INTEGER)))",
+            context="beat",
+        )
+
+        await fleet.assert_fact("A", "beat", {"agent": 123})
+
+        assert engine.query("beat") == [{"agent": "123", "n": 0}]
+        assert len(await fleet.query("beat", {"agent": "123", "n": 0})) == 1
+        assert await fleet.query("beat", {"agent": 123}) == []
+
+
 class TestFleetScopeGuardIsSymmetric:
     """`retract` must refuse a fleet template just as `assert_fact` does."""
 
@@ -555,11 +644,40 @@ class TestFleetScopeGuardIsSymmetric:
         _seed_shared_status(engine)
         engine._assert_local("shared_status", {"status": "online"})
 
-        with pytest.raises(ScopeError, match="fleet-scoped"):
+        with pytest.raises(ScopeError, match=r"fleet-scoped.*replace_session\(\)"):
             engine.retract("shared_status")
 
         # Refused, not partially applied.
         assert engine.query("shared_status") == [{"status": "online"}]
+
+    @pytest.mark.parametrize("entry", ["assert_facts", "step"])
+    def test_batch_assert_of_a_fleet_fact_is_refused(self, entry: str) -> None:
+        """`assert_facts` and `step(facts=)` must guard like `assert_fact`.
+
+        They did not: the fleet fact landed in this node's working memory
+        only, never reached the store, and the node silently diverged from
+        its peers. The guard covers the whole batch before anything is
+        asserted, so a session-scoped fact earlier in the list is not left
+        behind either.
+        """
+        from fathom.engine import Engine
+        from fathom.errors import ScopeError
+        from fathom.models import TemplateDefinition
+
+        engine = Engine()
+        _seed_shared_status(engine)
+        engine._template_registry["note"] = TemplateDefinition(name="note", slots=[])
+        engine._safe_build("(deftemplate note)", context="note")
+        batch: list[tuple[str, dict[str, Any]]] = [
+            ("note", {}),
+            ("shared_status", {"status": "online"}),
+        ]
+
+        with pytest.raises(ScopeError, match="fleet-scoped"):
+            getattr(engine, entry)(batch)
+
+        assert engine.query("shared_status") == []
+        assert engine.query("note") == []
 
 
 class TestSyncFleetFactsResilience:
@@ -582,7 +700,7 @@ class TestSyncFleetFactsResilience:
         _seed_shared_status(peer)
 
         with caplog.at_level("WARNING", logger="fathom.fleet"):
-            await fleet.sync_fleet_facts(peer)
+            await fleet.sync_fleet_facts("B")
 
         assert peer.query("shared_status") == [{"status": "online"}]
         assert any("skipping unsyncable fleet fact" in r.message for r in caplog.records)

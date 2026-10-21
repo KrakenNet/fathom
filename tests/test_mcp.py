@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from fathom.errors import ValidationError
-from fathom.integrations.mcp_server import FathomMCPServer, _mcp_server_class
+from fathom.integrations.mcp_server import FathomMCPServer, _mcp_server_class, _tool_error_class
 
 FIXTURES_DIR = str(Path(__file__).parent / "fixtures")
 
@@ -346,7 +346,14 @@ class TestMCPAuditParity:
         # SDK result
         sdk_result = sdk_engine.evaluate()
 
-        expected_keys = {"decision", "reason", "rule_trace", "module_trace", "duration_us"}
+        expected_keys = {
+            "decision",
+            "reason",
+            "rule_trace",
+            "module_trace",
+            "duration_us",
+            "metadata",
+        }
         assert expected_keys == set(mcp_result.keys())
         # SDK EvaluationResult has the same fields (plus extras)
         for key in expected_keys:
@@ -520,3 +527,47 @@ class TestMCPIntrospectionTools:
 
     def test_trace_is_json_serialisable(self, server: FathomMCPServer) -> None:
         json.dumps(server.trace())
+
+
+class TestMCPContractShape:
+    """The covered MCP contract names public things only, and keeps engine detail."""
+
+    def test_input_schema_titles_follow_the_tool_name(self) -> None:
+        """Titles were `tool_<x>Arguments`, freezing private function names."""
+        server = FathomMCPServer()
+        for tool in server._mcp._tool_manager.list_tools():
+            schema = tool.parameters
+            assert schema["title"] == tool.name.replace(".", "_") + "Arguments"
+
+    def test_evaluate_and_trace_return_the_rule_metadata(self) -> None:
+        """gRPC and REST return `metadata`; MCP dropped it."""
+        server = FathomMCPServer(rules_path=FIXTURES_DIR)
+        assert "metadata" in server.evaluate()
+        assert "metadata" in server.trace()
+
+    def test_a_fathom_error_reaches_the_client_with_its_reason(self) -> None:
+        """mcp 2.x masks any exception but ToolError as `Error executing tool`."""
+        import asyncio
+
+        server = FathomMCPServer(rules_path=FIXTURES_DIR)
+        tool_error = _tool_error_class(_mcp_server_class())
+        with pytest.raises(tool_error, match="nope"):
+            asyncio.run(server._mcp.call_tool("fathom.query", {"template": "nope"}))
+
+    def test_an_evaluation_error_does_not_echo_the_clips_diagnostic(self, tmp_path) -> None:
+        """REST and gRPC answer `evaluation failed`; MCP passed on the CLIPS
+        text, which names the function and the fact value that broke it."""
+        import asyncio
+
+        from tests.test_classification_ops import _fc_engine
+
+        cond = "          - {slot: clearance, expression: 'below($o.level)'}\n"
+        _fc_engine(tmp_path, cond, obj_conditions="[]")
+        server = FathomMCPServer(rules_path=str(tmp_path))
+        tool_error = _tool_error_class(_mcp_server_class())
+        call = server._mcp.call_tool
+        for template, data in (("obj", {"level": "secret"}), ("subj", {"clearance": "XLBL"})):
+            asyncio.run(call("fathom.assert_fact", {"template": template, "data": data}))
+        with pytest.raises(tool_error) as info:
+            asyncio.run(call("fathom.evaluate", {}))
+        assert str(info.value).endswith(": evaluation_error: evaluation failed")

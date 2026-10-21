@@ -111,6 +111,7 @@ nav:
       - Exporting rules as Rego: how-to/export-rego.md
       - Embedding via SDK: how-to/embed-sdk.md
       - Hot-reloading rulesets: how-to/hot-reload.md
+      - Running a fleet: how-to/fleet.md
       - Verifying a signed release: how-to/release-signing.md
       - Running Policy Studio: how-to/policy-studio.md
   - Concepts:

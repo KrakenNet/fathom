@@ -106,23 +106,57 @@ Forgot to sign off? You don't need to rewrite history — when the `DCO` check f
 
 Releases are cut by release-please: merging to `main` maintains a release PR
 that bumps the version everywhere it appears — `pyproject.toml`,
-`src/fathom/__init__.py`, `packages/fathom-ts/package.json`, and the version
-lines in `README.md` and `docs/index.md`.
+`src/fathom/__init__.py`, and the version lines in `README.md` and
+`docs/index.md` — and tags it `vX.Y.Z`, which publishes to PyPI, GHCR and the
+docs site.
 
-`CHANGELOG.md` is **not** automatic. `scripts/check_version_sync.py` (the
-`lint` job) fails when the version in `pyproject.toml` has no matching heading
-in `CHANGELOG.md`, so the release PR stays red until someone writes the entry:
+The TypeScript SDK (`packages/fathom-ts/`) is a separate release-please
+component on its own version line. Commits touching it bump
+`packages/fathom-ts/package.json` and tag `fathom-ts-vX.Y.Z`; only that tag
+runs `npm-publish.yml`. An engine release never publishes the SDK.
 
-```markdown
-## [0.9.0] - 2026-09-01
+`CHANGELOG.md` is curated during the cycle: user-facing changes go under
+`## [Unreleased]` in the PR that makes them. On the release PR,
+`release-please-docs.yml` runs `scripts/promote_changelog.py`, which renames
+that section to `## [X.Y.Z] - date`, and regenerates the docs artifacts
+(`docs/changelog.json` included). Do not hand-write the release heading: a
+second `## [X.Y.Z]` would duplicate the promoted one.
+`scripts/check_version_sync.py` (the `lint` job) fails when the version in
+`pyproject.toml` has no matching heading in `CHANGELOG.md`.
 
-### Added
-- ...
-```
-
-Then regenerate the docs copy with `uv run python scripts/changelog_to_json.py`.
 The generated notes on the GitHub release carry the full commit list; the
 changelog entry is the curated summary of what it means for a user.
+
+### Cutting 1.0.0
+
+`bump-minor-pre-major` sends a breaking change to the next `0.x` minor, so
+release-please never proposes 1.0.0 by itself. To cut it, land one PR on
+`main` that:
+
+1. Deletes the "Pre-1.0 semantics" section of `VERSIONING.md` and the pre-1.0
+   halves of "Deprecation" and "Supported versions" (each says which half
+   applies from 1.0), and drops "Fathom is pre-1.0" from its intro.
+2. Replaces "Fathom is pre-1.0" in the README `## Stability` section and in
+   the `## Stability` section of `docs/index.md` (`docs/llms-full.txt` is
+   regenerated from it by `make docs-gen`).
+3. Rewrites the "pre-1.0, upgrading to the current minor" sentence under
+   "Supported versions" in `SECURITY.md` to match the 1.0 half of
+   `VERSIONING.md`'s "Supported versions".
+4. Changes the `pyproject.toml` classifier to
+   `Development Status :: 5 - Production/Stable`.
+5. Carries this footer in its squash-merge commit message — GitHub builds that
+   message from the PR, so check the footer is still there before you click
+   merge:
+
+   ```
+   Release-As: 1.0.0
+   ```
+
+The footer must sit on a commit that changes only engine files. Do not use an
+empty commit: release-please hands a commit with no files to every component,
+and the TypeScript SDK would be released as 1.0.0 with it. release-please then
+opens a 1.0.0 release PR, and `promote_changelog.py` turns `## [Unreleased]`
+into the `## [1.0.0]` entry as for any release. `bump-minor-pre-major` has no effect from 1.0 on and can stay.
 
 ## Project Structure
 

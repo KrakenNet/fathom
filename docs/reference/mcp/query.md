@@ -37,7 +37,7 @@ Query working memory
   "required": [
     "template"
   ],
-  "title": "tool_queryArguments",
+  "title": "fathom_queryArguments",
   "type": "object"
 }
 ```

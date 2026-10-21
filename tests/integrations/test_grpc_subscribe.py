@@ -8,11 +8,15 @@ messages to the subscriber.
 Tests:
 
 * ``test_subscribe_receives_assert`` — assert one fact, expect one
-  ``ASSERT`` message with matching template + slot data.
+  ``CHANGE_TYPE_ASSERT`` message with matching template + slot data.
 * ``test_subscribe_receives_retract`` — pre-populate a fact, then
-  retract it, expect one ``RETRACT`` message.
+  retract it, expect one ``CHANGE_TYPE_RETRACT`` message.
 * ``test_subscribe_isolated_per_session`` — events on session A do not
   bleed into a subscriber on session B.
+
+Working-memory RPCs need a session (a session-less one is refused), so each
+test opens one with ``Evaluate`` against a ruleset under
+``FATHOM_RULESET_ROOT`` first.
 """
 
 from __future__ import annotations
@@ -26,7 +30,6 @@ from typing import TYPE_CHECKING
 import grpc
 import pytest
 
-from fathom.engine import Engine
 from fathom.integrations.grpc_server import FathomServicer
 from fathom.proto import fathom_pb2, fathom_pb2_grpc
 
@@ -41,8 +44,38 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _engine_with_event_template(tmp_path: Path) -> Engine:
-    (tmp_path / "templates.yaml").write_text(
+_RELOAD_RULESET = (
+    b"ruleset: rs-reloaded\n"
+    b"module: gov\n"
+    b"rules:\n"
+    b"  - name: allow-boot\n"
+    b"    when:\n"
+    b"      - template: event\n"
+    b"        conditions:\n"
+    b"          - slot: kind\n"
+    b'            expression: equals("boot")\n'
+    b"    then:\n"
+    b"      action: allow\n"
+    b"      reason: boot ok\n"
+)
+
+_SESSION = "s1"
+
+
+def _open_session(stub: fathom_pb2_grpc.FathomServiceStub, session_id: str) -> None:
+    stub.Evaluate(
+        fathom_pb2.EvaluateRequest(session_id=session_id, ruleset="rs"),
+        metadata=_AUTH_META,
+        timeout=5.0,
+    )
+
+
+def _write_ruleset(root: Path) -> None:
+    """An ``event`` template, a ``gov`` module and one rule, under *root*/rs."""
+    rs = root / "rs"
+    for sub in ("templates", "modules", "rules"):
+        (rs / sub).mkdir(parents=True)
+    (rs / "templates" / "t.yaml").write_text(
         "templates:\n"
         "  - name: event\n"
         "    slots:\n"
@@ -50,25 +83,32 @@ def _engine_with_event_template(tmp_path: Path) -> Engine:
         "        type: string\n"
         "        required: true\n"
     )
-    engine = Engine()
-    engine.load_templates(str(tmp_path / "templates.yaml"))
-    return engine
+    (rs / "modules" / "m.yaml").write_text(
+        "modules:\n  - name: gov\n    priority: 100\nfocus_order: [gov]\n"
+    )
+    (rs / "rules" / "r.yaml").write_bytes(_RELOAD_RULESET.replace(b"rs-reloaded", b"rs"))
 
 
 @pytest.fixture
-def grpc_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[str]:
+def grpc_server(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Iterator[tuple[str, FathomServicer]]:
+    """A servicer with no mounted engine, and session ``s1`` already open."""
     monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
+    monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
+    _write_ruleset(tmp_path)
 
-    servicer = FathomServicer(
-        default_engine=_engine_with_event_template(tmp_path),
-    )
+    servicer = FathomServicer()
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)
     port = _free_port()
     server.add_insecure_port(f"127.0.0.1:{port}")
     server.start()
+    target = f"127.0.0.1:{port}"
     try:
-        yield f"127.0.0.1:{port}"
+        with grpc.insecure_channel(target) as channel:
+            _open_session(fathom_pb2_grpc.FathomServiceStub(channel), _SESSION)
+        yield target, servicer
     finally:
         server.stop(grace=None).wait(timeout=2.0)
 
@@ -96,12 +136,12 @@ def _collect_one(stream, *, timeout: float = 3.0) -> fathom_pb2.FactChange:
     return holder[0]
 
 
-def test_subscribe_receives_assert(grpc_server: str) -> None:
-    target = grpc_server
+def test_subscribe_receives_assert(grpc_server: tuple[str, FathomServicer]) -> None:
+    target, _ = grpc_server
     with grpc.insecure_channel(target) as channel:
         stub = fathom_pb2_grpc.FathomServiceStub(channel)
         sub_stream = stub.SubscribeChanges(
-            fathom_pb2.SubscribeRequest(session_id=""),
+            fathom_pb2.SubscribeRequest(session_id=_SESSION),
             metadata=_AUTH_META,
             timeout=10.0,
         )
@@ -115,7 +155,7 @@ def test_subscribe_receives_assert(grpc_server: str) -> None:
 
         stub.AssertFact(
             fathom_pb2.AssertFactRequest(
-                session_id="",
+                session_id=_SESSION,
                 template="event",
                 data_json=json.dumps({"kind": "boot"}),
             ),
@@ -125,19 +165,19 @@ def test_subscribe_receives_assert(grpc_server: str) -> None:
         msg = _collect_one(sub_stream)
         sub_stream.cancel()
 
-    assert msg.change_type == fathom_pb2.ChangeType.ASSERT
+    assert msg.change_type == fathom_pb2.ChangeType.CHANGE_TYPE_ASSERT
     assert msg.template == "event"
     assert json.loads(msg.data_json) == {"kind": "boot"}
 
 
-def test_subscribe_receives_retract(grpc_server: str) -> None:
-    target = grpc_server
+def test_subscribe_receives_retract(grpc_server: tuple[str, FathomServicer]) -> None:
+    target, _ = grpc_server
     with grpc.insecure_channel(target) as channel:
         stub = fathom_pb2_grpc.FathomServiceStub(channel)
         # Pre-populate so the subscriber only sees the retract.
         stub.AssertFact(
             fathom_pb2.AssertFactRequest(
-                session_id="",
+                session_id=_SESSION,
                 template="event",
                 data_json=json.dumps({"kind": "doomed"}),
             ),
@@ -145,7 +185,7 @@ def test_subscribe_receives_retract(grpc_server: str) -> None:
             timeout=5.0,
         )
         sub_stream = stub.SubscribeChanges(
-            fathom_pb2.SubscribeRequest(session_id=""),
+            fathom_pb2.SubscribeRequest(session_id=_SESSION),
             metadata=_AUTH_META,
             timeout=10.0,
         )
@@ -155,7 +195,7 @@ def test_subscribe_receives_retract(grpc_server: str) -> None:
 
         stub.Retract(
             fathom_pb2.RetractRequest(
-                session_id="",
+                session_id=_SESSION,
                 template="event",
                 filter_json=json.dumps({"kind": "doomed"}),
             ),
@@ -165,16 +205,17 @@ def test_subscribe_receives_retract(grpc_server: str) -> None:
         msg = _collect_one(sub_stream)
         sub_stream.cancel()
 
-    assert msg.change_type == fathom_pb2.ChangeType.RETRACT
+    assert msg.change_type == fathom_pb2.ChangeType.CHANGE_TYPE_RETRACT
     assert msg.template == "event"
     assert json.loads(msg.data_json) == {"kind": "doomed"}
 
 
-def test_subscribe_isolated_per_session(grpc_server: str) -> None:
+def test_subscribe_isolated_per_session(grpc_server: tuple[str, FathomServicer]) -> None:
     """Subscriber on session A must not receive events on session B."""
-    target = grpc_server
+    target, _ = grpc_server
     with grpc.insecure_channel(target) as channel:
         stub = fathom_pb2_grpc.FathomServiceStub(channel)
+        _open_session(stub, "session-A")
         sub_stream = stub.SubscribeChanges(
             fathom_pb2.SubscribeRequest(session_id="session-A"),
             metadata=_AUTH_META,
@@ -184,13 +225,10 @@ def test_subscribe_isolated_per_session(grpc_server: str) -> None:
 
         time.sleep(0.2)
 
-        # Wrong session — should NOT reach the subscriber. Note the
-        # session-B engine has no templates loaded so AssertFact would
-        # fail; instead, fire on the default-engine session ("") which
-        # also differs from session-A.
+        # Wrong session -- should NOT reach the subscriber on session-A.
         stub.AssertFact(
             fathom_pb2.AssertFactRequest(
-                session_id="",
+                session_id=_SESSION,
                 template="event",
                 data_json=json.dumps({"kind": "noise"}),
             ),
@@ -219,65 +257,19 @@ def test_subscribe_isolated_per_session(grpc_server: str) -> None:
 # --- ADR-0002 option (a): cancel-on-swap ---
 
 
-def _engine_with_pack(tmp_path: Path) -> Engine:
-    """Engine with the event template plus a module so reload_rules compiles."""
-    engine = _engine_with_event_template(tmp_path)
-    (tmp_path / "modules.yaml").write_text(
-        "modules:\n  - name: gov\n    priority: 100\nfocus_order: [gov]\n"
-    )
-    engine.load_modules(str(tmp_path / "modules.yaml"))
-    return engine
-
-
-_RELOAD_RULESET = (
-    b"ruleset: rs-reloaded\n"
-    b"module: gov\n"
-    b"rules:\n"
-    b"  - name: allow-boot\n"
-    b"    when:\n"
-    b"      - template: event\n"
-    b"        conditions:\n"
-    b"          - slot: kind\n"
-    b'            expression: equals("boot")\n'
-    b"    then:\n"
-    b"      action: allow\n"
-    b"      reason: boot ok\n"
-)
-
-
-@pytest.fixture
-def grpc_server_with_engine(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> Iterator[tuple[str, Engine]]:
-    """Like ``grpc_server`` but also exposes the default Engine for reloads."""
-    monkeypatch.setenv("FATHOM_API_TOKEN", "testtok")
-
-    engine = _engine_with_pack(tmp_path)
-    servicer = FathomServicer(default_engine=engine)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    fathom_pb2_grpc.add_FathomServiceServicer_to_server(servicer, server)
-    port = _free_port()
-    server.add_insecure_port(f"127.0.0.1:{port}")
-    server.start()
-    try:
-        yield f"127.0.0.1:{port}", engine
-    finally:
-        server.stop(grace=None).wait(timeout=2.0)
-
-
-def test_subscribe_cancelled_on_reload(
-    grpc_server_with_engine: tuple[str, Engine],
-) -> None:
+def test_subscribe_cancelled_on_reload(grpc_server: tuple[str, FathomServicer]) -> None:
     """An in-flight stream terminates with ABORTED when the ruleset is swapped.
 
     ADR-0002 option (a): reload cancels active ``SubscribeChanges``
     streams; clients re-subscribe against the new ruleset.
     """
-    target, engine = grpc_server_with_engine
+    target, servicer = grpc_server
+    engine = servicer._session_store.get(_SESSION)
+    assert engine is not None
     with grpc.insecure_channel(target) as channel:
         stub = fathom_pb2_grpc.FathomServiceStub(channel)
         sub_stream = stub.SubscribeChanges(
-            fathom_pb2.SubscribeRequest(session_id=""),
+            fathom_pb2.SubscribeRequest(session_id=_SESSION),
             metadata=_AUTH_META,
             timeout=10.0,
         )
@@ -288,7 +280,7 @@ def test_subscribe_cancelled_on_reload(
         # Prove the stream is live before the swap.
         stub.AssertFact(
             fathom_pb2.AssertFactRequest(
-                session_id="",
+                session_id=_SESSION,
                 template="event",
                 data_json=json.dumps({"kind": "boot"}),
             ),
@@ -296,7 +288,7 @@ def test_subscribe_cancelled_on_reload(
             timeout=5.0,
         )
         msg = _collect_one(sub_stream)
-        assert msg.change_type == fathom_pb2.ChangeType.ASSERT
+        assert msg.change_type == fathom_pb2.ChangeType.CHANGE_TYPE_ASSERT
 
         # In-process atomic swap — same path the Reload RPC takes.
         engine.reload_rules(_RELOAD_RULESET)

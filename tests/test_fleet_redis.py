@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import pytest_asyncio
 
+from fathom.errors import FleetError
 from fathom.fleet_redis import RedisFactStore
 from tests.test_fleet_integration import (
     REDIS_IMAGE,
@@ -215,3 +216,73 @@ class TestRedisEncoding:
             for k, v in raw.items()
         }
         assert decoded == {"id": json.dumps("123"), "attempts": json.dumps(3)}
+
+
+class TestRedisAtomicWrite:
+    """A fact and its change notification are written together or not at all."""
+
+    @pytest.mark.asyncio
+    async def test_refused_notification_stores_nothing(
+        self, store: RedisFactStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A non-stream value at the stream key makes XADD fail with WRONGTYPE,
+        # which no retry can fix: fail at once and leave no durable fact.
+        await store._client.set(store._stream_key("agent"), "not a stream")
+        slept: list[float] = []
+
+        async def no_sleep(delay: float) -> None:
+            slept.append(delay)
+
+        monkeypatch.setattr("fathom.fleet_redis.asyncio.sleep", no_sleep)
+
+        with pytest.raises(FleetError, match="WRONGTYPE"):
+            await store.assert_fact("agent", {"id": "ghost"})
+
+        assert slept == []
+        assert await store.query("agent") == []
+        assert await store._client.keys("fathom:agent:*") == []
+
+    @pytest.mark.asyncio
+    async def test_change_stream_is_capped(
+        self, store: RedisFactStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("fathom.fleet_redis._STREAM_MAXLEN", 10)
+        for i in range(300):
+            await store.assert_fact("agent", {"id": f"a{i}"})
+
+        # MAXLEN ~ trims whole macro-nodes (100 entries by default).
+        assert await store._client.xlen(store._stream_key("agent")) < 300
+
+
+class TestRedisSubscribeStart:
+    """A change made after subscribe() returns is delivered, however late the listener reads."""
+
+    @pytest.mark.asyncio
+    async def test_change_before_first_read_is_delivered(
+        self, store: RedisFactStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await store.assert_fact("agent", {"id": "old"})  # history the listener must skip
+        real_xread = store._client.xread
+
+        async def slow_xread(*args: Any, **kwargs: Any) -> Any:
+            # The listener's read lands after the write, as it can between
+            # two idle blocks.
+            await asyncio.sleep(0.3)
+            return await real_xread(*args, **kwargs)
+
+        monkeypatch.setattr(store._client, "xread", slow_xread)
+        seen: list[str] = []
+
+        async def on_change(notification: FactChangeNotification) -> None:
+            seen.append(notification.data["id"] if notification.data else "")
+
+        unsubscribe = await store.subscribe("agent", on_change)
+        try:
+            await store.assert_fact("agent", {"id": "new"})
+            for _ in range(30):
+                if seen:
+                    break
+                await asyncio.sleep(0.1)
+            assert seen == ["new"]
+        finally:
+            unsubscribe()

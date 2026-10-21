@@ -1,0 +1,3 @@
+# `fathom.RulesetSignatureError`
+
+::: fathom.RulesetSignatureError

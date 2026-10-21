@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fathom.engine import Engine
+    from fathom.fleet import FactStore
 
 pytestmark = pytest.mark.integration
 
@@ -200,6 +201,37 @@ def seed_shared_status(engine: Engine) -> None:
     )
 
 
+async def assert_store_holds_validated_fact(store: FactStore, tmp_path: Path) -> None:
+    """FleetEngine writes the fact the engine accepted, not the raw caller dict.
+
+    The raw dict lacked the defaulted ``n`` and kept ``agent`` as int 123,
+    so store filters and peers disagreed with this node's working memory.
+    """
+    from fathom.fleet import FleetEngine
+    from fathom.models import SlotDefinition, SlotType, TemplateDefinition
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
+    node = fleet.create_session("A")
+    node._template_registry["beat"] = TemplateDefinition(
+        name="beat",
+        scope="fleet",
+        slots=[
+            SlotDefinition(name="agent", type=SlotType.STRING, required=True),
+            SlotDefinition(name="n", type=SlotType.INTEGER, default=0),
+        ],
+    )
+    node._safe_build(
+        "(deftemplate beat (slot agent (type STRING)) (slot n (type INTEGER)))", context="beat"
+    )
+
+    await fleet.assert_fact("A", "beat", {"agent": 123})
+
+    assert len(await fleet.query("beat", {"agent": "123", "n": 0})) == 1
+    assert await fleet.query("beat", {"agent": 123}) == []
+
+
 # ---------------------------------------------------------------------------
 # FleetEngine over a real Redis backend
 # ---------------------------------------------------------------------------
@@ -227,11 +259,22 @@ class TestFleetEngineOverRedis:
             seed_shared_status(node_b)
 
             await fleet.assert_fact("A", "shared_status", {"status": "online"})
-            await fleet.sync_fleet_facts(node_b)
+            await fleet.sync_fleet_facts("B")
 
             assert node_b.query("shared_status") == [{"status": "online"}]
         finally:
             await store.retract("shared_status")
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_store_holds_the_validated_fact(self, redis_port: int, tmp_path: Path) -> None:
+        from fathom.fleet_redis import RedisFactStore
+
+        store = RedisFactStore(host="127.0.0.1", port=redis_port, db=4)
+        try:
+            await assert_store_holds_validated_fact(store, tmp_path)
+        finally:
+            await store.retract("beat")
             await store.close()
 
     @pytest.mark.asyncio
@@ -274,7 +317,7 @@ class TestFleetEngineOverRedis:
             fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
             peer = fleet.create_session("B")
             seed_shared_status(peer)
-            await fleet.sync_fleet_facts(peer)
+            await fleet.sync_fleet_facts("B")
 
             assert peer.query("shared_status") == [{"status": "offline"}]
         finally:
@@ -313,10 +356,23 @@ class TestFleetEngineOverPostgres:
             fact_id = await fleet.assert_fact("A", "shared_status", {"status": "online"})
             assert fact_id is not None
 
-            await fleet.sync_fleet_facts(node_b)
+            await fleet.sync_fleet_facts("B")
             assert node_b.query("shared_status") == [{"status": "online"}]
         finally:
             await store.retract("shared_status")
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_store_holds_the_validated_fact(self, postgres_dsn: str, tmp_path: Path) -> None:
+        from fathom.fleet_pg import PostgresFactStore
+
+        store = PostgresFactStore(postgres_dsn)
+        await store.connect()
+        try:
+            await store.retract("beat")
+            await assert_store_holds_validated_fact(store, tmp_path)
+        finally:
+            await store.retract("beat")
             await store.close()
 
     @pytest.mark.asyncio

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 from pydantic import ValidationError as PydanticValidationError
 
@@ -24,6 +26,9 @@ from fathom.models import (
     TemplateDefinition,
     ThenBlock,
 )
+from fathom.yaml_utils import file_kind, safe_load, unknown_top_level_keys
+
+__all__ = ["Compiler"]
 
 #: Classification operators whose CLIPS function is per-hierarchy. The rest of
 #: `_CLASSIFICATION_OPS` map to `fathom-*` externals, which take no hierarchy.
@@ -55,6 +60,11 @@ _QUOTED_ARG_RE = re.compile(r'^"(?:[^"\\]|\\.)*"$')
 # compiler generates itself — the only ones it may rename.
 _LEADING_VAR_RE = re.compile(r"^\?([A-Za-z][A-Za-z0-9_-]*)")
 _GENERATED_VAR_RE = re.compile(r"^s_\d+_")
+# A CLIPS variable, or a quoted string to skip so its text is never renamed.
+# The ``$alias.field`` form, matched strictly for the string operators, whose
+# argument is otherwise free text.
+_STRICT_XREF_RE = re.compile(r"^\$[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*$")
+_CLIPS_VAR_RE = re.compile(r'"(?:\\.|[^"\\])*"|\?[A-Za-z][A-Za-z0-9_-]*')
 
 
 #: Prefix for the pattern-address variables that carry match evidence.
@@ -62,6 +72,21 @@ _GENERATED_VAR_RE = re.compile(r"^s_\d+_")
 #: (``?s_<index>_<slot>``) or a cross-reference variable
 #: (``?<alias>-<slot>``); CLIPS rejects a leading underscore outright.
 _EVIDENCE_VAR = "fathom-ev-"
+
+# Fact the evaluator renews before every run so rules with a temporal
+# operator re-match over the whole fact set; see ``compile_rule``.
+_EPOCH_TEMPLATE_NAME = "__fathom_epoch"
+
+
+def _reason(exc: PydanticValidationError) -> str:
+    """One line naming each field a model rejected and why.
+
+    ``str(exc)`` is multi-line and stays in ``CompilationError.detail``;
+    without this the message said only *that* a file was invalid.
+    """
+    return "; ".join(
+        f"{'.'.join(str(p) for p in err['loc']) or 'value'}: {err['msg']}" for err in exc.errors()
+    )
 
 
 class Compiler:
@@ -188,7 +213,7 @@ class Compiler:
         self,
         defn: RuleDefinition,
         module: str,
-        templates: dict[str, TemplateDefinition] | None = None,
+        templates: Mapping[str, TemplateDefinition] | None = None,
     ) -> str:
         """Generate a CLIPS defrule string from a RuleDefinition.
 
@@ -204,8 +229,9 @@ class Compiler:
             A CLIPS defrule string.
 
         Raises:
-            CompilationError: If rule name is empty, has no conditions, or
-                a condition expression uses an unsupported operator.
+            CompilationError: If rule name is empty, has no conditions,
+                a condition expression uses an unsupported operator, or an
+                ``assert`` targets a fleet-scoped template in *templates*.
         """
         if not defn.name:
             raise CompilationError(
@@ -264,6 +290,8 @@ class Compiler:
 
         # LHS: fact patterns and test CEs
         all_test_ces: list[str] = []
+        lhs_parts: list[str] = []
+        renames: dict[str, str] = {}
         for pattern_index, pattern in enumerate(defn.when):
             lhs, test_ces = self._compile_fact_pattern(
                 pattern,
@@ -271,14 +299,34 @@ class Compiler:
                 pattern_index,
                 templates,
                 joins.get((pattern.alias or "").lstrip("$"), set()),
+                renames,
             )
+            lhs_parts.append(lhs)
+            all_test_ces.extend(test_ces)
+
+        # A join variable the aliased pattern could not bind (its slot is
+        # already bound by a `bind:` or another join) is replaced everywhere
+        # by the variable that does bind it.
+        if renames:
+            lhs_parts = [self._apply_renames(part, renames) for part in lhs_parts]
+            all_test_ces = [self._apply_renames(ce, renames) for ce in all_test_ces]
+
+        for pattern_index, lhs in enumerate(lhs_parts):
             if self._match_evidence:
                 # Bind the pattern address so the RHS can name the fact that
                 # actually matched; clipspy exposes no accessor for an
                 # activation's basis, so the evidence has to be compiled in.
                 lhs = f"?{_EVIDENCE_VAR}{pattern_index} <- {lhs}"
             lines.append(f"    {lhs}")
-            all_test_ces.extend(test_ces)
+
+        # A temporal operator's test CE queries working memory, and CLIPS
+        # evaluates a test CE only when the patterns before it match. Without
+        # this pattern a request asserted before its history was judged
+        # against an empty history, so the decision depended on assertion
+        # order. The evaluator renews the epoch fact before every run, which
+        # re-matches the rule and re-runs the test over the whole fact set.
+        if self.is_temporal(defn):
+            lines.append(f"    ({_EPOCH_TEMPLATE_NAME})")
 
         # Append test CEs after all pattern CEs
         for test_ce in all_test_ces:
@@ -308,8 +356,9 @@ class Compiler:
         pattern: FactPattern,
         aliases: dict[str, str],
         pattern_index: int = 0,
-        templates: dict[str, TemplateDefinition] | None = None,
+        templates: Mapping[str, TemplateDefinition] | None = None,
         join_slots: set[str] | None = None,
+        renames: dict[str, str] | None = None,
     ) -> tuple[str, list[str]]:
         """Compile a FactPattern into a CLIPS LHS pattern string.
 
@@ -320,7 +369,9 @@ class Compiler:
 
         ``join_slots`` names the slots other patterns cross-reference through
         this pattern's alias; each gains a ``?<alias>-<slot>`` binding so the
-        reference compiles to a real join.
+        reference compiles to a real join. When the slot is already bound by
+        another variable, ``?<alias>-<slot>`` is recorded in *renames* instead,
+        for the caller to rewrite rule-wide.
 
         Returns:
             A tuple of (pattern_string, list_of_test_CEs).  The test CEs
@@ -365,10 +416,11 @@ class Compiler:
         slot_parts, merged_tests = self._merge_slot_constraints(entries, pattern_index)
         test_ces.extend(merged_tests)
         if join_slots:
-            slot_parts, join_tests = self._bind_join_slots(
+            slot_parts, join_renames = self._bind_join_slots(
                 slot_parts, join_slots, (pattern.alias or "").lstrip("$")
             )
-            test_ces.extend(join_tests)
+            if renames is not None:
+                renames.update(join_renames)
         if not slot_parts:
             return f"({pattern.template})", test_ces
         slots_str = " ".join(slot_parts)
@@ -497,7 +549,7 @@ class Compiler:
         self,
         then: ThenBlock,
         rule_name: str,
-        templates: dict[str, TemplateDefinition] | None = None,
+        templates: Mapping[str, TemplateDefinition] | None = None,
     ) -> str:
         """Compile a ThenBlock into a CLIPS RHS assert string.
 
@@ -568,6 +620,18 @@ class Compiler:
             slot_types: dict[str, SlotType] = {}
             if templates is not None:
                 tmpl_def = templates.get(spec.template)
+                if tmpl_def is not None and tmpl_def.scope == "fleet":
+                    # A rule's assert lands in the one session that fired it
+                    # and never reaches the shared FactStore, so the node
+                    # would silently diverge from its peers.
+                    raise CompilationError(
+                        "[fathom.compiler] compile rule failed: "
+                        f"rule {rule_name!r} asserts into fleet-scoped template "
+                        f"'{spec.template}'; a rule's assert stays in the one session "
+                        "that fired it and never reaches the shared FactStore. Assert "
+                        "a session-scoped fact and publish it with FleetEngine.assert_fact.",
+                        construct=f"rule:{rule_name}",
+                    )
                 if tmpl_def is not None:
                     slot_types = {slot.name: slot.type for slot in tmpl_def.slots}
             slot_parts = [
@@ -718,14 +782,19 @@ class Compiler:
             cases.append(f'        (case "{Compiler._escape_clips_string(level)}" then {idx})')
         cases_str = "\n".join(cases)
 
+        # A level outside the hierarchy has no rank. It used to rank -1 and
+        # compare, so `secret >= TOP-SECRET` was true; answering false instead
+        # let a deny written with `below` skip a typo label. So the default
+        # case raises (``fathom-unknown-level``) and the evaluation fails with
+        # an EvaluationError -- no rule decides on an unknown label.
         rank_fn = (
             f"(deffunction MAIN::{rank_name} (?level)\n"
             f"    (switch (str-cat ?level)\n"
             f"{cases_str}\n"
-            f"        (default -1)))"
+            f'        (default (fathom-unknown-level "{name}" ?level))))'
         )
 
-        # Scoped deffunctions namespaced by hierarchy name
+        # Scoped deffunctions namespaced by hierarchy name.
         scoped_below = (
             f"(deffunction MAIN::{name}-below (?a ?b)\n    (< ({rank_name} ?a) ({rank_name} ?b)))"
         )
@@ -735,6 +804,7 @@ class Compiler:
             f"    (>= ({rank_name} ?a) ({rank_name} ?b)))"
         )
 
+        # Both ranks are evaluated, so an unknown level on either side raises.
         scoped_scope = (
             f"(deffunction MAIN::{name}-within-scope (?a ?b)\n"
             f"    (and (>= ({rank_name} ?a) 0) (>= ({rank_name} ?b) 0)))"
@@ -779,6 +849,22 @@ class Compiler:
         """
         return f"(focus {' '.join(focus_order)})"
 
+    @staticmethod
+    def _check_top_level(data: Any, kind: str, what: str, file_str: str) -> None:
+        """Refuse a *kind* file that lacks its *kind* key or holds a key it may not."""
+        if not isinstance(data, dict) or kind not in data:
+            raise CompilationError(
+                f"[fathom.compiler] parse {what} failed: "
+                f"YAML file must contain a top-level '{kind}' key",
+                file=file_str,
+            )
+        unknown = unknown_top_level_keys(data, kind)
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse {what} failed: {unknown}",
+                file=file_str,
+            )
+
     def parse_template_file(self, path: Path) -> list[TemplateDefinition]:
         """Parse a YAML template file into TemplateDefinition objects.
 
@@ -795,7 +881,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse template failed: invalid YAML in {file_str}",
@@ -809,12 +895,7 @@ class Compiler:
                 detail=str(exc),
             ) from exc
 
-        if not isinstance(data, dict) or "templates" not in data:
-            raise CompilationError(
-                "[fathom.compiler] parse template failed: "
-                "YAML file must contain a top-level 'templates' key",
-                file=file_str,
-            )
+        self._check_top_level(data, "templates", "template", file_str)
 
         raw_templates = data["templates"]
         if not isinstance(raw_templates, list):
@@ -836,7 +917,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse template failed: invalid template '{name}'",
+                    "[fathom.compiler] parse template failed: "
+                    f"invalid template '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"template:{name}",
                     detail=str(exc),
@@ -886,7 +968,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse rules failed: invalid YAML in {file_str}",
@@ -900,12 +982,7 @@ class Compiler:
                 detail=str(exc),
             ) from exc
 
-        if not isinstance(data, dict) or "rules" not in data:
-            raise CompilationError(
-                "[fathom.compiler] parse rules failed: "
-                "YAML file must contain a top-level 'rules' key",
-                file=file_str,
-            )
+        self._check_top_level(data, "rules", "rules", file_str)
 
         if "module" not in data:
             raise CompilationError(
@@ -927,7 +1004,8 @@ class Compiler:
             )
         except PydanticValidationError as exc:
             raise CompilationError(
-                f"[fathom.compiler] parse rules failed: invalid ruleset in {file_str}",
+                "[fathom.compiler] parse rules failed: "
+                f"invalid ruleset in {file_str}: {_reason(exc)}",
                 file=file_str,
                 detail=str(exc),
             ) from exc
@@ -970,7 +1048,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse module failed: invalid YAML in {file_str}",
@@ -984,12 +1062,7 @@ class Compiler:
                 detail=str(exc),
             ) from exc
 
-        if not isinstance(data, dict) or "modules" not in data:
-            raise CompilationError(
-                "[fathom.compiler] parse module failed: "
-                "YAML file must contain a top-level 'modules' key",
-                file=file_str,
-            )
+        self._check_top_level(data, "modules", "module", file_str)
 
         raw_modules = data["modules"]
         if not isinstance(raw_modules, list):
@@ -1011,7 +1084,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse module failed: invalid module '{name}'",
+                    "[fathom.compiler] parse module failed: "
+                    f"invalid module '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"module:{name}",
                     detail=str(exc),
@@ -1038,8 +1112,21 @@ class Compiler:
     def parse_function_file(self, path: Path) -> list[FunctionDefinition]:
         """Parse a YAML function file into FunctionDefinition objects.
 
+        The file's ``hierarchies:`` are validated and dropped; use
+        :meth:`parse_function_bundle` to get them as well.
+        """
+        return self.parse_function_bundle(path)[0]
+
+    def parse_function_bundle(
+        self, path: Path
+    ) -> tuple[list[FunctionDefinition], dict[str, HierarchyDefinition]]:
+        """Parse a YAML function file into its functions and bundled hierarchies.
+
         Expected YAML format::
 
+            hierarchies:
+              - name: classification
+                levels: [unclassified, secret]
             functions:
               - name: classification
                 params: [a, b]
@@ -1049,8 +1136,13 @@ class Compiler:
         Args:
             path: Path to a YAML file containing function definitions.
 
+        A classification function's ``hierarchy_ref`` names a hierarchy from
+        ``hierarchies:`` in the same file, or failing that a hierarchy file
+        on disk (see ``Engine._resolve_hierarchy``).
+
         Returns:
-            A list of validated FunctionDefinition objects.
+            The validated FunctionDefinition objects, and the file's
+            hierarchies keyed by name.
 
         Raises:
             CompilationError: On invalid YAML, missing fields, or validation errors.
@@ -1058,7 +1150,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse function failed: invalid YAML in {file_str}",
@@ -1072,12 +1164,7 @@ class Compiler:
                 detail=str(exc),
             ) from exc
 
-        if not isinstance(data, dict) or "functions" not in data:
-            raise CompilationError(
-                "[fathom.compiler] parse function failed: "
-                "YAML file must contain a top-level 'functions' key",
-                file=file_str,
-            )
+        self._check_top_level(data, "functions", "function", file_str)
 
         raw_functions = data["functions"]
         if not isinstance(raw_functions, list):
@@ -1099,7 +1186,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse function failed: invalid function '{name}'",
+                    "[fathom.compiler] parse function failed: "
+                    f"invalid function '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"function:{name}",
                     detail=str(exc),
@@ -1115,7 +1203,50 @@ class Compiler:
             seen_names.add(defn.name)
             results.append(defn)
 
-        return results
+        raw_hierarchies = data.get("hierarchies", [])
+        if not isinstance(raw_hierarchies, list):
+            raise CompilationError(
+                "[fathom.compiler] parse function failed: 'hierarchies' must be a list",
+                file=file_str,
+            )
+        hierarchies: dict[str, HierarchyDefinition] = {}
+        for idx, raw in enumerate(raw_hierarchies):
+            if not isinstance(raw, dict):
+                raise CompilationError(
+                    f"[fathom.compiler] parse function failed: hierarchy entry {idx} "
+                    "is not a mapping",
+                    file=file_str,
+                )
+            try:
+                hier = HierarchyDefinition(**raw)
+            except PydanticValidationError as exc:
+                name = raw.get("name", f"<entry {idx}>")
+                raise CompilationError(
+                    "[fathom.compiler] parse function failed: "
+                    f"invalid hierarchy '{name}': {_reason(exc)}",
+                    file=file_str,
+                    construct=f"hierarchy:{name}",
+                    detail=str(exc),
+                ) from exc
+            if hier.name in hierarchies:
+                raise CompilationError(
+                    "[fathom.compiler] parse function failed: "
+                    f"duplicate hierarchy name '{hier.name}'",
+                    file=file_str,
+                    construct=f"hierarchy:{hier.name}",
+                )
+            hierarchies[hier.name] = hier
+
+        return results, hierarchies
+
+    @classmethod
+    def is_temporal(cls, defn: RuleDefinition) -> bool:
+        """Whether *defn* has a temporal condition, so matches the epoch fact."""
+        return any(
+            cond.expression and cls._parse_operator(cond.expression)[0] in cls._TEMPORAL_OPS
+            for pattern in defn.when
+            for cond in pattern.conditions
+        )
 
     @staticmethod
     def _parse_operator(expr: str) -> tuple[str, str]:
@@ -1250,9 +1381,10 @@ class Compiler:
         return cross_ref
 
     #: Operators whose argument is resolved as a cross-fact reference, and so
-    #: declares a join the enclosing rule must bind. ``in``, ``not_in``,
-    #: ``contains`` and ``matches`` treat a leading ``$`` as literal text, so a
-    #: ``$`` inside a regex is not mistaken for a join. The counting temporal
+    #: declares a join the enclosing rule must bind. ``in`` and ``not_in``
+    #: treat a leading ``$`` as literal text. ``contains`` joins only on the
+    #: strict ``$alias.field`` form (:data:`_STRICT_XREF_RE`), so text such as
+    #: ``$5.00`` stays literal; ``matches`` refuses that form. The counting temporal
     #: operators accept a ``$alias.field`` *value* too, but only a
     #: self-reference to the slot the condition already binds
     #: (see :meth:`_emit_count_value`) -- no join, nothing to declare.
@@ -1271,6 +1403,9 @@ class Compiler:
             op, arg = cls._parse_operator(expr)
         except CompilationError:
             return None  # reported with full context further down the pipeline
+        if op == "contains" and _STRICT_XREF_RE.match(arg):
+            alias, field = arg[1:].split(".", 1)
+            return alias, field
         if op not in cls._CROSS_REF_OPS and op not in cls._CLASSIFICATION_OPS:
             return None
         if not arg.startswith("$") or "." not in arg:
@@ -1296,7 +1431,7 @@ class Compiler:
     @staticmethod
     def _bind_join_slots(
         slot_parts: list[str], join_slots: set[str], alias: str
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], dict[str, str]]:
         """Make this pattern mention ``?<alias>-<slot>`` for each joined slot.
 
         A cross-fact reference emits ``?<alias>-<field>`` in the *referencing*
@@ -1305,10 +1440,10 @@ class Compiler:
         and constrains nothing: the rule matches the cartesian product of its
         patterns instead of the joined tuple, with no error at all.
 
-        Returns the rewritten slot parts and any extra ``(test ...)`` CEs.
+        Returns the rewritten slot parts and the join variables to rename.
         """
         parts = list(slot_parts)
-        tests: list[str] = []
+        renames: dict[str, str] = {}
         for slot in sorted(join_slots):
             var = f"?{alias}-{slot}"
             prefix = f"({slot} "
@@ -1326,11 +1461,32 @@ class Compiler:
             else:
                 # An author's ``bind:``, or another alias's join variable.
                 # Neither may be renamed, and the slot already has its one
-                # binding, so the join becomes an equality test instead.
-                tests.append(f"(test (eq ?{existing} {var}))")
-        return parts, tests
+                # binding, so the references are renamed onto it instead. An
+                # equality test was emitted here once, but only `equals`
+                # binds the join variable in the referencing pattern; every
+                # other operator only reads it, which CLIPS rejects (ANALYSIS4).
+                renames[var] = f"?{existing}"
+        return parts, renames
 
-    def _scoped_classification_fn(self, op: str, unscoped: str, level: str, slot: str) -> str:
+    @staticmethod
+    def _apply_renames(text: str, renames: dict[str, str]) -> str:
+        """Rewrite each whole CLIPS variable in *renames*, following chains."""
+
+        def target(match: re.Match[str]) -> str:
+            var = match.group(0)
+            if var.startswith('"'):
+                return var
+            seen = {var}
+            while var in renames and renames[var] not in seen:
+                var = renames[var]
+                seen.add(var)
+            return var
+
+        return _CLIPS_VAR_RE.sub(target, text)
+
+    def _scoped_classification_fn(
+        self, op: str, unscoped: str, level: str, slot: str, cross_ref: bool = False
+    ) -> str:
         """Pick the hierarchy a classification operator meant, by the level it names.
 
         ``below`` / ``meets-or-exceeds`` / ``within-scope`` are emitted once as
@@ -1350,12 +1506,27 @@ class Compiler:
         deffunction. When the level is ambiguous or unknown the answer would
         be a silent always-true, so it is a compile error instead.
 
+        A ``$alias.field`` argument names no level, so there is nothing to
+        resolve by. With one hierarchy loaded that one is meant; with more it
+        is a compile error, because the shim would rank every level of the
+        others as unknown.
+
         Falls back to the unscoped shim when no hierarchy has been compiled
         into this Compiler: the deffunction may have been supplied directly
         through ``load_clips_function``.
         """
         if op not in _HIERARCHY_SCOPED_OPS or not self._hierarchy_levels:
             return unscoped
+        if cross_ref:
+            if len(self._hierarchy_levels) == 1:
+                return f"{next(iter(self._hierarchy_levels))}-{unscoped}"
+            raise CompilationError(
+                f"{op}({level}) on slot '{slot}': a cross-fact reference names no "
+                f"level, and more than one hierarchy is loaded "
+                f"({', '.join(sorted(self._hierarchy_levels))}), so the hierarchy to "
+                f"rank it in is ambiguous. Compare with a literal level, or call "
+                f"'<hierarchy>-{unscoped}' from a test: condition.",
+            )
 
         owners = [name for name, levels in self._hierarchy_levels.items() if level in levels]
         if len(owners) == 1:
@@ -1381,7 +1552,6 @@ class Compiler:
         "below": "below",
         "meets_or_exceeds": "meets-or-exceeds",
         "within_scope": "within-scope",
-        "dominates": "fathom-dominates",
         "in_compartment": "fathom-has-compartment",
         "has_compartments": "fathom-compartments-superset",
     }
@@ -1397,15 +1567,15 @@ class Compiler:
         "schema_frequency_exceeds",
     }
 
-    # Minimum argument count for each temporal operator
-    _TEMPORAL_ARITY: dict[str, int] = {
-        "changed_within": 1,
-        "count_exceeds": 4,
-        "rate_exceeds": 5,
-        "last_n": 4,
-        "distinct_count": 4,
-        "sequence_detected": 2,
-        "schema_frequency_exceeds": 4,
+    # (minimum, maximum) argument count for each temporal operator
+    _TEMPORAL_ARITY: dict[str, tuple[int, int]] = {
+        "changed_within": (1, 1),
+        "count_exceeds": (4, 4),
+        "rate_exceeds": (5, 6),
+        "last_n": (4, 4),
+        "distinct_count": (4, 4),
+        "sequence_detected": (2, 2),
+        "schema_frequency_exceeds": (4, 4),
     }
 
     # Operators compiled directly into a slot constraint
@@ -1446,6 +1616,93 @@ class Compiler:
             f"[fathom.compiler] compile rule failed: invalid argument {arg!r} for operator {op!r}",
             detail="Operator arguments must be a single token or a quoted string",
         )
+
+    @staticmethod
+    def _number_arg(arg: str, op: str) -> str:
+        """Return *arg* unchanged if it is a finite number, else raise.
+
+        A temporal threshold or window reaches Python's ``int()`` / ``float()``
+        at evaluation time, so a non-number used to compile cleanly and then
+        raise on every evaluation that reached the rule.
+        """
+        try:
+            ok = math.isfinite(float(arg))
+        except ValueError:
+            ok = False
+        if not ok:
+            raise CompilationError(
+                "[fathom.compiler] compile rule failed: "
+                f"argument {arg!r} for operator {op!r} must be a finite number",
+            )
+        return Compiler._validate_operator_arg(arg, op)
+
+    @staticmethod
+    def _sequence_events(events_json: str) -> list[dict[str, Any]]:
+        """Parse a ``sequence_detected`` event list, raising if it is malformed.
+
+        Each event names a ``template``, a ``slot`` and a ``value``, and may
+        name the timestamp slot as ``slot_ts`` (default ``ts``).
+        """
+        try:
+            events = json.loads(events_json)
+        except ValueError:
+            events = None
+        if not (
+            isinstance(events, list)
+            and events
+            and all(
+                isinstance(e, dict)
+                and all(isinstance(e.get(k), str) for k in ("template", "slot", "value"))
+                and isinstance(e.get("slot_ts", "ts"), str)
+                for e in events
+            )
+        ):
+            raise CompilationError(
+                "[fathom.compiler] compile rule failed: sequence_detected needs a JSON "
+                'list of {"template", "slot", "value"[, "slot_ts"]} events',
+                detail=f"Got: {events_json}",
+            )
+        return events
+
+    @classmethod
+    def template_references(cls, defn: RuleDefinition) -> list[tuple[str, str | None, str]]:
+        """``(template, slot, where)`` for every template a rule names outside ``when``.
+
+        Covers ``then.assert`` targets and their slots, and the template and
+        slot arguments of the temporal operators. *slot* is ``None`` when only
+        the template is named. The loader and ``fathom validate`` check these
+        against the registered templates: CLIPS invents a template for a bare
+        assert, and a temporal operator looks its template up only at
+        evaluation time.
+        """
+        refs: list[tuple[str, str | None, str]] = []
+        for target in defn.then.asserts:
+            refs.append((target.template, None, "then.assert"))
+            refs.extend((target.template, s, "then.assert") for s in target.slots)
+        for pattern in defn.when:
+            for cond in pattern.conditions:
+                op, arg = cls._parse_operator(cond.expression) if cond.expression else ("", "")
+                if op not in cls._TEMPORAL_OPS or op == "changed_within":
+                    continue
+                args = cls._split_operator_args(arg)
+                required, allowed = cls._TEMPORAL_ARITY[op]
+                if not required <= len(args) <= allowed:
+                    continue  # compile_rule reports it
+                where = repr(cond.expression)
+                if op == "sequence_detected":
+                    try:
+                        events = cls._sequence_events(args[0])
+                    except CompilationError:
+                        continue  # compile_rule reports it
+                    for e in events:
+                        refs.append((e["template"], e["slot"], where))
+                        refs.append((e["template"], e.get("slot_ts", "ts"), where))
+                    continue
+                slots = args[1:3] if op == "distinct_count" else args[1:2]
+                if op == "rate_exceeds":
+                    slots.append(args[5] if len(args) > 5 else "ts")
+                refs.extend((args[0], s, where) for s in slots)
+        return refs
 
     @staticmethod
     def _literal(arg: str, op: str, slot_type: SlotType | None) -> str:
@@ -1623,8 +1880,9 @@ class Compiler:
             # Resolve the argument (cross-ref or literal)
             cross_ref = self._resolve_cross_refs(arg)
             arg_var = cross_ref if cross_ref is not None else self._validate_operator_arg(arg, op)
-            if cross_ref is None:
-                clips_fn = self._scoped_classification_fn(op, clips_fn, arg, slot)
+            clips_fn = self._scoped_classification_fn(
+                op, clips_fn, arg, slot, cross_ref is not None
+            )
             slot_binding = f"({slot} {slot_var})"
             test_ce = f"(test ({clips_fn} {slot_var} {arg_var}))"
             return slot_binding, test_ce
@@ -1676,9 +1934,30 @@ class Compiler:
             negations = "".join(f"&~{item}" for item in items)
             return f"({slot} {slot_var}{negations})"
         elif op == "contains":
+            if _STRICT_XREF_RE.match(arg) and cross_ref is not None:
+                return f"({slot} {slot_var}&:(str-index {cross_ref} {slot_var}))"
             escaped_arg = self._escape_clips_string(arg)
             return f'({slot} {slot_var}&:(str-index "{escaped_arg}" {slot_var}))'
         elif op == "matches":
+            # The pattern must be one the rule author wrote: a regex read from
+            # a fact is attacker-shaped input to a backtracking engine, and the
+            # ReDoS threat model rests on patterns being trusted.
+            if _STRICT_XREF_RE.match(arg):
+                raise CompilationError(
+                    "[fathom.compiler] compile rule failed: "
+                    f"matches takes a literal pattern, not a cross-fact reference: {expr}",
+                    detail=f"Expression: {expr}",
+                )
+            # Checked here, not left to the first evaluation: a pattern that
+            # cannot compile errors on every fact the rule sees.
+            try:
+                re.compile(arg)
+            except re.error as exc:
+                raise CompilationError(
+                    "[fathom.compiler] compile rule failed: "
+                    f"invalid regex in expression: {expr}: {exc}",
+                    detail=f"Expression: {expr}",
+                ) from exc
             escaped_arg = self._escape_clips_string(arg)
             return f'({slot} {slot_var}&:(fathom-matches {slot_var} "{escaped_arg}"))'
         else:
@@ -1781,18 +2060,19 @@ class Compiler:
 
         # Parse comma-separated args and check arity before unpacking
         args = Compiler._split_operator_args(arg)
-        required = Compiler._TEMPORAL_ARITY[op]
-        if len(args) < required:
+        required, allowed = Compiler._TEMPORAL_ARITY[op]
+        if not required <= len(args) <= allowed:
+            bound = f"at least {required}" if len(args) < required else f"at most {allowed}"
             raise CompilationError(
                 "[fathom.compiler] compile rule failed: "
-                f"temporal operator {op!r} requires at least {required} argument(s), "
+                f"temporal operator {op!r} requires {bound} argument(s), "
                 f"got {len(args)}",
                 detail=f"Arguments: {arg}",
             )
 
         if op == "changed_within":
             # changed_within(window) — single numeric arg
-            window = Compiler._validate_operator_arg(args[0], op)
+            window = Compiler._number_arg(args[0], op)
             test_ce = f"(test (fathom-changed-within {slot_var} {window}))"
             return slot_binding, test_ce
 
@@ -1800,7 +2080,7 @@ class Compiler:
             # count_exceeds(template, slot, value, threshold)
             # First 3 args are strings (quoted), last is numeric
             tmpl, slot_arg, value, threshold = args[0], args[1], args[2], args[3]
-            threshold = Compiler._validate_operator_arg(threshold, op)
+            threshold = Compiler._number_arg(threshold, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
@@ -1818,8 +2098,8 @@ class Compiler:
                 args[4],
             )
             ts_slot = args[5] if len(args) > 5 else "ts"
-            threshold = Compiler._validate_operator_arg(threshold, op)
-            window = Compiler._validate_operator_arg(window, op)
+            threshold = Compiler._number_arg(threshold, op)
+            window = Compiler._number_arg(window, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
@@ -1841,7 +2121,7 @@ class Compiler:
             # First 3 args are strings (quoted), last is numeric
             fn = "fathom-last-n" if op == "last_n" else "fathom-schema-frequency-exceeds"
             tmpl, slot_arg, value, n = args[0], args[1], args[2], args[3]
-            n = Compiler._validate_operator_arg(n, op)
+            n = Compiler._number_arg(n, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             slot_e = Compiler._escape_clips_string(slot_arg)
             value_c = Compiler._emit_count_value(value, op, slot, alias_prefix)
@@ -1857,7 +2137,7 @@ class Compiler:
                 args[2],
                 args[3],
             )
-            threshold = Compiler._validate_operator_arg(threshold, op)
+            threshold = Compiler._number_arg(threshold, op)
             tmpl_e = Compiler._escape_clips_string(tmpl)
             group_e = Compiler._escape_clips_string(group_slot)
             count_e = Compiler._escape_clips_string(count_slot)
@@ -1869,7 +2149,79 @@ class Compiler:
         # sequence_detected(events_json, window_seconds)
         # First arg is a JSON string (quoted), second is numeric
         events_json, window_seconds = args[0], args[1]
-        window_seconds = Compiler._validate_operator_arg(window_seconds, op)
+        window_seconds = Compiler._number_arg(window_seconds, op)
+        Compiler._sequence_events(events_json)
         events_e = Compiler._escape_clips_string(events_json)
         test_ce = f'(test (fathom-sequence-detected "{events_e}" {window_seconds}))'
         return slot_binding, test_ce
+
+
+def compile_file_by_kind(
+    file_path: Path,
+    compiler: Compiler,
+    templates: dict[str, TemplateDefinition] | None = None,
+) -> dict[str, list[str]]:
+    """Compile a single YAML file into CLIPS construct strings, by kind.
+
+    Auto-detects the document type (templates, modules, rules, functions)
+    from top-level YAML keys and compiles accordingly.
+
+    Keyed by kind rather than returned flat because CLIPS resolves
+    references at build time: a defrule naming a deftemplate that has not
+    been built yet is an error, and file order is not build order. The
+    caller reassembles the whole run in dependency order.
+
+    Args:
+        file_path: YAML file to compile.
+        compiler: Compiler instance.
+        templates: Slot-type context, so emitted literals match what
+            :meth:`Engine.from_rules` builds for the same ruleset.
+
+    Returns:
+        Mapping of kind (``templates``/``modules``/``focus``/``functions``/
+        ``rules``) to the CLIPS construct strings compiled from this file.
+    """
+    # Imported here: the engine imports this module.
+    from fathom.engine import Engine
+
+    constructs: dict[str, list[str]] = {}
+
+    content = file_path.read_text(encoding="utf-8")
+    data = safe_load(content)
+    if not isinstance(data, dict):
+        return constructs
+
+    kind = file_kind(data)
+    if kind == "templates":
+        constructs["templates"] = [
+            compiler.compile_template(tmpl_defn)
+            for tmpl_defn in compiler.parse_template_file(file_path)
+        ]
+    elif kind == "modules":
+        mod_definitions, focus_order = compiler.parse_module_file(file_path)
+        constructs["modules"] = [compiler.compile_module(m) for m in mod_definitions]
+        if focus_order:
+            constructs["focus"] = [compiler.compile_focus_stack(focus_order)]
+    elif kind == "functions":
+        # A classification function is only compilable with the hierarchy it
+        # references in hand -- `compile_function` raises without it. The
+        # engine resolves it off disk in `load_functions`; this did not, so
+        # `fathom compile` exited 1 on every pack with a classification
+        # function, including the shipped examples/03-classification-blp that
+        # `fathom validate` and `fathom info` both accept.
+        definitions, hierarchies = compiler.parse_function_bundle(file_path)
+        for defn in definitions:
+            if defn.hierarchy_ref:
+                name = defn.hierarchy_ref.rsplit(".", 1)[0]
+                if name not in hierarchies:
+                    hierarchies[name] = Engine._resolve_hierarchy(defn.hierarchy_ref, file_path)
+        compiled = [compiler.compile_function(f, hierarchies or None) for f in definitions]
+        constructs["functions"] = [c for c in compiled if c]
+    elif kind == "rules":
+        ruleset = compiler.parse_rule_file(file_path)
+        constructs["rules"] = [
+            compiler.compile_rule(rule_defn, ruleset.module, templates)
+            for rule_defn in ruleset.rules
+        ]
+
+    return constructs

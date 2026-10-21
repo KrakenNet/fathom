@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from fathom.engine import Engine
 from fathom.integrations import rest
-from fathom.integrations.rest import app, session_store
+from fathom.integrations.rest import app
 from fathom.integrations.sessions import _Session
 
 if TYPE_CHECKING:
@@ -110,9 +110,9 @@ def ruleset_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture(autouse=True)
 def _reset_session_store() -> Iterator[None]:
-    session_store.clear()
+    app.state.session_store.clear()
     yield
-    session_store.clear()
+    app.state.session_store.clear()
 
 
 @pytest.fixture
@@ -177,7 +177,7 @@ class TestSessionRulesetConfusion:
                 headers=auth_headers,
             )
             assert response.status_code == 200
-        assert len(session_store) == 1
+        assert len(app.state.session_store) == 1
 
 
 class TestRequestScopedEvaluation:
@@ -231,7 +231,7 @@ class TestEvaluationBudget:
     ) -> None:
         loop = _write_nonterminating_ruleset(ruleset_root)
         engine = Engine.from_rules(str(loop), run_limit=20)
-        session_store._sessions["budget"] = _Session(engine, str(loop), time.time())
+        app.state.session_store._sessions["budget"] = _Session(engine, str(loop), time.time())
 
         response = client.post(
             "/v1/evaluate",
@@ -256,7 +256,7 @@ class TestSessionCeiling:
         auth_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(session_store, "_max_sessions", 1)
+        monkeypatch.setattr(app.state.session_store, "_max_sessions", 1)
         first = client.post(
             "/v1/evaluate",
             json={"facts": [], "ruleset": "strict", "session_id": "one"},
@@ -279,7 +279,7 @@ class TestSessionCeiling:
         auth_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(session_store, "_ttl_seconds", 0)
+        monkeypatch.setattr(app.state.session_store, "_ttl_seconds", 0)
         client.post(
             "/v1/evaluate",
             json={"facts": [], "ruleset": "strict", "session_id": "ttl"},
@@ -388,7 +388,7 @@ class TestErrorEnvelope:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The 503 used to nest the envelope inside ``detail``."""
-        monkeypatch.setattr(session_store, "_max_sessions", 0)
+        monkeypatch.setattr(app.state.session_store, "_max_sessions", 0)
         response = client.post(
             "/v1/evaluate",
             json={"facts": [], "ruleset": "strict", "session_id": "x"},
@@ -408,3 +408,71 @@ class TestErrorEnvelope:
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "invalid ruleset path"
+
+
+class TestFactBoundaryOverTheWire:
+    """Null/non-scalar slot values and unknown filter slots are 422s."""
+
+    def test_null_agent_id_is_422_not_allow(
+        self, ruleset_root: Path, client: TestClient, auth_headers: dict[str, str]
+    ) -> None:
+        """`"id": null` became the string "None" and the hello example allowed it."""
+        response = client.post(
+            "/v1/evaluate",
+            json={
+                "ruleset": "strict",
+                "facts": [
+                    {"template": "agent", "data": {"id": None, "clearance": "secret"}},
+                    {
+                        "template": "data_request",
+                        "data": {
+                            "agent_id": "x",
+                            "classification": "unclassified",
+                            "resource": "r",
+                        },
+                    },
+                ],
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == "validation_error"
+
+    @pytest.mark.parametrize(("method", "path"), [("POST", "/v1/query"), ("DELETE", "/v1/facts")])
+    def test_unknown_filter_slot_is_422(
+        self,
+        ruleset_root: Path,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        method: str,
+        path: str,
+    ) -> None:
+        """`{"x": null}` matched every fact, so a DELETE emptied the template."""
+        client.post(
+            "/v1/evaluate",
+            json={"facts": [], "ruleset": "strict", "session_id": "F"},
+            headers=auth_headers,
+        )
+        asserted = client.post(
+            "/v1/facts",
+            json={
+                "session_id": "F",
+                "template": "agent",
+                "data": {"id": "a1", "clearance": "secret"},
+            },
+            headers=auth_headers,
+        )
+        assert asserted.status_code == 200
+        response = client.request(
+            method,
+            path,
+            json={"session_id": "F", "template": "agent", "filter": {"x": None}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+        left = client.post(
+            "/v1/query",
+            json={"session_id": "F", "template": "agent"},
+            headers=auth_headers,
+        )
+        assert len(left.json()["facts"]) == 1

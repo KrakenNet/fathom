@@ -9,6 +9,7 @@ templates:
         required: true
       - name: action
         type: symbol
+        allowed_values: [read, write, execute, delete, export, admin, escalate, override]
         required: true
       - name: cui_category
         type: symbol

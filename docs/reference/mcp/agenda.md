@@ -16,7 +16,7 @@ List the activations waiting to fire
 ```json
 {
   "properties": {},
-  "title": "tool_agendaArguments",
+  "title": "fathom_agendaArguments",
   "type": "object"
 }
 ```

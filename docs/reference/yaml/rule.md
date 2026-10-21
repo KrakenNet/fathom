@@ -7,7 +7,7 @@ status: stable
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 ---
 
 # Rule
@@ -134,6 +134,11 @@ literal inside a regex character class.
 - a **cross-fact reference**, `$alias.field`, resolved to the CLIPS variable
   `?alias-field`. The alias must be declared as `alias:` on another pattern
   in the same rule (see **Aliases** below);
+  `contains($alias.field)` joins too, and only on that exact form (an
+  identifier, a dot, an identifier), so free text such as `contains($5.00)`
+  stays literal. `matches` takes a literal pattern only: `matches($alias.field)`
+  is a `CompilationError`, because a regex read from a fact is untrusted input
+  to a backtracking engine. `in` and `not_in` take no cross-fact reference;
 - a **list**, `[a, b, c]`, for `in` and `not_in` only;
 - a **literal**, everything else.
 
@@ -144,7 +149,7 @@ from compiling it as part of a ruleset:
 | Slot type | Emitted as | Example |
 |---|---|---|
 | `string` | quoted CLIPS string, escaped | `equals(a@b.com)` → `(id "a@b.com")` |
-| `symbol`, `integer`, `float`, `boolean` | bare CLIPS token | `equals(admin)` → `(role admin)` |
+| `symbol`, `integer`, `float` | bare CLIPS token | `equals(admin)` → `(role admin)` |
 
 Compiling without the templates is not a mistake CLIPS reliably catches.
 `equals` and `not_in` emit a pattern constraint, so an unquoted literal
@@ -185,8 +190,10 @@ when:
 ```
 
 Only one variable may bind a slot, so when the aliased slot already binds
-one the compiler reuses it where it can and falls back to an equality
-`(test ...)` where it cannot — a `bind:` you declared is never renamed.
+one the compiler reuses it: a generated variable is renamed to the join
+variable, and a `bind:` you declared (or another alias's join variable) is
+kept and every reference is rewritten onto it. A `bind:` you declared is never
+renamed, and the join works for every operator that takes `$alias.field`.
 
 **Stability.** The operator set and this grammar are covered by the 1.0
 compatibility promise. The generated CLIPS *variable names*
@@ -203,7 +210,21 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 | Set            | `in`, `not_in`                                                                                              |
 | String         | `contains`, `matches`                                                                                       |
 | Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
+| Compartment    | `in_compartment`, `has_compartments`                                                                        |
 | Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`, `schema_frequency_exceeds` |
+
+`matches` takes a Python `re` pattern. A pattern that does not compile is a
+`CompilationError` when the rule loads.
+
+**A runtime error fails the evaluation closed.** If a condition or an action
+errors while a request is evaluated -- a registered function that raises, a
+value over the 4096-character `matches` cap, a division by zero in a
+`then.assert` slot -- the evaluation raises `EvaluationError` and returns no
+decision. It does not return the decision written before the error: the rule
+that errored may have been the deny meant to override it.
+CLIPS's own printout of the error, which for a pattern-matching error
+holds the whole fact being matched, is not written to the process's
+stderr: the slot values may be sensitive.
 
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
@@ -222,12 +243,59 @@ consequences, both compile errors rather than a silently wrong answer:
   Rename it in one of them.
 
 When the argument is a cross-fact reference (`$other.level`) rather than a
-literal, the hierarchy cannot be resolved at compile time and the call goes to
-the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
-within one hierarchy.
+literal, there is no level to resolve by. With one hierarchy loaded the call
+goes to that hierarchy; with more than one it is a `CompilationError`. Compare
+with a literal, or call `<hier>-meets-or-exceeds` from a `test:` condition.
+
+**Compartment operators** read the slot as a `|`-delimited compartment set
+(`"nato|five"`; surrounding spaces and empty members are ignored) and need no
+hierarchy. `in_compartment(X)` is true when compartment `X` is in the slot's
+set; `has_compartments(X)` is true when every compartment in `X` is, so
+`has_compartments("")` is always true. The argument is a single token, a
+quoted string (quote it when it holds a `|`: `has_compartments("nato|five")`),
+or `$alias.field`. They compile to `fathom-has-compartment` and
+`fathom-compartments-superset`. There is no `dominates` operator; call
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` from a `test:`
+condition.
+
+**An unknown level stops the evaluation.** A value that is not a level of the
+hierarchy -- a typo, a different case, a label from another ladder -- on either
+side of `below`, `meets_or_exceeds` or `within_scope` raises, and the
+evaluation fails with `EvaluationError` instead of returning a decision. It is
+never ranked below or above anything, and it is not read as false either: a
+deny written with `below` would then skip the typo label. The REST, gRPC and
+MCP surfaces return their evaluation-error response (`evaluation failed`).
 
 Temporal operators emit `(test …)` CEs that call
-external functions registered at runtime.
+external functions registered at runtime. A rule that uses one also matches
+an internal `(__fathom_epoch)` fact, placed after its own patterns.
+`Engine.evaluate` (and so `evaluate_once`) replaces that fact before every
+run, so the operator is judged over the whole fact set at run time: the
+decision does not depend on the order the facts were asserted in. Facts a
+rule asserts during the run are not seen by a test that has already run.
+`Engine.step` does not replace the epoch fact (that would re-fire every
+temporal rule each step), so in a stream a temporal test runs when the
+pattern it sits on first matches.
+
+Temporal operator signatures. *template* and the slot arguments are bare
+names; *value* is a literal or a `$alias.field` reference to a slot of the
+condition's own pattern; numeric arguments must be finite numbers.
+
+| Operator                   | Arguments                                                     | True when                                                          |
+|----------------------------|---------------------------------------------------------------|--------------------------------------------------------------------|
+| `changed_within`           | `(window)`                                                    | the condition's slot (a timestamp) is less than *window* seconds old |
+| `count_exceeds`            | `(template, slot, value, threshold)`                          | more than *threshold* `template` facts have `slot` = *value*       |
+| `rate_exceeds`             | `(template, slot, value, threshold, window[, ts_slot])`       | as `count_exceeds`, counting only facts whose `ts_slot` (default `ts`) is within *window* seconds |
+| `last_n`                   | `(template, slot, value, n)`                                  | at least *n* `template` facts have `slot` = *value*                |
+| `schema_frequency_exceeds` | `(template, slot, value, tau)`                                | same predicate as `last_n`                                         |
+| `distinct_count`           | `(template, group_slot, count_slot, threshold)`               | some `group_slot` value has more than *threshold* distinct `count_slot` values |
+| `sequence_detected`        | `(events, window)`                                            | the events occurred in order, the first less than *window* seconds ago. *events* is a JSON list of `{"template", "slot", "value"[, "slot_ts"]}` objects (`slot_ts` defaults to `ts`) |
+
+All of these are checked when the rule loads, and by `fathom validate`, so a
+mistake is a `CompilationError` rather than an evaluation that raises: the
+argument count is exact (`rate_exceeds` takes 5 or 6), a numeric argument
+that is not a finite number is refused, the *events* list must parse, and
+every template and slot an operator names must be registered.
 
 Any other operator raises `CompilationError` from `_compile_condition`.
 For worked examples of each operator see
@@ -243,8 +311,7 @@ For worked examples of each operator see
 | `notify`      | `list[str]`               | `[]`                | Notification targets. Joined with `", "` and emitted as a single quoted string in the `notify` slot.                        |
 | `attestation` | `bool`                    | `False`             | Emitted as `TRUE`/`FALSE` on the decision fact's `attestation` slot. **Not** a signing switch — see [Audit & Attestation](../../concepts/audit-attestation.md). |
 | `metadata`    | `dict[str, str]`          | `{}`                | JSON-serialized (sorted keys) and emitted as a quoted string when non-empty; otherwise an empty quoted string.              |
-| `scope`       | `str \| None`             | `None`              | Accepted for authoring but not emitted by `_compile_action` (reserved).                                                    |
-| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. |
+| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. Targeting a `scope: fleet` template is a `CompilationError` at load: a rule's assert never reaches the fleet store. So is a template, or a slot, that is not registered; `fathom validate` reports both. |
 
 ### `ThenBlock` validator
 
@@ -349,7 +416,8 @@ Notes on the shape:
 
 - `(declare (salience N))` is omitted when `salience == 0`.
 - Test CEs appear after all pattern CEs, in source order across
-  patterns.
+  patterns. A rule with a temporal operator gets `(__fathom_epoch)` as its
+  last pattern CE, just before the test CEs.
 - `reason` with `{placeholder}` placeholders becomes `(str-cat …)`;
   literal reasons are emitted as plain quoted strings.
 - `notify` is always quoted — empty list emits `""`.
@@ -380,6 +448,16 @@ Model- or compile-time errors you will hit:
   `ValueError` from `_require_action_or_asserts`.
 - `ConditionEntry` rejections listed under
   [What the validator rejects](#what-the-validator-rejects).
+- A top-level key other than `ruleset`, `version`, `module` and `rules`
+  — `CompilationError` from `parse_rule_file` / `reload_rules`.
+- A pattern whose `template` is not registered — `CompilationError`
+  from `Engine.load_rules` / `reload_rules`, before the rule is built,
+  whether or not the pattern has slot conditions. CLIPS would otherwise
+  create an implied deftemplate and the rule could never match.
+  `fathom validate` reports the same error against the templates it can
+  see: those under the validated path, a rule file's sibling
+  `templates/`, and the templates of an installed pack's
+  `PACK_DEPENDENCIES`.
 
 ## See also
 

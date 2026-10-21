@@ -13,7 +13,7 @@ rules:
           - slot: access_level
             expression: "in([read, write, admin])"
           - slot: justification
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
     then:
       action: deny
       reason: "PHI access denied: minimum necessary justification required (164.502(b))"
@@ -29,10 +29,14 @@ rules:
     when:
       - template: data_transfer
         conditions:
+          # Word-boundary, case-insensitive: phi, ePHI, phi_record; not graphics.
           - slot: data_type
-            expression: "equals(phi)"
+            expression: "matches((?i)(^|[^a-z])e?phi([^a-z]|$))"
+          # Deny unless the transfer is explicitly encrypted: any other value
+          # is treated as unencrypted. A set, not a lookahead regex: the pack
+          # must also export to Rego, and OPA's RE2 has no lookahead.
           - slot: encrypted
-            expression: "equals(FALSE)"
+            expression: 'not_in(["true", "True", "TRUE"])'
     then:
       action: deny
       reason: "PHI transfer blocked: transmission must be encrypted (164.312(e)(1))"

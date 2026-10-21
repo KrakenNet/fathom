@@ -9,6 +9,7 @@ their responses and in the signed audit attestation.
 
 from __future__ import annotations
 
+import sys
 import threading
 from typing import TYPE_CHECKING
 
@@ -444,3 +445,23 @@ def test_a_reload_cannot_erase_the_facts_of_a_request_already_in_flight(tmp_path
 
     assert reloads == []
     assert result.decision == "allow"
+
+
+def test_unsigned_reload_does_not_need_cryptography(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unsigned reload works on a core-only install (no ``cryptography``).
+
+    ``cryptography`` ships with the ``attestation`` and ``cli`` extras, not the
+    core package. Only a signed reload needs it.
+    """
+    monkeypatch.setitem(sys.modules, "cryptography", None)
+    monkeypatch.delitem(sys.modules, "fathom.integrations.ruleset_sig", raising=False)
+    _write_pack(tmp_path)
+    engine = Engine()
+    engine.load_templates(str(tmp_path / "templates.yaml"))
+    engine.load_modules(str(tmp_path / "modules.yaml"))
+
+    _, hash_after = engine.reload_rules(_ruleset_yaml("rule-a", "alice"))
+
+    assert hash_after == engine.ruleset_hash

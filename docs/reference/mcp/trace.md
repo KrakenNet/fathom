@@ -16,7 +16,7 @@ Evaluate and return the decision with every rule firing in order
 ```json
 {
   "properties": {},
-  "title": "tool_traceArguments",
+  "title": "fathom_traceArguments",
   "type": "object"
 }
 ```

@@ -210,18 +210,6 @@
           "default": "",
           "title": "Reason",
           "type": "string"
-        },
-        "scope": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Scope"
         }
       },
       "title": "ThenBlock",

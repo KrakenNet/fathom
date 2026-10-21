@@ -2,8 +2,10 @@
 
 Stores facts in a ``fleet_facts`` table with a JSONB ``data`` column.
 Uses PostgreSQL LISTEN/NOTIFY on per-template channels
-(``fathom_changes_{template}``) to propagate change notifications to
-subscribers.
+(``fathom_changes_{template}``, or ``fathom_changes_{sha256 prefix}`` when
+that name exceeds Postgres' 63-byte limit) to propagate change notifications
+to subscribers. A NOTIFY payload is limited to 8000 bytes by Postgres, so a
+fact whose JSON is larger fails ``assert_fact`` and nothing is stored.
 
 Requires ``asyncpg``.  Install with::
 
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import uuid
 from collections import defaultdict
@@ -29,7 +32,10 @@ except ImportError as _exc:
     ) from _exc
 
 from fathom.errors import FleetConnectionError, FleetError
+from fathom.fleet import _dispatch
 from fathom.models import FactChangeNotification
+
+__all__ = ["PostgresFactStore"]
 
 # Callback type alias (mirrors fleet.py)
 _SubscriptionCallback = Callable[[FactChangeNotification], Coroutine[Any, Any, None]]
@@ -68,6 +74,23 @@ SELECT COUNT(*) FROM fleet_facts
 WHERE template = $1;
 """
 
+#: Everything asyncpg raises that the store reports as a FleetError.
+_DRIVER_ERRORS = (OSError, asyncpg.PostgresError, asyncpg.InterfaceError)
+
+
+def _fleet_error(exc: BaseException, operation: str) -> FleetError:
+    """Map a driver error to FleetConnectionError (connection lost or
+    unreachable) or FleetError (anything else)."""
+    if isinstance(exc, (OSError, asyncpg.PostgresConnectionError)):
+        return FleetConnectionError(
+            f"PostgreSQL connection failed during {operation}: {exc}", backend="postgres"
+        )
+    return FleetError(f"PostgreSQL error during {operation}: {exc}")
+
+
+#: Postgres identifier limit (NAMEDATALEN - 1) for LISTEN/NOTIFY channels.
+_MAX_CHANNEL_BYTES = 63
+
 #: Backoff for re-establishing the LISTEN connection after the backend dies.
 _RECONNECT_BASE_DELAY = 0.5
 _RECONNECT_MAX_DELAY = 30.0
@@ -75,6 +98,36 @@ _RECONNECT_MAX_DELAY = 30.0
 
 class PostgresFactStore:
     """Async fact store backed by PostgreSQL.
+
+    Call ``await connect()`` before anything else: it creates the
+    connection pool and the ``fleet_facts`` table. Before it,
+    :meth:`assert_fact`, :meth:`query`, :meth:`retract`, :meth:`count` and
+    :meth:`ensure_table` raise :class:`~fathom.errors.FleetError`. Call
+    :meth:`close` when done.
+
+    Each write runs in one transaction with its ``pg_notify``, so a fact and
+    its notification commit together or not at all. Postgres limits a
+    NOTIFY payload to 8000 bytes; a fact whose payload (template, fact_id,
+    action and data as JSON) is larger fails :meth:`assert_fact` with
+    :class:`~fathom.errors.FleetError` and nothing is stored. A retract
+    over the limit rolls back the same way. Concurrent retracts of the same
+    fact count and announce it once.
+
+    :meth:`subscribe` LISTENs on the template's channel, so a callback runs
+    after the write commits, once, also in the writing process. If the
+    LISTEN connection drops, the store reconnects with backoff (0.5s
+    doubling to 30s); NOTIFY has no replay, so changes made while it is
+    down are lost.
+
+    Channels are named ``fathom_changes_<template>`` with every
+    non-alphanumeric character replaced by ``_``. When that is over
+    Postgres' 63-byte identifier limit the channel is
+    ``fathom_changes_<first 32 hex digits of sha256(template)>``. There is
+    no limit on the template name itself.
+
+    Errors are not retried. A server that is unreachable or a connection
+    lost mid-statement raises :class:`~fathom.errors.FleetConnectionError`;
+    any other driver error raises :class:`~fathom.errors.FleetError`. There is no fact TTL.
 
     Parameters
     ----------
@@ -105,15 +158,8 @@ class PostgresFactStore:
         try:
             self._pool = await asyncpg.create_pool(dsn=self._dsn)
             await self.ensure_table()
-        except OSError as exc:
-            raise FleetConnectionError(
-                f"Failed to connect to PostgreSQL: {exc}",
-                backend="postgres",
-            ) from exc
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"PostgreSQL error during connect: {exc}",
-            ) from exc
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "connect") from exc
 
     async def close(self) -> None:
         """Shut down connections."""
@@ -132,36 +178,39 @@ class PostgresFactStore:
             if self._pool is not None:
                 await self._pool.close()
                 self._pool = None
-        except OSError as exc:
-            raise FleetConnectionError(
-                f"Failed to close PostgreSQL connections: {exc}",
-                backend="postgres",
-            ) from exc
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"PostgreSQL error during close: {exc}",
-            ) from exc
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "close") from exc
 
     async def ensure_table(self) -> None:
         """Create the ``fleet_facts`` table if it does not exist."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         try:
-            async with self._pool.acquire() as conn:
+            async with pool.acquire() as conn:
                 await conn.execute(_CREATE_TABLE_SQL)
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"Failed to create fleet_facts table: {exc}",
-            ) from exc
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "ensure_table") from exc
 
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
 
+    def _require_pool(self) -> asyncpg.Pool[asyncpg.Record]:
+        if self._pool is None:
+            raise FleetError("PostgresFactStore is not connected; call connect() first")
+        return self._pool
+
     def _channel_for(self, template: str) -> str:
         """Return the LISTEN/NOTIFY channel name for *template*."""
         # Sanitise: replace non-alphanumeric chars with underscores
         safe = "".join(c if c.isalnum() else "_" for c in template)
-        return f"fathom_changes_{safe}"
+        channel = f"fathom_changes_{safe}"
+        # Postgres refuses (NOTIFY) or truncates (LISTEN) a channel name over
+        # 63 bytes. Past that, name the channel by a digest of the template:
+        # every node derives the same name, and names that fit keep theirs.
+        if len(channel.encode()) > _MAX_CHANNEL_BYTES:
+            digest = hashlib.sha256(template.encode()).hexdigest()[:32]
+            channel = f"fathom_changes_{digest}"
+        return channel
 
     @staticmethod
     def _matches(data: dict[str, Any], fact_filter: dict[str, Any] | None) -> bool:
@@ -190,6 +239,8 @@ class PostgresFactStore:
             # NOTIFY is a utility statement whose payload must be a literal, so
             # it cannot take a bind parameter. pg_notify() is a normal function.
             await conn.execute("SELECT pg_notify($1, $2)", channel, payload)
+        except asyncpg.PostgresConnectionError:
+            raise  # the caller reports it as a lost connection
         except asyncpg.PostgresError as exc:
             raise FleetError(
                 f"Failed to send NOTIFY on channel {channel}: {exc}",
@@ -197,8 +248,7 @@ class PostgresFactStore:
 
     async def _notify_subscribers(self, notification: FactChangeNotification) -> None:
         """Invoke local subscriber callbacks."""
-        for cb in self._subscribers.get(notification.template, []):
-            await cb(notification)
+        await _dispatch(self._subscribers.get(notification.template, []), notification)
 
     # ------------------------------------------------------------------
     # LISTEN support
@@ -219,15 +269,8 @@ class PostgresFactStore:
         self._registered.clear()
         try:
             conn = await asyncpg.connect(dsn=self._dsn)
-        except OSError as exc:
-            raise FleetConnectionError(
-                f"Failed to create LISTEN connection: {exc}",
-                backend="postgres",
-            ) from exc
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"PostgreSQL error creating LISTEN connection: {exc}",
-            ) from exc
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "LISTEN connect") from exc
 
         conn.add_termination_listener(self._on_listen_conn_lost)
         self._listen_conn = conn
@@ -261,7 +304,10 @@ class PostgresFactStore:
         async with self._listen_lock:
             conn = await self._ensure_listen_conn()
             for template in sorted(self._listening_templates - self._registered):
-                await conn.add_listener(self._channel_for(template), self._on_notification)
+                try:
+                    await conn.add_listener(self._channel_for(template), self._on_notification)
+                except _DRIVER_ERRORS as exc:
+                    raise _fleet_error(exc, "subscribe") from exc
                 self._registered.add(template)
 
     def _on_listen_conn_lost(self, _conn: asyncpg.Connection[asyncpg.Record]) -> None:
@@ -306,49 +352,37 @@ class PostgresFactStore:
 
     async def assert_fact(self, template: str, data: dict[str, Any]) -> str:
         """Assert a fact and return its unique fact_id."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         fact_id = uuid.uuid4().hex
         fact_uuid = uuid.UUID(fact_id)
         try:
-            async with self._pool.acquire() as conn, conn.transaction():
+            async with pool.acquire() as conn, conn.transaction():
                 # INSERT and NOTIFY commit together: a notify failure must not
                 # leave a durable row that no subscriber was ever told about.
                 await conn.execute(_INSERT_SQL, fact_uuid, template, json.dumps(data))
-                notification = FactChangeNotification(
-                    template=template, fact_id=fact_id, action="assert", data=data
+                # Subscribers in this process hear it through the LISTEN
+                # connection like every peer does, so each hears it once.
+                await self._notify_pg(
+                    conn,
+                    template,
+                    FactChangeNotification(
+                        template=template, fact_id=fact_id, action="assert", data=data
+                    ),
                 )
-                await self._notify_pg(conn, template, notification)
-        except (FleetError, FleetConnectionError):
-            raise
-        except OSError as exc:
-            raise FleetConnectionError(
-                f"Connection failed during assert_fact: {exc}",
-                backend="postgres",
-            ) from exc
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"PostgreSQL error during assert_fact: {exc}",
-            ) from exc
-        await self._notify_subscribers(notification)
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "assert_fact") from exc
         return fact_id
 
     async def query(
         self, template: str, fact_filter: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Return facts matching the template and optional filter."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         try:
-            async with self._pool.acquire() as conn:
+            async with pool.acquire() as conn:
                 rows = await conn.fetch(_SELECT_SQL, template)
-        except OSError as exc:
-            raise FleetConnectionError(
-                f"Connection failed during query: {exc}",
-                backend="postgres",
-            ) from exc
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"PostgreSQL error during query: {exc}",
-            ) from exc
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "query") from exc
         results: list[dict[str, Any]] = []
         for row in rows:
             raw = row["data"]
@@ -359,87 +393,54 @@ class PostgresFactStore:
 
     async def retract(self, template: str, fact_filter: dict[str, Any] | None = None) -> int:
         """Retract facts matching the template and optional filter. Return count removed."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         try:
             if fact_filter:
                 # With a filter we must check each row in Python
                 matching = await self.query(template, fact_filter)
                 if not matching:
                     return 0
-                ids = [uuid.UUID(m["fact_id"]) for m in matching]
-                notifs = [
-                    FactChangeNotification(
-                        template=template,
-                        fact_id=m["fact_id"],
-                        action="retract",
-                        data={k: v for k, v in m.items() if k != "fact_id"},
-                    )
-                    for m in matching
-                ]
-                # DELETE and NOTIFY commit together, as in assert_fact.
-                async with self._pool.acquire() as conn, conn.transaction():
-                    deleted = await conn.execute(
-                        "DELETE FROM fleet_facts WHERE id = ANY($1::uuid[])", ids
-                    )
-                    for notif in notifs:
-                        await self._notify_pg(conn, template, notif)
-                for notif in notifs:
-                    await self._notify_subscribers(notif)
-                # deleted is e.g. "DELETE 3"
-                return int(str(deleted).split()[-1]) if deleted else 0
+                sql = "DELETE FROM fleet_facts WHERE id = ANY($1::uuid[]) RETURNING id, data"
+                arg: Any = [uuid.UUID(m["fact_id"]) for m in matching]
             else:
-                # No filter — delete all for template
-                notifs = []
-                async with self._pool.acquire() as conn, conn.transaction():
-                    rows = await conn.fetch(_DELETE_SQL, template)
-                    for row in rows:
-                        row_data: dict[str, Any] = (
-                            json.loads(row["data"])
-                            if isinstance(row["data"], str)
-                            else dict(row["data"])
-                        )
-                        notif = FactChangeNotification(
+                sql, arg = _DELETE_SQL, template
+            # DELETE and NOTIFY commit together, as in assert_fact. Announce
+            # only the rows this DELETE removed: a concurrent retract may
+            # already have taken some of the ones the query matched.
+            async with pool.acquire() as conn, conn.transaction():
+                rows = await conn.fetch(sql, arg)
+                for row in rows:
+                    row_data: dict[str, Any] = (
+                        json.loads(row["data"])
+                        if isinstance(row["data"], str)
+                        else dict(row["data"])
+                    )
+                    await self._notify_pg(
+                        conn,
+                        template,
+                        FactChangeNotification(
                             template=template,
                             fact_id=row["id"].hex,
                             action="retract",
                             data=row_data,
-                        )
-                        notifs.append(notif)
-                        await self._notify_pg(conn, template, notif)
-                for notif in notifs:
-                    await self._notify_subscribers(notif)
-                return len(notifs)
-        except (FleetError, FleetConnectionError):
-            raise
-        except OSError as exc:
-            raise FleetConnectionError(
-                f"Connection failed during retract: {exc}",
-                backend="postgres",
-            ) from exc
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"PostgreSQL error during retract: {exc}",
-            ) from exc
+                        ),
+                    )
+            return len(rows)
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "retract") from exc
 
     async def count(self, template: str, fact_filter: dict[str, Any] | None = None) -> int:
         """Count facts matching the template and optional filter."""
-        assert self._pool is not None, "call connect() first"
+        pool = self._require_pool()
         if fact_filter:
             # Must filter in Python
             matching = await self.query(template, fact_filter)
             return len(matching)
         try:
-            async with self._pool.acquire() as conn:
+            async with pool.acquire() as conn:
                 row = await conn.fetchrow(_COUNT_SQL, template)
-        except OSError as exc:
-            raise FleetConnectionError(
-                f"Connection failed during count: {exc}",
-                backend="postgres",
-            ) from exc
-        except asyncpg.PostgresError as exc:
-            raise FleetError(
-                f"PostgreSQL error during count: {exc}",
-            ) from exc
+        except _DRIVER_ERRORS as exc:
+            raise _fleet_error(exc, "count") from exc
         return int(row["count"]) if row else 0
 
     async def subscribe(

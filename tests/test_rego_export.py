@@ -14,7 +14,9 @@ not merely Rego-shaped.
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,12 +26,14 @@ from typer.testing import CliRunner
 
 from fathom.cli import app
 from fathom.engine import Engine
-from fathom.rego import convert_ast, export_engine, parse_rego
+from fathom.errors import CompilationError
+from fathom.rego import _why_not_re2, convert_ast, export_engine, parse_rego
 
 if TYPE_CHECKING:
     from fathom.rego import ExportResult
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rego"
+SHIPPED_PACKS = Path(__file__).parent.parent / "src" / "fathom" / "rule_packs"
 
 _ONE_TEMPLATE = """
 templates:
@@ -264,17 +268,41 @@ class TestRefusals:
         rule["when"][0]["conditions"].append({"slot": "path", "bind": "?p"})
         assert "which is a join" in self._reason(_export(tmp_path, rule))
 
-    def test_a_scope_decision(self, tmp_path: Path) -> None:
-        result = _export(
-            tmp_path,
-            _rule(
-                "r",
-                [{"slot": "role", "expression": "equals(admin)"}],
-                action="scope",
-                scope="read-only",
-            ),
-        )
-        assert "nowhere to put it" in self._reason(result)
+    def test_a_refused_deny_refuses_the_whole_export(self, tmp_path: Path) -> None:
+        """Leaving a `deny` out of the Rego allows what the ruleset denies."""
+        with pytest.raises(CompilationError, match="denied") as raised:
+            _export(
+                tmp_path,
+                _rule("ok", [{"slot": "role", "expression": "equals(admin)"}]),
+                _rule(
+                    "locked",
+                    [{"slot": "role", "expression": "changed_within(60)"}],
+                    action="deny",
+                ),
+            )
+        assert "locked" in str(raised.value)
+
+    @pytest.mark.parametrize(
+        "pattern", ["^(?!safe_).*", "(?=a)a", "(?<=a)b", "(?<!a)b", "(a)\\1", "(?P<x>a)(?P=x)"]
+    )
+    def test_a_regex_rego_cannot_evaluate(self, tmp_path: Path, pattern: str) -> None:
+        """OPA's RE2 has no lookaround or backreference. Copied through, the
+        expression errors, OPA reads it as undefined, and the rule never fires."""
+        rule = _rule("r", [{"slot": "role", "expression": f"matches({pattern})"}])
+        assert "RE2" in self._reason(_export(tmp_path, rule))
+
+    def test_an_escaped_backslash_is_not_a_backreference(self, tmp_path: Path) -> None:
+        rule = _rule("r", [{"slot": "role", "expression": "matches(a\\\\1)"}])
+        assert _export(tmp_path, rule).rule_count == 1
+
+    def test_a_deny_with_a_regex_rego_cannot_evaluate_refuses_the_export(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(CompilationError, match="RE2"):
+            _export(
+                tmp_path,
+                _rule("r", [{"slot": "role", "expression": "matches(^(?!true$))"}], action="deny"),
+            )
 
     def test_a_refused_rule_is_not_in_the_output(self, tmp_path: Path) -> None:
         """The failure that matters: a refusal that still emits something."""
@@ -346,6 +374,54 @@ class TestAgainstOpa:
         }
         assert round_tripped == original
 
+    def test_the_hipaa_pack_denies_an_unencrypted_transfer_in_opa(self, tmp_path: Path) -> None:
+        """The exported pack has to decide what the pack decides. A lookahead
+        regex exported cleanly, errored in OPA, and allowed this transfer."""
+        policy = tmp_path / "hipaa.rego"
+        result = CliRunner(mix_stderr=False).invoke(
+            app, ["convert", "to-rego", str(SHIPPED_PACKS / "hipaa"), "-o", str(policy)]
+        )
+        assert result.exit_code == 0, result.stderr
+        for encrypted, denied in (("false", True), ("FALSE", True), ("TRUE", False)):
+            document = {
+                "data_transfer": {
+                    "source": "ehr",
+                    "destination": "x",
+                    "data_type": "phi",
+                    "encrypted": encrypted,
+                }
+            }
+            (tmp_path / "in.json").write_text(json.dumps(document), encoding="utf-8")
+            answer = subprocess.run(
+                [
+                    "opa",
+                    "eval",
+                    "--strict-builtin-errors",
+                    "-f",
+                    "raw",
+                    "-d",
+                    str(policy),
+                    "-i",
+                    str(tmp_path / "in.json"),
+                    "data.hipaa.deny",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            assert answer == ("true" if denied else "false"), encrypted
+
+
+def test_every_shipped_pack_regex_is_one_rego_can_evaluate() -> None:
+    """A pack that loads fine but exports a regex OPA errors on is the B2 bug."""
+    patterns = [
+        match
+        for path in SHIPPED_PACKS.glob("*/rules/*.yaml")
+        for match in re.findall(r"matches\((.*)\)", path.read_text(encoding="utf-8"))
+    ]
+    assert patterns
+    assert {p: _why_not_re2(p) for p in patterns if _why_not_re2(p)} == {}
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -399,6 +475,35 @@ class TestCli:
         runner = CliRunner(mix_stderr=False)
         assert runner.invoke(app, ["convert", "to-rego", str(tmp_path)]).exit_code == 0
         assert runner.invoke(app, ["convert", "to-rego", str(tmp_path), "--strict"]).exit_code != 0
+
+    def test_a_refused_deny_fails_without_strict(self, tmp_path: Path) -> None:
+        _pack(
+            tmp_path,
+            _rules(
+                _rule("kept", [{"slot": "role", "expression": "equals(admin)"}]),
+                _rule(
+                    "locked",
+                    [{"slot": "role", "expression": "changed_within(60)"}],
+                    action="deny",
+                ),
+            ),
+        )
+        result = CliRunner(mix_stderr=False).invoke(app, ["convert", "to-rego", str(tmp_path)])
+        assert result.exit_code == 3
+        assert "locked" in result.stderr
+        assert "package" not in result.stdout
+
+    def test_a_pack_whose_focus_names_another_pack_fails_cleanly(self) -> None:
+        """cmmc focuses the nist module it depends on; exported from its own
+        directory that module is missing, which crashed with a traceback."""
+        result = CliRunner(mix_stderr=False).invoke(
+            app, ["convert", "to-rego", str(SHIPPED_PACKS / "cmmc")]
+        )
+        # 3 is reserved for a refused deny; a pack that does not load is a
+        # plain failure. What matters is a one-line error, not a traceback.
+        assert result.exit_code != 0
+        assert "nist" in result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
 
     def test_a_missing_directory_is_rejected(self, tmp_path: Path) -> None:
         result = CliRunner(mix_stderr=False).invoke(

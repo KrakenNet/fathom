@@ -4,7 +4,7 @@ summary: Templates, Facts, Rules, Modules, Functions — the author-level vocabu
 audience: [rule-authors, app-developers]
 diataxis: explanation
 status: stable
-last_verified: 2026-09-09
+last_verified: 2026-10-21
 sources:
   - src/fathom/models.py
   - src/fathom/compiler.py

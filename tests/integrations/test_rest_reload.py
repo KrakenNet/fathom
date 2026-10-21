@@ -271,7 +271,7 @@ def test_signed_reload_audit_emission(
     assert data["ruleset_hash_before"] != data["ruleset_hash_after"]
 
     # Attestation token: EdDSA JWT signed by the runtime key — decode with its pubkey.
-    claims = verify_token(data["attestation_token"], attestation.public_key)
+    claims = verify_token(data["attestation_token"], attestation.public_key, typ="fathom.event")
     assert claims["iss"] == "fathom"
     assert isinstance(claims["iat"], int)
     assert claims["ruleset_hash_before"] == data["ruleset_hash_before"]
@@ -576,3 +576,38 @@ def test_every_rejected_reload_is_audited(
         assert [r.get("reason") for r in new] == [reason], (reason, new)
         assert new[0]["event_type"] == "ruleset_reload_rejected"
         assert new[0]["ruleset_hash_before"].startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "status", "reason"),
+    [
+        ({"json": {"ruleset_path": "../../../../etc/passwd"}}, 400, "path_rejected"),
+        ({"json": {"ruleset_path": "/etc/passwd"}}, 400, "path_rejected"),
+        ({"json": {"ruleset_yaml": "x" * 5000}}, 413, "payload_too_large"),
+        ({"content": b"not json"}, 422, "validation_error"),
+    ],
+)
+def test_every_reload_refusal_is_audited(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    kwargs: dict[str, object],
+    status: int,
+    reason: str,
+) -> None:
+    """Path-jail, oversize and malformed-body refusals wrote no audit record."""
+    monkeypatch.setenv("FATHOM_MAX_RELOAD_BYTES", "2000")
+    records: list[dict[str, object]] = []
+    sink = type("Sink", (), {"write": lambda self, r: records.append(r)})()
+    client.app.state.audit_sink = sink  # type: ignore[attr-defined]
+    resp = client.post("/v1/rules/reload", headers=AUTH, **kwargs)  # type: ignore[arg-type]
+    assert resp.status_code == status, resp.text
+    assert [(r["event_type"], r["reason"]) for r in records] == [
+        ("ruleset_reload_rejected", reason)
+    ]
+
+
+def test_unknown_key_is_refused(client: TestClient) -> None:
+    """A misspelled field is a 422, not a reload that ignores it."""
+    body = {"ruleset_yaml": _ruleset_yaml("rule-x", "x"), "signatur": "AAAA"}
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+    assert resp.status_code == 422, resp.text

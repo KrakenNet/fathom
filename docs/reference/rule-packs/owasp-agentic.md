@@ -10,6 +10,12 @@ last_verified: 2026-04-15
 # Rule Pack: `owasp-agentic`
 
 OWASP LLM Top 10 agentic safety rule pack.
+The scanning rules use `matches`, which is capped at 4096 characters: an
+`agent_input` or `agent_output` whose `content` is longer fails the
+evaluation closed with `EvaluationError` rather than going unscanned.
+Split longer content into several facts of at most 4096 characters,
+overlapping by the longest match you need to catch (an SSN or email
+address straddling a boundary is otherwise missed).
 
 **Pack version:** `1.0`  
 **Rule count:** 4  

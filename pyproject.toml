@@ -110,6 +110,12 @@ google-adk = [
 cli = [
     "typer[all]>=0.12,<1",
     "rich>=13,<16",
+    # `fathom status` calls a running server; `fathom verify-artifact`
+    # checks a minisign signature. Both are imported when the CLI starts.
+    # `fathom verify-chain` checks a log's checkpoint JWS tokens with pyjwt.
+    "httpx>=0.24,<1",
+    "cryptography>=42.0,<51",
+    "pyjwt[crypto]>=2.8,<3",
 ]
 metrics = [
     "prometheus_client>=0.20,<1",

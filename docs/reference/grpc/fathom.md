@@ -42,9 +42,9 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first; an unknown one is NOT_FOUND. An empty session_id is refused with INVALID_ARGUMENT. |
 | template | [string](#string) |  |  |
-| data_json | [string](#string) |  | JSON-encoded slot data. |
+| data_json | [string](#string) |  | JSON-encoded slot data, a JSON object; anything else is INVALID_ARGUMENT. |
 
 
 
@@ -74,8 +74,8 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
-| ruleset | [string](#string) |  |  |
+| session_id | [string](#string) |  | Optional. Empty: a stateless evaluation against the server&#39;s engine. Set: the session&#39;s working memory is used, and Evaluate is the call that opens it -- an unknown id is created, bound to `ruleset` (empty if none is named). A known id is joined; naming a different ruleset than the session was opened with is FAILED_PRECONDITION. A server that mounts an engine refuses sessions with FAILED_PRECONDITION. |
+| ruleset | [string](#string) |  | Ruleset path relative to FATHOM_RULESET_ROOT. |
 | facts | [FactInput](#fathom-v1-FactInput) | repeated |  |
 
 
@@ -146,7 +146,7 @@
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | template | [string](#string) |  |  |
-| data_json | [string](#string) |  | JSON-encoded slot data (e.g. {&#34;tool_name&#34;: &#34;bash&#34;, &#34;agent_id&#34;: &#34;a1&#34;}). |
+| data_json | [string](#string) |  | JSON-encoded slot data, a JSON object (e.g. {&#34;tool_name&#34;: &#34;bash&#34;, &#34;agent_id&#34;: &#34;a1&#34;}). Anything else is INVALID_ARGUMENT. |
 
 
 
@@ -161,9 +161,9 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first; an unknown one is NOT_FOUND. An empty session_id is refused with INVALID_ARGUMENT. |
 | template | [string](#string) |  |  |
-| filter_json | [string](#string) |  | Optional JSON-encoded filter (e.g. {&#34;agent_id&#34;: &#34;a1&#34;}). |
+| filter_json | [string](#string) |  | Optional JSON-object filter (e.g. {&#34;agent_id&#34;: &#34;a1&#34;}). Empty matches every fact of the template; any non-object JSON, `null` included, is INVALID_ARGUMENT. |
 
 
 
@@ -227,9 +227,9 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first; an unknown one is NOT_FOUND. An empty session_id is refused with INVALID_ARGUMENT. |
 | template | [string](#string) |  |  |
-| filter_json | [string](#string) |  | Optional JSON-encoded filter. |
+| filter_json | [string](#string) |  | Optional JSON-object filter. Empty retracts every fact of the template; any non-object JSON, `null` included, is INVALID_ARGUMENT. |
 
 
 
@@ -259,7 +259,7 @@
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| session_id | [string](#string) |  |  |
+| session_id | [string](#string) |  | Required. Working memory is per session; create the session with Evaluate first; an unknown one is NOT_FOUND. An empty session_id is refused with INVALID_ARGUMENT. |
 
 
 
@@ -276,6 +276,8 @@
 | Name | Number | Description |
 | ---- | ------ | ----------- |
 | CHANGE_TYPE_UNSPECIFIED | 0 |  |
+| CHANGE_TYPE_ASSERT | 1 |  |
+| CHANGE_TYPE_RETRACT | 2 |  |
 | ASSERT | 1 |  |
 | RETRACT | 2 |  |
 

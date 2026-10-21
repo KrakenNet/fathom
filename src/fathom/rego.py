@@ -32,15 +32,16 @@ from fathom.compiler import _ARG_TOKEN_RE, Compiler
 from fathom.errors import CompilationError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Collection
+
+    from fathom.engine import Engine
 
 __all__ = [
     "ConversionResult",
     "ExportResult",
-    "OPA_DOWNLOAD_URL",
     "Skipped",
     "convert_ast",
-    "convert_file",
+    "convert_source",
     "export_engine",
     "flatten_input",
     "parse_rego",
@@ -283,7 +284,9 @@ def _slot_name(path: list[str]) -> str:
     return "_".join(_escape_segment(segment) for segment in path[1:])
 
 
-def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]:
+def flatten_input(
+    document: dict[str, Any], *, declared: Collection[str] | None = None
+) -> dict[str, Any]:
     """Flatten an OPA `input` document into Fathom slot values.
 
     The inverse of what :func:`_slot_name` does at conversion time, and it has
@@ -300,12 +303,23 @@ def flatten_input(document: dict[str, Any], _prefix: str = "") -> dict[str, Any]
     two input paths can land in the same slot: `{"user": {"role": x}}` fills
     `user_role` and a top-level `"user_role"` fills `user__role`, which is the
     slot a policy reading `input.user_role` was converted against.
+
+    An OPA caller sends its whole input, and a field no slot declares fails
+    the assert. Pass the template's slot names as *declared* to keep only
+    those.
     """
+    flat = _flatten(document, "")
+    if declared is not None:
+        return {k: v for k, v in flat.items() if k in declared}
+    return flat
+
+
+def _flatten(document: dict[str, Any], prefix: str) -> dict[str, Any]:
     flat: dict[str, Any] = {}
     for key, value in document.items():
-        name = f"{_prefix}{_escape_segment(key)}"
+        name = f"{prefix}{_escape_segment(key)}"
         if isinstance(value, dict):
-            flat.update(flatten_input(value, f"{name}_"))
+            flat.update(_flatten(value, f"{name}_"))
         elif isinstance(value, bool):
             flat[name] = "true" if value else "false"
         elif isinstance(value, (int, float)):
@@ -509,6 +523,15 @@ def _expression_text(operator: str, value: object) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _refuse_dropped_denies(dropped: list[Skipped], what: str) -> None:
+    """Raise if any `deny` rule was dropped: the result would allow what it denied."""
+    if dropped:
+        raise CompilationError(
+            f"{what}: " + "; ".join(map(str, dropped)),
+            construct="rule:deny",
+        )
+
+
 def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionResult:
     """Convert a parsed Rego module into Fathom template/module/rule dicts.
 
@@ -519,6 +542,10 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
     Returns:
         A :class:`ConversionResult`. Check ``skipped`` before trusting the
         output to be the whole policy.
+
+    Raises:
+        CompilationError: If any `deny` rule could not be converted. Leaving
+            it out would widen the policy, so nothing is returned.
     """
     package = _package_path(ast)
     module = re.sub(r"[^A-Za-z0-9]+", "_", package).strip("_") or "policy"
@@ -678,6 +705,15 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
         result.rules.append(rule)
         guarded.append((rule, dict(rule_slots)))
 
+    # Dropping a rule whole keeps the output faithful only for `allow`, where
+    # the result is narrower. A dropped `deny` takes a deny condition out of
+    # the policy, and the result allows what the policy denies.
+    _refuse_dropped_denies(
+        [skipped for skipped in result.skipped if skipped.rule == "deny"],
+        "a `deny` rule could not be converted, and leaving it out would allow "
+        "input the policy denies",
+    )
+
     # Presence guards go on last, using the slot types as finally widened: a
     # slot widened to `string` by a later rule needs the string sentinel, not
     # the one its own rule inferred.
@@ -730,9 +766,15 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
     return result
 
 
-def convert_file(source: str, *, filename: str = "policy.rego") -> ConversionResult:
-    """Parse *source* with OPA and convert it. See :func:`convert_ast`."""
-    return convert_ast(parse_rego(source, filename=filename))
+def convert_source(
+    source: str, *, filename: str = "policy.rego", template: str = "input"
+) -> ConversionResult:
+    """Parse Rego *source* text with OPA and convert it. See :func:`convert_ast`.
+
+    *filename* only names the policy in OPA's error messages; nothing is read
+    from disk.
+    """
+    return convert_ast(parse_rego(source, filename=filename), template=template)
 
 
 # ---------------------------------------------------------------------------
@@ -815,6 +857,30 @@ def _rego_set(raw: str, slot_type: str) -> str:
     return "{" + ", ".join(_rego_literal(m, slot_type) for m in members) + "}"
 
 
+#: Python `re` constructs OPA's RE2 does not have. `regex.match` on one is a
+#: runtime error, which OPA's default mode turns into "undefined": the rule
+#: silently never fires.
+_RE2_UNSUPPORTED = ("(?=", "(?!", "(?<=", "(?<!", "(?P=", "(?(", "(?>")
+
+
+def _why_not_re2(pattern: str) -> str | None:
+    """Name the first construct in *pattern* that RE2 cannot evaluate, if any."""
+    index = 0
+    while index < len(pattern):
+        if pattern[index] == "\\":
+            # An escape consumes the next character, so `\\1` is a literal
+            # backslash followed by `1`, not a backreference.
+            if pattern[index + 1 : index + 2].isdigit() and pattern[index + 1] != "0":
+                return f"backreference `{pattern[index : index + 2]}`"
+            index += 2
+            continue
+        for construct in _RE2_UNSUPPORTED:
+            if pattern.startswith(construct, index):
+                return f"`{construct}`"
+        index += 1
+    return None
+
+
 def _rego_condition(reference: str, op: str, arg: str, slot_type: str) -> str | None:
     """One Fathom condition as a Rego body expression, or None if it has none."""
     if op in _REGO_COMPARISONS:
@@ -871,13 +937,6 @@ def _export_rule(
             "the rule produces no decision, only inference, which is the part "
             "of Fathom Rego does not have",
         )
-    if rule.then.scope is not None:
-        return Skipped(
-            name,
-            "then.scope",
-            "the decision carries a scope value; a Rego document is a boolean "
-            "here and has nowhere to put it",
-        )
     if len(rule.when) != 1:
         return Skipped(
             name,
@@ -919,6 +978,13 @@ def _export_rule(
                 condition.expression,
                 "the condition references another fact pattern; Rego has one input document",
             )
+        if op == "matches" and (construct := _why_not_re2(_unquote(arg))) is not None:
+            return Skipped(
+                name,
+                condition.expression,
+                f"the regex uses {construct}, which OPA's RE2 engine does not "
+                "support; `regex.match` would error and the rule would never fire",
+            )
         rendered = _rego_condition(
             reference(pattern.template, condition.slot),
             op,
@@ -934,7 +1000,7 @@ def _export_rule(
     return str(rule.then.action), body
 
 
-def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
+def export_engine(engine: Engine, *, package: str | None = None) -> ExportResult:
     """Export the stateless subset of a loaded :class:`~fathom.engine.Engine`.
 
     Args:
@@ -945,6 +1011,10 @@ def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
         An :class:`ExportResult` holding the Rego source, the rules that were
         refused with the reason for each, and notes about what the export
         changes even where it succeeded.
+
+    Raises:
+        CompilationError: If any rule deciding `deny` was refused. Leaving it
+            out would allow what the ruleset denies, so nothing is returned.
     """
     registry = dict(engine.rule_registry)
     rules = list(registry.values())
@@ -963,15 +1033,23 @@ def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
         return f"input.{slot}" if flat else f"input.{template}.{slot}"
 
     documents: dict[str, list[tuple[Any, list[str]]]] = {}
+    dropped_denies: list[Skipped] = []
     for rule in rules:
         exported = _export_rule(rule, templates, reference)
         if isinstance(exported, Skipped):
             result.skipped.append(exported)
+            if rule.then.action == "deny":
+                dropped_denies.append(exported)
             continue
         document, body = exported
         documents.setdefault(document, []).append((rule, body))
         result.rule_count += 1
 
+    _refuse_dropped_denies(
+        dropped_denies,
+        "a rule deciding `deny` cannot be exported, and leaving it out would "
+        "allow what the ruleset denied",
+    )
     result.notes.extend(_export_notes(rules, documents))
     result.source = _render_rego(result.package, documents, flat)
     return result

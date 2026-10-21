@@ -16,6 +16,7 @@ __all__ = [
     "FathomError",
     "FleetConnectionError",
     "FleetError",
+    "RulesetSignatureError",
     "ScopeError",
     "ValidationError",
 ]
@@ -129,4 +130,12 @@ class ScopeError(FathomError, RuntimeError):
 
     Inherits ``RuntimeError`` as well as :class:`FathomError` so pre-1.0
     ``except RuntimeError`` call sites keep working.
+    """
+
+
+class RulesetSignatureError(FathomError):
+    """Raised when a signed ruleset reload fails Ed25519 verification.
+
+    Covers a malformed PEM public key, a key that is not Ed25519, and a
+    signature that does not match the YAML payload.
     """

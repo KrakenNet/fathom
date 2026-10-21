@@ -10,20 +10,29 @@ import os
 import re
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
 from uuid import uuid4
 
 import clips
 import yaml
+from pydantic import BaseModel
 
 from fathom.audit import AuditLog, AuditSink, NullSink
-from fathom.compiler import Compiler
-from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
+from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
+from fathom.errors import (
+    CompilationError,
+    EvaluationError,
+    EvaluationLimitError,
+    ScopeError,
+    ValidationError,
+)
 from fathom.evaluator import Evaluator
-from fathom.facts import FactManager
+from fathom.facts import FactManager, _plain
 from fathom.metrics import MetricsCollector
-from fathom.models import Activation, HierarchyDefinition, RuleMatches
+from fathom.models import ActionType, Activation, HierarchyDefinition, RuleMatches
+from fathom.yaml_utils import safe_load, unknown_top_level_keys
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -52,6 +61,8 @@ RESERVED_FUNCTION_PREFIX = "fathom-"
 # every other request on a shared server with it. Callers who genuinely want
 # an unbounded run pass ``Engine(run_limit=None)``.
 _DEFAULT_RUN_LIMIT = 100_000
+
+_M = TypeVar("_M", bound=BaseModel)
 
 # Max regex pattern/input length for fathom-matches.
 #
@@ -99,9 +110,22 @@ _DECISION_TEMPLATE = (
     '    (slot metadata (type STRING) (default "")))'
 )
 
+# Matched by every rule that uses a temporal operator. ``evaluate`` replaces
+# the one fact of this template before each run, which re-matches those rules
+# and re-runs their test CEs over the whole fact set (see ``compile_rule``).
+_EPOCH_TEMPLATE = f"(deftemplate MAIN::{_EPOCH_TEMPLATE_NAME})"
+
 # Source of the ``seq`` above. MAIN exports every construct and each generated
 # module does ``(import MAIN ?ALL)``, so a rule in any module can increment it.
 _DECISION_SEQ_GLOBAL = "(defglobal MAIN ?*fathom-decision-seq* = 0)"
+
+# What every environment is built with first, as ``(construct, context)``
+# pairs: Engine.__init__, reload_rules and ``fathom compile`` all open with it.
+_PREAMBLE: tuple[tuple[str, str], ...] = (
+    (_DECISION_SEQ_GLOBAL, "__fathom_decision"),
+    (_DECISION_TEMPLATE, "__fathom_decision"),
+    (_EPOCH_TEMPLATE, "__fathom_epoch"),
+)
 
 # Built only on an ``Engine(match_evidence=True)``. Lives in MAIN, which every
 # generated module imports with ``(import MAIN ?ALL)``, so a rule in any module
@@ -156,6 +180,11 @@ def _diff_user_facts(
     return [f for f in post if _key(f) not in pre_keys]
 
 
+def unknown_level(hierarchy_name: str, level: str) -> NoReturn:
+    """Refuse a level outside *hierarchy_name*; the evaluation fails closed."""
+    raise EvaluationError(f"{str(level)!r} is not a level of hierarchy {str(hierarchy_name)!r}")
+
+
 def dominates(
     level_a: str,
     comps_a: str,
@@ -168,16 +197,23 @@ def dominates(
 
     Returns True when the subject (*level_a*, *comps_a*) dominates the
     object (*level_b*, *comps_b*) according to the named hierarchy.
+
+    Raises:
+        EvaluationError: The hierarchy is not loaded, or either level is not
+            one of its levels.
     """
     hier_def = hierarchy_registry.get(str(hierarchy_name))
     if hier_def is None:
-        return False
+        raise EvaluationError(f"unknown hierarchy {str(hierarchy_name)!r}")
     levels = hier_def.levels
     la = str(level_a)
     lb = str(level_b)
-    rank_a = levels.index(la) if la in levels else -1
-    rank_b = levels.index(lb) if lb in levels else -1
-    if rank_a < rank_b:
+    # A level outside the hierarchy has no rank. Ranking it -1 made `secret`
+    # dominate `TOP-SECRET`; answering False let a deny skip a typo label.
+    for level in (la, lb):
+        if level not in levels:
+            unknown_level(str(hierarchy_name), level)
+    if levels.index(la) < levels.index(lb):
         return False
     return compartments_superset(str(comps_a), str(comps_b))
 
@@ -186,6 +222,27 @@ def dominates(
 #: renders as ``100 rule-name: f-1,f-2``. Read rather than parsed further:
 #: clipspy exposes an activation's name and salience but not its basis.
 _ACTIVATION_FACT_RE = re.compile(r"f-(\d+)")
+
+
+class _CopyingView(Mapping[str, _M]):
+    """Read-only registry view whose values are deep copies.
+
+    A plain ``MappingProxyType`` was read-only one level deep: clearing a
+    returned template's ``slots`` made every assert fail, and editing a
+    rule's ``then`` changed what ``rego.export_engine`` wrote.
+    """
+
+    def __init__(self, data: dict[str, _M]) -> None:
+        self._data = data
+
+    def __getitem__(self, key: str) -> _M:
+        return self._data[key].model_copy(deep=True)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
 
 
 class _TraceRouter(clips.Router):  # type: ignore[misc]
@@ -215,6 +272,36 @@ class _TraceRouter(clips.Router):  # type: ignore[misc]
         self.buffer.append(message)
 
 
+class _DiagnosticRouter(clips.Router):  # type: ignore[misc]
+    """Keeps CLIPS error and warning text off the process's stderr.
+
+    clipspy's error router copies each message down to its LoggingRouter,
+    which calls the root ``logging.error`` -- so every CompilationError and
+    EvaluationError also printed a CLIPS ERROR block or a Python traceback,
+    and configured root logging as a side effect. The error router (priority
+    40) still captures the text for the exception; this router (35) takes
+    it from there and sends it to the ``fathom.engine`` logger at DEBUG.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("fathom-diagnostics", 35)
+
+    def query(self, name: str) -> bool:
+        """Claim the error and warning outputs; ``stdout`` is left alone."""
+        return name in ("stderr", "stdwrn")
+
+    def write(self, name: str, message: str) -> None:
+        """Log one chunk of diagnostic text."""
+        logger.debug("CLIPS %s: %s", name, message)
+
+
+def _new_env() -> clips.Environment:
+    """A CLIPS environment whose diagnostics reach the exception, not stderr."""
+    env = clips.Environment()
+    env.add_router(_DiagnosticRouter())
+    return env
+
+
 class Engine:
     """Deterministic reasoning engine backed by CLIPS."""
 
@@ -232,9 +319,10 @@ class Engine:
         """Initialise a new Engine instance.
 
         Args:
-            default_decision: Decision returned when no rule fires.
-                Defaults to ``"deny"`` (fail-closed). Set to ``None``
-                to leave the decision unset.
+            default_decision: Decision returned when no rule fires: one of
+                the rule actions (``allow``, ``deny``, ``escalate``,
+                ``scope``, ``route``). Defaults to ``"deny"`` (fail-closed).
+                Set to ``None`` to leave the decision unset.
             audit_sink: Pluggable sink for audit records. Defaults to
                 :class:`NullSink` (no-op).
             session_id: Optional session identifier. A random UUID is
@@ -249,12 +337,16 @@ class Engine:
                 fire before :meth:`evaluate` gives up and raises
                 :class:`~fathom.errors.EvaluationLimitError`. ``None``
                 runs to quiescence with no budget. Defaults to
-                ``100_000``.
+                ``100_000``. Must not be negative.
             match_evidence: Record which facts, with which slot values,
                 fired each rule (:attr:`EvaluationResult.match_evidence`).
                 Off by default: it makes the compiler bind a pattern
                 address to every condition and assert an extra fact per
                 firing, so leaving it off costs nothing at all.
+
+        Raises:
+            ValueError: If *default_decision* is not a rule action or
+                *run_limit* is negative.
 
         Note:
             Engine is thread-safe: every public method serialises on an
@@ -263,17 +355,26 @@ class Engine:
             serialise — CLIPS has one environment and one agenda, so that
             is correctness rather than a regression.
         """
+        decisions = [action.value for action in ActionType]
+        if default_decision is not None and default_decision not in decisions:
+            raise ValueError(
+                f"default_decision must be one of {decisions} or None, got {default_decision!r}"
+            )
+        # A negative budget made CLIPS run unbounded while 0 refused any firing.
+        if run_limit is not None and run_limit < 0:
+            raise ValueError(f"run_limit must be >= 0 or None, got {run_limit}")
         # Re-entrant: public methods call one another (evaluate_once ->
         # evaluate, load_modules -> set_focus), so a plain Lock would
         # self-deadlock on the nested call.
         self._lock = threading.RLock()
-        self._env: clips.Environment = clips.Environment()
+        self._env: clips.Environment = _new_env()
         self._session_id: str = session_id or str(uuid4())
         self._default_decision: str | None = default_decision
         self._template_registry: dict[str, TemplateDefinition] = {}
         self._module_registry: dict[str, ModuleDefinition] = {}
         self._rule_registry: dict[str, RuleDefinition] = {}
         self._has_asserting_rules: bool = False
+        self._has_temporal_rules: bool = False
         self._hierarchy_registry: dict[str, HierarchyDefinition] = {}
         # Everything built into the env that is neither a template, a module
         # nor a rule, kept so a hot reload can replay it onto the fresh
@@ -322,8 +423,8 @@ class Engine:
         self._metrics = MetricsCollector(enabled=metrics)
 
         # Build the decision template into the CLIPS environment
-        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision")
-        self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision")
+        for construct, context in _PREAMBLE:
+            self._safe_build(construct, context=context)
         if match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence")
 
@@ -333,19 +434,19 @@ class Engine:
     # --- Public property accessors ---
 
     @property
-    def template_registry(self) -> dict[str, TemplateDefinition]:
-        """Read-only view of registered template definitions."""
-        return self._template_registry
+    def template_registry(self) -> Mapping[str, TemplateDefinition]:
+        """Read-only view of registered template definitions; values are copies."""
+        return _CopyingView(self._template_registry)
 
     @property
-    def module_registry(self) -> dict[str, ModuleDefinition]:
-        """Read-only view of registered module definitions."""
-        return self._module_registry
+    def module_registry(self) -> Mapping[str, ModuleDefinition]:
+        """Read-only view of registered module definitions; values are copies."""
+        return _CopyingView(self._module_registry)
 
     @property
-    def rule_registry(self) -> dict[str, RuleDefinition]:
-        """Read-only view of loaded rule definitions, keyed by rule name."""
-        return self._rule_registry
+    def rule_registry(self) -> Mapping[str, RuleDefinition]:
+        """Read-only view of loaded rule definitions, keyed by rule name; values are copies."""
+        return _CopyingView(self._rule_registry)
 
     @property
     def focus_order(self) -> list[str]:
@@ -437,61 +538,125 @@ class Engine:
     #: author is staring at.
     _MISSING_FUNCTION_RE = re.compile(r"Missing function declaration for '([^']+)'")
 
-    def _template_is_known(self, name: str) -> bool:
+    def _template_is_known(
+        self,
+        name: str,
+        registry: dict[str, TemplateDefinition] | None = None,
+        env: clips.Environment | None = None,
+    ) -> bool:
         """Whether *name* is a deftemplate this engine can match on.
 
         Checks the CLIPS environment as well as the YAML registry: a template
         can also arrive through a raw build, and a check that only consulted
         the registry would blame a load order that was in fact correct.
+        *registry* and *env* default to the live ones; ``reload_rules`` passes
+        the pair it is building.
         """
-        if name in self._template_registry:
+        if name in (self._template_registry if registry is None else registry):
             return True
         try:
-            self._env.find_template(name)
+            (self._env if env is None else env).find_template(name)
         except Exception:
             return False
         return True
+
+    def _unregistered_templates_error(
+        self,
+        defn: RuleDefinition,
+        file: Path | None = None,
+        registry: dict[str, TemplateDefinition] | None = None,
+        env: clips.Environment | None = None,
+    ) -> CompilationError | None:
+        """Reject a rule that matches a template nobody registered.
+
+        Must run BEFORE the build. CLIPS creates an implied deftemplate for
+        any pattern it has not seen, so a pattern with no slot constraint on
+        a misspelled template builds cleanly and can never match: a deny rule
+        written that way is dead. Only a constrained pattern used to fail,
+        so whether a typo was caught depended on how the pattern was written.
+        """
+        unique = list(
+            dict.fromkeys(
+                pattern.template
+                for pattern in defn.when
+                if not self._template_is_known(pattern.template, registry, env)
+            )
+        )
+        if not unique:
+            return self._unknown_reference_error(defn, file, registry, env)
+        names = ", ".join(f"'{name}'" for name in unique)
+        noun = "template" if len(unique) == 1 else "templates"
+        verb = "is" if len(unique) == 1 else "are"
+        return CompilationError(
+            "[fathom.engine] load rules failed: rule "
+            f"'{defn.name}' matches {noun} {names}, which {verb} not "
+            "registered. Load templates first with load_templates(), or "
+            "load the whole pack with load_pack_dir().",
+            file=str(file) if file is not None else None,
+            construct=f"rule:{defn.name}",
+        )
+
+    def _unknown_reference_error(
+        self,
+        defn: RuleDefinition,
+        file: Path | None,
+        registry: dict[str, TemplateDefinition] | None,
+        env: clips.Environment | None,
+    ) -> CompilationError | None:
+        """Reject a ``then.assert`` or temporal argument naming an unknown template or slot.
+
+        A bare assert into an unknown template made CLIPS invent it, and a
+        temporal operator resolves its template and slots only at evaluation
+        time, so either kind of typo used to load and then fail open or raise
+        on every evaluation. See :meth:`Compiler.template_references`.
+        """
+        for template, slot, where in Compiler.template_references(defn):
+            if not self._template_is_known(template, registry, env):
+                problem = f"template '{template}', which is not registered"
+            elif slot is not None and slot not in self._template_slot_names(
+                template, registry, env
+            ):
+                problem = f"slot '{slot}' of template '{template}', which it does not declare"
+            else:
+                continue
+            return CompilationError(
+                f"[fathom.engine] load rules failed: rule '{defn.name}' names {problem} "
+                f"(in {where})",
+                file=str(file) if file is not None else None,
+                construct=f"rule:{defn.name}",
+            )
+        return None
+
+    def _template_slot_names(
+        self,
+        name: str,
+        registry: dict[str, TemplateDefinition] | None,
+        env: clips.Environment | None,
+    ) -> set[str]:
+        """Slot names of a template :meth:`_template_is_known` accepted."""
+        registry = self._template_registry if registry is None else registry
+        if name in registry:
+            return {slot.name for slot in registry[name].slots}
+        template = (self._env if env is None else env).find_template(name)
+        return {slot.name for slot in template.slots}
 
     def _diagnose_rule_build(
         self,
         exc: CompilationError,
         defn: RuleDefinition,
         file: Path,
-        unknown_templates: list[str],
     ) -> CompilationError | None:
         """Re-describe a rule build failure that is really a load-order mistake.
 
         CLIPS reports the generated construct, not the mistake: a rule
-        compiled before its templates fails with "Check appropriate syntax
-        for defrule", and one compiled before its functions fails with
-        EXPRNPSR3 naming a function the author never wrote. Both read as a
-        broken rule. ``load_rules`` already names this failure for modules;
-        these are the other two.
-
-        *unknown_templates* must be collected BEFORE the build: CLIPS creates
-        an implied deftemplate for each pattern it parses before it hits the
-        error, so asking afterwards reports the first pattern as known and
-        blames the wrong one.
+        compiled before its functions fails with EXPRNPSR3 naming a function
+        the author never wrote, which reads as a broken rule. ``load_rules``
+        names the module and template cases before the build.
 
         Returns None when the failure is something else, so the original
         CLIPS diagnostic is what the caller sees.
         """
         raw = exc.detail or str(exc)
-
-        if unknown_templates:
-            unique = list(dict.fromkeys(unknown_templates))
-            names = ", ".join(f"'{name}'" for name in unique)
-            noun = "template" if len(unique) == 1 else "templates"
-            verb = "is" if len(unique) == 1 else "are"
-            return CompilationError(
-                "[fathom.engine] load rules failed: rule "
-                f"'{defn.name}' matches {noun} {names}, which {verb} not "
-                "registered. Load templates first with load_templates(), or "
-                "load the whole pack with load_pack_dir().",
-                file=str(file),
-                construct=f"rule:{defn.name}",
-                detail=raw,
-            )
 
         missing = self._MISSING_FUNCTION_RE.search(raw)
         if missing:
@@ -611,6 +776,7 @@ class Engine:
             return dominates(level_a, comps_a, level_b, comps_b, hierarchy, hierarchy_registry)
 
         env.define_function(fathom_dominates, "fathom-dominates")
+        env.define_function(unknown_level, "fathom-unknown-level")
 
         # fathom-last-n(template, slot, value, n) — true if >= N matching facts
         def fathom_last_n(
@@ -823,6 +989,16 @@ class Engine:
             # A pack cannot reorder a focus another pack established; within
             # one pack the declared order is kept.
             focus = list(dict.fromkeys([*self._focus_order, *(declared or loaded)]))
+            # A focus order may name a dependency pack's module, so it is only
+            # checkable here; set_focus's ValueError is not a FathomError.
+            unknown = [m for m in focus if m and m not in self._module_registry]
+            if unknown:
+                raise CompilationError(
+                    "[fathom.engine] load module failed: "
+                    f"unknown modules in focus order: {unknown}",
+                    file=str(path),
+                    construct="focus_order",
+                )
             if focus != self._focus_order:
                 self.set_focus(focus)
         finally:
@@ -848,10 +1024,9 @@ class Engine:
             # unsorted glob made load order vary between machines.
             files: list[Path] = sorted(p.glob("*.yaml")) if p.is_dir() else [p]
             for file in files:
-                definitions = self._compiler.parse_function_file(file)
+                definitions, hierarchies = self._compiler.parse_function_bundle(file)
 
-                # Resolve hierarchy references for this file
-                hierarchies: dict[str, HierarchyDefinition] = {}
+                # Resolve the references the file's own hierarchies don't cover
                 for defn in definitions:
                     if defn.hierarchy_ref:
                         hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]
@@ -894,6 +1069,10 @@ class Engine:
                 or on YAML/validation errors.
         """
         count = 0
+        # Rules built by this call, so a failure part-way can undo them: a
+        # half-loaded policy (an allow without the deny meant to outrank it)
+        # must not stay live behind the raised error.
+        built: list[str] = []
         self._lock.acquire()
         try:
             p = Path(path)
@@ -903,8 +1082,10 @@ class Engine:
             # integrations/ruleset_sig.py (raw bytes, sorted by path).
             loaded_bytes: list[bytes] = []
             for file in files:
-                file_bytes = file.read_bytes()
+                # Parse first: it raises CompilationError on a missing file,
+                # as every sibling loader does, where read_bytes would not.
                 ruleset = self._compiler.parse_rule_file(file)
+                file_bytes = file.read_bytes()
 
                 # Validate that the referenced module is registered
                 if ruleset.module not in self._module_registry:
@@ -932,21 +1113,17 @@ class Engine:
                     clips_str = self._compiler.compile_rule(
                         rule_defn, ruleset.module, self._template_registry
                     )
-                    # Collected before the build: a failed build leaves
-                    # implied deftemplates behind for the patterns CLIPS got
-                    # through, which would mask the real answer.
-                    unknown_templates = [
-                        pattern.template
-                        for pattern in rule_defn.when
-                        if not self._template_is_known(pattern.template)
-                    ]
+                    unregistered = self._unregistered_templates_error(rule_defn, file)
+                    if unregistered is not None:
+                        raise unregistered
                     try:
                         self._safe_build(clips_str, context=f"rule:{rule_defn.name}")
                     except CompilationError as exc:
-                        better = self._diagnose_rule_build(exc, rule_defn, file, unknown_templates)
+                        better = self._diagnose_rule_build(exc, rule_defn, file)
                         if better is None:
                             raise
                         raise better from exc
+                    built.append(key)
                     self._rule_registry[key] = rule_defn
                     count += 1
 
@@ -958,6 +1135,11 @@ class Engine:
             if loaded_bytes:
                 prior = self._ruleset_yaml_bytes or b""
                 self._ruleset_yaml_bytes = prior + b"".join(loaded_bytes)
+        except BaseException:
+            for key in built:
+                self._env.find_rule(key).undefine()
+                del self._rule_registry[key]
+            raise
         finally:
             # Recompute the cached flag used by evaluate() to short-circuit
             # snapshotting when no loaded rule emits user-declared asserts.
@@ -965,6 +1147,9 @@ class Engine:
             # _rule_registry, which a concurrent load_rules() mutates.
             self._has_asserting_rules = any(
                 bool(r.then.asserts) for r in self._rule_registry.values()
+            )
+            self._has_temporal_rules = any(
+                Compiler.is_temporal(r) for r in self._rule_registry.values()
             )
             self._lock.release()
             if count:
@@ -1110,7 +1295,7 @@ class Engine:
             if candidate.exists():
                 try:
                     with open(candidate) as f:
-                        data = yaml.safe_load(f)
+                        data = safe_load(f)
                 except (yaml.YAMLError, OSError) as exc:
                     raise CompilationError(
                         f"[fathom.engine] resolve hierarchy failed: cannot read file {candidate}",
@@ -1243,10 +1428,8 @@ class Engine:
             CompilationError: New ruleset failed to parse or compile.
                 The existing env is left untouched (NFR-8).
         """
-        # Local imports keep Engine.__init__ cheap and avoid a circular
-        # import from integrations when cryptography is absent in minimal
-        # installs.
-        from fathom.integrations.ruleset_sig import verify_ruleset_signature
+        # Local import keeps Engine.__init__ cheap and avoids a circular
+        # import from integrations.
         from fathom.models import RulesetDefinition
 
         if signature is not None and pubkey_pem is None:
@@ -1258,13 +1441,17 @@ class Engine:
         # work. RulesetSignatureError propagates — leaves env untouched.
         if signature is not None:
             assert pubkey_pem is not None  # narrowed by check above
+            # Imported only here: cryptography is not a core dependency, and
+            # an unsigned reload must work on a core-only install.
+            from fathom.integrations.ruleset_sig import verify_ruleset_signature
+
             verify_ruleset_signature(ruleset_yaml, signature, pubkey_pem)
 
         # Step 2: parse the new ruleset YAML. Parse errors surface as
         # CompilationError so the caller sees a single exception type for
         # any pre-swap compile failure.
         try:
-            data = yaml.safe_load(ruleset_yaml)
+            data = safe_load(ruleset_yaml)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.engine] reload_rules: invalid YAML: {exc}",
@@ -1275,6 +1462,12 @@ class Engine:
             raise CompilationError(
                 "[fathom.engine] reload_rules: YAML must contain top-level "
                 "'module' and 'rules' keys",
+                construct="reload_rules:parse",
+            )
+        unknown = unknown_top_level_keys(data, "rules")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.engine] reload_rules: {unknown}",
                 construct="reload_rules:parse",
             )
         try:
@@ -1294,11 +1487,11 @@ class Engine:
         # Step 3: build the fresh env OUTSIDE the lock. All compilation
         # targets ``new_env``; on any failure we raise and never touch
         # ``self._env`` (AC-5.3 atomicity, NFR-8 idempotent failure).
-        new_env = clips.Environment()
+        new_env = _new_env()
 
         # Decision template — matches what __init__ does on startup.
-        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision", env=new_env)
-        self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision", env=new_env)
+        for construct, context in _PREAMBLE:
+            self._safe_build(construct, context=context, env=new_env)
         if self._match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence", env=new_env)
 
@@ -1374,10 +1567,16 @@ class Engine:
             clips_str = self._compiler.compile_rule(
                 rule_defn, new_ruleset.module, new_template_registry
             )
+            unregistered = self._unregistered_templates_error(
+                rule_defn, registry=new_template_registry, env=new_env
+            )
+            if unregistered is not None:
+                raise unregistered
             self._safe_build(clips_str, context=f"rule:{rule_defn.name}", env=new_env)
             new_rule_registry[key] = rule_defn
 
         new_has_asserting_rules = any(bool(r.then.asserts) for r in new_rule_registry.values())
+        new_has_temporal_rules = any(Compiler.is_temporal(r) for r in new_rule_registry.values())
 
         # Step 4: atomic swap. Critical section is pointer assignments
         # only — no I/O, no compilation — so any reader holding the old
@@ -1405,6 +1604,7 @@ class Engine:
                 self._module_registry.clear()
                 self._module_registry.update(new_module_registry)
                 self._has_asserting_rules = new_has_asserting_rules
+                self._has_temporal_rules = new_has_temporal_rules
                 self._ruleset_yaml_bytes = ruleset_yaml
                 # The new env starts empty. The TTL timestamps are keyed by
                 # old-env fact index and would otherwise expire unrelated
@@ -1464,21 +1664,33 @@ class Engine:
             data: Slot name-to-value mapping for the fact.
         """
         with self._lock:
-            tmpl_def = self._template_registry.get(template)
-            if tmpl_def is not None and tmpl_def.scope == "fleet":
-                raise ScopeError(
-                    f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
-                    "so the fact is also written through to the shared FactStore."
-                )
+            self._refuse_fleet_asserts([template])
             try:
                 self._fact_manager.assert_fact(template, data)
             finally:
                 self._metrics.record_fact_asserted(template)
                 self._publish_working_memory([template])
 
+    def _refuse_fleet_asserts(self, templates: Iterable[str]) -> None:
+        """Raise ScopeError if any of *templates* is fleet-scoped.
+
+        Every public assert path calls this over its whole batch BEFORE
+        asserting anything, so a fleet template late in a list cannot leave
+        the earlier facts behind. A fleet fact asserted here would reach this
+        node's working memory only, never the shared FactStore, and the node
+        would silently diverge from its peers.
+        """
+        for template in templates:
+            tmpl_def = self._template_registry.get(template)
+            if tmpl_def is not None and tmpl_def.scope == "fleet":
+                raise ScopeError(
+                    f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
+                    "so the fact is also written through to the shared FactStore."
+                )
+
     def _assert_local(
         self, template: str, data: dict[str, Any]
-    ) -> list[tuple[str, Any, dict[str, Any]]]:
+    ) -> tuple[dict[str, Any], list[tuple[str, Any, dict[str, Any]]]]:
         """Assert a fact bypassing the fleet-scope guard.
 
         :class:`~fathom.fleet.FleetEngine` is the only legitimate caller: it
@@ -1488,7 +1700,10 @@ class Engine:
         :meth:`assert_fact` does (the lock, the metrics) still applies.
 
         Returns:
-            Handles for the facts this call actually created — empty when
+            ``(validated, handles)``. *validated* is the slot dict the engine
+            accepted, every slot present, defaults applied and values coerced: what FleetEngine
+            writes to the store, so store rows equal what rules match on.
+            *handles* are the facts this call actually created — empty when
             CLIPS de-duplicated the assert onto a fact that already existed.
             :meth:`_retract_local_handles` withdraws exactly these, which is
             what makes FleetEngine's rollback-on-store-failure sound: it
@@ -1498,7 +1713,14 @@ class Engine:
         """
         with self._lock:
             try:
-                return self._fact_manager.assert_facts_scoped([(template, data)])
+                [(_, validated)], handles = self._fact_manager.assert_facts_scoped(
+                    [(template, data)]
+                )
+                # A slot with no declared default still holds CLIPS' implicit
+                # one ("" for a string); spell it out so store rows match too.
+                slots = self._current_env().find_template(template).slots
+                implicit = {s.name: _plain(s.default_value) for s in slots}
+                return implicit | validated, handles
             finally:
                 self._metrics.record_fact_asserted(template)
                 self._publish_working_memory([template])
@@ -1520,8 +1742,13 @@ class Engine:
 
         Args:
             facts: List of ``(template_name, slot_data)`` tuples.
+
+        Raises:
+            ScopeError: A named template is fleet-scoped. Checked for the
+                whole batch before anything is asserted.
         """
         with self._lock:
+            self._refuse_fleet_asserts(t for t, _ in facts)
             try:
                 self._fact_manager.assert_facts(facts)
             finally:
@@ -1576,8 +1803,8 @@ class Engine:
                 of the one on :meth:`assert_fact`: dropping a fleet fact on
                 one node only diverges that node from the shared FactStore,
                 which is exactly what the assert-side guard exists to
-                prevent. Fleet retraction does not propagate at all (see the
-                module docstring of :mod:`fathom.fleet`), so this fails
+                prevent. Fleet retraction does not propagate at all (see
+                :class:`~fathom.fleet.FleetEngine`), so this fails
                 loudly rather than diverging silently.
         """
         with self._lock:
@@ -1586,7 +1813,8 @@ class Engine:
                 raise ScopeError(
                     f"template '{template}' is fleet-scoped; retracting it locally "
                     "would diverge this node from the shared FactStore. Fleet "
-                    "retraction does not propagate — recreate the session instead."
+                    "retraction does not propagate — rebuild the session with "
+                    "FleetEngine.replace_session() instead."
                 )
             retracted = self._fact_manager.retract(template, fact_filter)
             self._publish_working_memory([template])
@@ -1678,6 +1906,27 @@ class Engine:
                 partial_matches=partial_matches,
                 activations=activations,
             )
+
+    def hierarchy(self, name: str) -> HierarchyDefinition:
+        """Return the loaded classification hierarchy called *name*.
+
+        Hierarchies are registered by ``load_functions`` (and so by
+        ``load_pack_dir``/``from_rules``) when a classification function
+        references one.
+
+        Args:
+            name: Hierarchy name, e.g. ``clearance``.
+
+        Returns:
+            The :class:`~fathom.models.HierarchyDefinition`, levels lowest first.
+
+        Raises:
+            ValidationError: No hierarchy by that name is loaded.
+        """
+        definition = self._hierarchy_registry.get(name)
+        if definition is None:
+            raise ValidationError(f"no loaded hierarchy named '{name}'")
+        return definition.model_copy(deep=True)
 
     def _find_rule(self, env: clips.Environment, rule: str) -> tuple[Any, str]:
         """Resolve *rule* to a clipspy rule and its module-qualified name.
@@ -1840,6 +2089,8 @@ class Engine:
         """
         with self._lock:
             self._refresh_all_rules()
+            if self._has_temporal_rules:
+                self._renew_epoch()
 
             # Pre-snapshot user facts when any loaded rule declares `asserts`,
             # so newly-asserted facts can be captured for the audit record.
@@ -1909,6 +2160,19 @@ class Engine:
         finally:
             env.current_module = saved
 
+    def _renew_epoch(self, only_if_missing: bool = False) -> None:
+        """Replace the epoch fact so temporal rules re-match at run time.
+
+        Caller must hold ``self._lock``.
+        """
+        template = self._current_env().find_template(f"MAIN::{_EPOCH_TEMPLATE_NAME}")
+        stale = list(template.facts())
+        if stale and only_if_missing:
+            return
+        for fact in stale:
+            fact.retract()
+        template.assert_fact()
+
     def step(self, facts: list[tuple[str, dict[str, Any]]] | None = None) -> EvaluationResult:
         """Assert *facts* and run one incremental step, keeping refraction.
 
@@ -1932,6 +2196,9 @@ class Engine:
             :class:`EvaluationResult` for this step. ``rule_trace`` holds the
             rules that fired *in this step*, not since the engine started.
 
+        Raises:
+            ScopeError: A template in *facts* is fleet-scoped.
+
         Note:
             A step is **never attested and never audited**, even on an engine
             with an attestation service or an audit sink configured. Both
@@ -1944,6 +2211,9 @@ class Engine:
         with self._lock:
             if facts:
                 self.assert_facts(facts)
+            # Only create the epoch fact: renewing it would re-fire every
+            # temporal rule that already fired, which is what a step must not do.
+            self._renew_epoch(only_if_missing=True)
             result, _ = self._evaluator.evaluate()
             return result
 
@@ -1980,21 +2250,12 @@ class Engine:
                 is asserted, so working memory is untouched.
         """
         with self._lock:
-            # Guard every template BEFORE asserting any of them, so a
-            # fleet-scoped template late in the list cannot leave the
-            # earlier facts behind.
-            for template, _ in facts:
-                tmpl_def = self._template_registry.get(template)
-                if tmpl_def is not None and tmpl_def.scope == "fleet":
-                    raise ScopeError(
-                        f"template '{template}' is fleet-scoped; use FleetEngine.assert_fact "
-                        "so the fact is also written through to the shared FactStore."
-                    )
+            self._refuse_fleet_asserts(t for t, _ in facts)
             # Pin the env for the whole request: the assert below and the run
             # that follows must happen in the same environment even if a
             # reload swaps `self._env` between them.
             outer_pin, self._pinned_env = self._pinned_env, self._env
-            handles = self._fact_manager.assert_facts_scoped(facts)
+            _, handles = self._fact_manager.assert_facts_scoped(facts)
             for template, _ in facts:
                 self._metrics.record_fact_asserted(template)
             self._publish_working_memory(t for t, _ in facts)

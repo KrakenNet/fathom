@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING
 # was the only import path before this class was shared.
 from fathom.integrations import PolicyViolation as PolicyViolation
 
+__all__ = ["fathom_before_tool_call"]
+
 try:
     # `crewai.hooks` landed in crewai 1.5.0. Importing it here — rather than
     # bare `crewai` — makes an older install fail loudly at import instead of

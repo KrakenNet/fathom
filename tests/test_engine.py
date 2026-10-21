@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+import fathom
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -284,3 +286,28 @@ def test_an_unrelated_build_failure_keeps_the_clips_diagnostic(tmp_path: Path) -
 
     with pytest.raises(CompilationError, match="Invalid slot 'nonexistent'"):
         Engine.from_rules(str(tmp_path))
+
+
+class TestConstructorArguments:
+    """Arguments the engine cannot honour are refused, not silently reinterpreted."""
+
+    @pytest.mark.parametrize("limit", [-1, -5])
+    def test_negative_run_limit_raises(self, limit: int) -> None:
+        with pytest.raises(ValueError, match="run_limit"):
+            fathom.Engine(run_limit=limit)
+
+    @pytest.mark.parametrize("decision", ["maybe", "Deny", ""])
+    def test_unknown_default_decision_raises(self, decision: str) -> None:
+        with pytest.raises(ValueError, match="default_decision"):
+            fathom.Engine(default_decision=decision)
+
+    @pytest.mark.parametrize("decision", ["allow", "deny", "escalate", "scope", "route", None])
+    def test_known_default_decisions_accepted(self, decision: str | None) -> None:
+        assert fathom.Engine(default_decision=decision).default_decision == decision
+
+
+class TestLoadRulesMissingPath:
+    @pytest.mark.parametrize("path", ["/nonexistent/x.yaml", "/nonexistent_dir"])
+    def test_raises_compilation_error_like_sibling_loaders(self, path: str) -> None:
+        with pytest.raises(fathom.CompilationError):
+            fathom.Engine().load_rules(path)

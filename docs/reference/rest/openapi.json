@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "AssertFactRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for POST /v1/facts.",
         "properties": {
           "data": {
@@ -10,6 +11,7 @@
             "type": "object"
           },
           "session_id": {
+            "maxLength": 128,
             "title": "Session Id",
             "type": "string"
           },
@@ -39,6 +41,7 @@
         "type": "object"
       },
       "CompileRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for the compile endpoint.",
         "properties": {
           "yaml_content": {
@@ -105,6 +108,7 @@
         "type": "object"
       },
       "EvaluateRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for the evaluate endpoint.",
         "properties": {
           "facts": {
@@ -122,6 +126,7 @@
           "session_id": {
             "anyOf": [
               {
+                "maxLength": 128,
                 "type": "string"
               },
               {
@@ -211,6 +216,7 @@
         "type": "object"
       },
       "FactInput": {
+        "additionalProperties": false,
         "description": "REST API input for a single fact assertion.",
         "properties": {
           "data": {
@@ -228,19 +234,6 @@
           "data"
         ],
         "title": "FactInput",
-        "type": "object"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
         "type": "object"
       },
       "OPADataRequest": {
@@ -275,6 +268,7 @@
         "type": "object"
       },
       "QueryFactsRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for POST /v1/query.",
         "properties": {
           "filter": {
@@ -290,6 +284,7 @@
             "title": "Filter"
           },
           "session_id": {
+            "maxLength": 128,
             "title": "Session Id",
             "type": "string"
           },
@@ -324,6 +319,7 @@
         "type": "object"
       },
       "RetractFactsRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for DELETE /v1/facts.",
         "properties": {
           "filter": {
@@ -339,6 +335,7 @@
             "title": "Filter"
           },
           "session_id": {
+            "maxLength": 128,
             "title": "Session Id",
             "type": "string"
           },
@@ -368,45 +365,35 @@
         "title": "RetractFactsResponse",
         "type": "object"
       },
-      "ValidationError": {
+      "RulesetReloadResponse": {
+        "description": "Response body for a successful ``POST /v1/rules/reload``.",
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
+          "attestation_token": {
+            "title": "Attestation Token",
             "type": "string"
           },
-          "type": {
-            "title": "Error Type",
+          "ruleset_hash_after": {
+            "title": "Ruleset Hash After",
+            "type": "string"
+          },
+          "ruleset_hash_before": {
+            "title": "Ruleset Hash Before",
             "type": "string"
           }
         },
         "required": [
-          "loc",
-          "msg",
-          "type"
+          "ruleset_hash_before",
+          "ruleset_hash_after",
+          "attestation_token"
         ],
-        "title": "ValidationError",
+        "title": "RulesetReloadResponse",
         "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -444,24 +431,6 @@
       "post": {
         "description": "Compile YAML content into CLIPS constructs.\n\nRule literals are emitted according to the declared slot type, so this\nendpoint compiles against the templates of the engine mounted on\n``app.state.engine`` when one is configured. Without an engine there is\nno type context available and literals fall back to the untyped form \u2014\nwhich may differ from what ``Engine.from_rules`` builds for the same\nYAML. Post the templates alongside the rules, or use ``fathom compile``\nagainst the ruleset directory, when the exact form matters.\n\nDeclared ``def`` so compilation runs in the threadpool, not on\nthe event loop.",
         "operationId": "compile_yaml_v1_compile_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -543,6 +512,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -554,6 +533,11 @@
             "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Compile Yaml"
       }
     },
@@ -596,22 +580,6 @@
               "title": "Template",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -643,15 +611,25 @@
             },
             "description": "Missing or invalid token"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
           },
           "500": {
             "content": {
@@ -664,6 +642,11 @@
             "description": "Evaluation failed"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Opa Data Get"
       },
       "post": {
@@ -687,22 +670,6 @@
               "default": "input",
               "title": "Template",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -745,15 +712,25 @@
             },
             "description": "Missing or invalid token"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
           },
           "500": {
             "content": {
@@ -766,6 +743,11 @@
             "description": "Evaluation failed"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Opa Data"
       }
     },
@@ -773,24 +755,6 @@
       "post": {
         "description": "Evaluate facts against a ruleset (stateless or stateful).\n\nRequest-scoped: the supplied facts are asserted, evaluated, then\nwithdrawn (:meth:`Engine.evaluate_once`), so an earlier request on the\nsame session can never change this one's decision.\n\n``ruleset`` names a path under ``FATHOM_RULESET_ROOT`` and is always\nresolved and jailed. It selects the policy only on a server with no\nEngine mounted on ``app.state.engine`` \u2014 the shipped\n``uvicorn fathom.integrations.rest:app`` deployment. A server that\nmounts one serves *that* Engine, because it is the one\n``POST /v1/rules/reload`` swaps and a reload the data plane cannot see\nis not a reload. ``session_id`` is refused there with 400\n``sessions_unavailable`` for the same reason: a session's Engine is\ncompiled from the ruleset the caller named, so opening one would hand\npolicy selection back to the data plane.\n\nDeclared ``def`` (not ``async def``) on purpose: CLIPS evaluation is\nblocking CPU work, so Starlette must run it in the threadpool rather\nthan on the event loop, where one large request stalls every other\nconnection.",
         "operationId": "evaluate_v1_evaluate_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -872,6 +836,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -883,6 +857,11 @@
             "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Evaluate"
       }
     },
@@ -890,24 +869,6 @@
       "delete": {
         "description": "Retract facts matching template + optional filter from working memory.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404. Retract is by\ntemplate + filter (matches the gRPC surface), not by fact index.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
         "operationId": "retract_facts_v1_facts_delete",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -989,6 +950,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1000,29 +971,16 @@
             "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Retract Facts"
       },
       "post": {
         "description": "Assert a single fact into a session's working memory.\n\nUnlike ``/v1/evaluate``, this endpoint does **not** create sessions on\nthe fly \u2014 the ``session_id`` must reference a session previously\ncreated via ``/v1/evaluate``. Unknown session ids return 404.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
         "operationId": "assert_fact_v1_facts_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1104,6 +1062,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1115,6 +1083,11 @@
             "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Assert Fact"
       }
     },
@@ -1125,34 +1098,11 @@
         "parameters": [
           {
             "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
             "name": "X-Session-Id",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Session-Id"
+              "maxLength": 128,
+              "type": "string"
             }
           }
         ],
@@ -1169,17 +1119,92 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Modules"
       }
     },
@@ -1187,24 +1212,6 @@
       "post": {
         "description": "Query a session's working memory for facts matching template + filter.\n\nThe ``session_id`` must reference an existing session created via\n``/v1/evaluate``. Unknown session ids return 404.\n\nDeclared ``def`` so the blocking CLIPS call runs in the threadpool.",
         "operationId": "query_facts_v1_query_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1286,6 +1293,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1297,6 +1314,11 @@
             "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Query Facts"
       }
     },
@@ -1307,34 +1329,11 @@
         "parameters": [
           {
             "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
             "name": "X-Session-Id",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Session-Id"
+              "maxLength": 128,
+              "type": "string"
             }
           }
         ],
@@ -1351,17 +1350,92 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Rules"
       }
     },
@@ -1369,28 +1443,11 @@
       "post": {
         "description": "Atomically swap the loaded ruleset with a new (optionally signed) one.\n\nRequires the scoped admin token (``FATHOM_ADMIN_TOKEN`` when set, else the\ndata-plane token). Bodies larger than ``FATHOM_MAX_RELOAD_BYTES`` (default\n5 MB) are rejected with 413 before any YAML parsing \u2014 the cap is enforced\non the actual bytes received, not the Content-Length header (chunked\nbodies lie). Rate limiting is host-level (reverse proxy) by design.\n\nSee design C5 / AC-5.1 / AC-5.4\u20135.6 / AC-5.8.",
         "operationId": "reload_rules_v1_rules_reload_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "description": "Request body for ``POST /v1/rules/reload``.\n\nExactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.\n``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.",
                 "properties": {
                   "ruleset_path": {
@@ -1438,22 +1495,99 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RulesetReloadResponse"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Ruleset reloaded"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server misconfigured"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Reload Rules"
       }
     },
@@ -1494,34 +1628,11 @@
         "parameters": [
           {
             "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
             "name": "X-Session-Id",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Session-Id"
+              "maxLength": 128,
+              "type": "string"
             }
           }
         ],
@@ -1538,17 +1649,92 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Templates"
       }
     }

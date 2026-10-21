@@ -16,7 +16,7 @@ Run forward-chain evaluation
 ```json
 {
   "properties": {},
-  "title": "tool_evaluateArguments",
+  "title": "fathom_evaluateArguments",
   "type": "object"
 }
 ```

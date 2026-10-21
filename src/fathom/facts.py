@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import difflib
 import logging
+import math
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -14,7 +15,7 @@ from fathom.errors import ValidationError
 from fathom.models import SlotType
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from fathom.models import TemplateDefinition
 
@@ -49,6 +50,43 @@ def _plain(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     return value
+
+
+def _check_unknown_slots(template: TemplateDefinition, data: dict[str, Any]) -> None:
+    """Raise ValidationError if data contains slot names not in the template."""
+    known_slots = {s.name for s in template.slots}
+    unknown = set(data.keys()) - known_slots
+    if unknown:
+        # Suggest closest match for the first unknown slot
+        first_unknown = sorted(unknown)[0]
+        matches = difflib.get_close_matches(first_unknown, known_slots, n=1)
+        suggestion = f" Did you mean '{matches[0]}'?" if matches else ""
+        raise ValidationError(
+            f"Unknown slot(s) {sorted(unknown)} in template '{template.name}'.{suggestion}",
+            template=template.name,
+            slot=first_unknown,
+        )
+
+
+def filter_template(
+    registry: Mapping[str, TemplateDefinition],
+    template_name: str,
+    fact_filter: dict[str, Any] | None,
+) -> TemplateDefinition:
+    """Return *template_name*'s definition, refusing an unknown template or filter slot.
+
+    An unknown filter key would match nothing -- or, with a null value,
+    everything, since `row.get(k)` is then None for every fact.
+    """
+    template_def = registry.get(template_name)
+    if template_def is None:
+        raise ValidationError(
+            f"Unknown template '{template_name}'",
+            template=template_name,
+        )
+    if fact_filter:
+        _check_unknown_slots(template_def, fact_filter)
+    return template_def
 
 
 class FactManager:
@@ -153,8 +191,12 @@ class FactManager:
 
     def assert_facts_scoped(
         self, facts: list[tuple[str, dict[str, Any]]]
-    ) -> list[tuple[str, Any, dict[str, Any]]]:
-        """Assert multiple facts, returning handles for the ones actually created.
+    ) -> tuple[list[tuple[str, dict[str, Any]]], list[tuple[str, Any, dict[str, Any]]]]:
+        """Assert multiple facts, returning ``(validated, handles)``.
+
+        *validated* is every ``(template_name, slots)`` pair as accepted --
+        defaults applied, values coerced -- and *handles* covers the facts
+        actually created.
 
         Backs :meth:`fathom.engine.Engine.evaluate_once`: the returned
         ``(template_name, fact, slots)`` triples are what
@@ -185,7 +227,7 @@ class FactManager:
                 continue
             pre_existing.add(fact.index)
             created.append((template_name, fact, validated))
-        return created
+        return validated_batch, created
 
     def retract_handles(self, handles: list[tuple[str, Any, dict[str, Any]]]) -> None:
         """Retract the exact facts named by *handles* (see :meth:`assert_facts_scoped`).
@@ -216,12 +258,7 @@ class FactManager:
     ) -> list[dict[str, Any]]:
         """Query working memory for facts matching template and optional filter."""
         env = self._env_provider()
-        template_def = self._template_registry.get(template_name)
-        if template_def is None:
-            raise ValidationError(
-                f"Unknown template '{template_name}'",
-                template=template_name,
-            )
+        template_def = filter_template(self._template_registry, template_name, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         results: list[dict[str, Any]] = []
@@ -268,12 +305,7 @@ class FactManager:
     ) -> int:
         """Retract matching facts from working memory. Returns count retracted."""
         env = self._env_provider()
-        template_def = self._template_registry.get(template_name)
-        if template_def is None:
-            raise ValidationError(
-                f"Unknown template '{template_name}'",
-                template=template_name,
-            )
+        template_def = filter_template(self._template_registry, template_name, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         # Collect (fact, slot_dict) pairs first to avoid mutating during
@@ -420,7 +452,7 @@ class FactManager:
             )
 
         # 2. Check unknown slots
-        self._check_unknown_slots(template, data)
+        _check_unknown_slots(template, data)
 
         # 3. Apply defaults
         data = self._apply_defaults(template, data)
@@ -428,7 +460,7 @@ class FactManager:
         # 4. Check required
         self._check_required(template, data)
 
-        # 5. Coerce types (int→float, float→int, non-str→str)
+        # 5. Coerce types (int→float, float→int, number→str)
         data = self._coerce_types(template, data)
 
         # 6. Check types
@@ -438,21 +470,6 @@ class FactManager:
         self._check_allowed_values(template, data)
 
         return data
-
-    def _check_unknown_slots(self, template: TemplateDefinition, data: dict[str, Any]) -> None:
-        """Raise ValidationError if data contains slot names not in the template."""
-        known_slots = {s.name for s in template.slots}
-        unknown = set(data.keys()) - known_slots
-        if unknown:
-            # Suggest closest match for the first unknown slot
-            first_unknown = sorted(unknown)[0]
-            matches = difflib.get_close_matches(first_unknown, known_slots, n=1)
-            suggestion = f" Did you mean '{matches[0]}'?" if matches else ""
-            raise ValidationError(
-                f"Unknown slot(s) {sorted(unknown)} in template '{template.name}'.{suggestion}",
-                template=template.name,
-                slot=first_unknown,
-            )
 
     def _apply_defaults(
         self, template: TemplateDefinition, data: dict[str, Any]
@@ -476,7 +493,7 @@ class FactManager:
                 slot.type == SlotType.INTEGER
                 and isinstance(value, float)
                 and not isinstance(value, bool)
-                and value == int(value)
+                and value.is_integer()
             ):
                 result[key] = int(value)
             elif (
@@ -491,13 +508,21 @@ class FactManager:
                 # so a whole-numbered float arrives as `3` and a caller cannot
                 # express `3.0` at all.
                 result[key] = float(value)
-            elif slot.type == SlotType.STRING and not isinstance(value, str):
+            elif (
+                slot.type == SlotType.STRING
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+            ):
+                # Only numbers: str(None) is "None", str(True) is "True" and
+                # str({...}) a Python repr, all of which would pass a
+                # `matches(.+)` check. A bool is refused, as for numeric slots.
                 result[key] = str(value)
         return result
 
     def _check_required(self, template: TemplateDefinition, data: dict[str, Any]) -> None:
         """Raise ValidationError if required slots are missing."""
-        missing = [s.name for s in template.slots if s.required and s.name not in data]
+        # A null counts as missing; JSON clients send it for "no value".
+        missing = [s.name for s in template.slots if s.required and data.get(s.name) is None]
         if missing:
             raise ValidationError(
                 f"Missing required slot(s) {missing} in template '{template.name}'",
@@ -516,6 +541,21 @@ class FactManager:
             expected_types = _PYTHON_TYPE_MAP.get(slot.type)
             if expected_types is None:
                 continue
+            # NaN compares true against both `<` and `>` in CLIPS, so a NaN
+            # score would satisfy `less_than(0.3)` and `greater_than(0.8)` at
+            # once; infinities have no CLIPS INTEGER form either.
+            if (
+                slot.type in (SlotType.FLOAT, SlotType.INTEGER)
+                and isinstance(value, float)
+                and not math.isfinite(value)
+            ):
+                raise ValidationError(
+                    f"Slot '{key}' expects a finite {slot.type.value}, got {value}",
+                    template=template.name,
+                    slot=key,
+                    value=value,
+                    expected=slot.type.value,
+                )
             # Special case: integer type should not accept bool
             if slot.type == SlotType.INTEGER and isinstance(value, bool):
                 raise ValidationError(

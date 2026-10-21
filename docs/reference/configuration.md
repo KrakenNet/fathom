@@ -10,7 +10,7 @@ sources:
   - src/fathom/integrations/auth.py
   - src/fathom/metrics.py
   - src/fathom/cli.py
-last_verified: 2026-08-27
+last_verified: 2026-10-21
 ---
 
 # Configuration
@@ -27,18 +27,18 @@ without a restart.
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `FATHOM_API_TOKEN` | REST, gRPC | *(none — required)* | The data-plane bearer token. Every `/v1/*` route and every RPC compares the presented `Authorization: Bearer …` against it with `hmac.compare_digest`. Unset means server mode refuses to authenticate anything. Read per verification. |
+| `FATHOM_API_TOKEN` | REST, gRPC | *(none — required)* | The data-plane bearer token. Every `/v1/*` route except `GET /v1/status`, `GET /metrics` when enabled, and every RPC compare the presented `Authorization: Bearer …` against it with `hmac.compare_digest`. Unset means server mode refuses to authenticate anything. Read per verification. |
 | `FATHOM_ADMIN_TOKEN` | REST, gRPC | *(unset)* | Scopes the reload surface. When set, `POST /v1/rules/reload` and the `Reload` RPC accept **only** this token and the data-plane token stops working for them. When unset, reload falls back to `FATHOM_API_TOKEN`. |
-| `FATHOM_RULESET_ROOT` | REST | *(none — required)* | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400; an unset root is a 500, never an unjailed read. |
-| `FATHOM_RULESET_PUBKEY_PATH` | REST | *(none)* | PEM path of the public key that signed rulesets are verified against. Required at startup unless the dev escape below is engaged — a missing or unreadable key is a startup failure, not a warning. |
+| `FATHOM_RULESET_ROOT` | REST, gRPC | *(none — required)*; the Docker image sets `/rules`, its declared volume | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400 (gRPC `INVALID_ARGUMENT`); an unset root is a 500 (gRPC `FAILED_PRECONDITION`), never an unjailed read. |
+| `FATHOM_RULESET_PUBKEY_PATH` | REST | *(none)* | PEM path of the public key that signed rulesets are verified against. Read by `build_app()`, which raises at startup when the key is missing or unreadable unless the dev escape below is engaged. The module-level `fathom.integrations.rest:app` that Docker and `uvicorn` serve does not call `build_app()` and does not read it: it mounts no Engine, so it starts without the key and answers every reload `503 not_ready`. |
 | `FATHOM_ALLOW_UNSIGNED_RULESETS` | REST | `0` | Set to `1` **and** build the app with `require_signature=False` to accept unsigned reload payloads. Both are required; either alone keeps signature checking on. Logs a warning on every boot that uses it. |
 | `FATHOM_MAX_REQUEST_BYTES` | REST | `2097152` (2 MB) | Body cap on the data-plane routes, enforced on bytes actually received rather than `Content-Length`. `/v1/evaluate` runs a quadratic join over the facts it is given, so this bounds server CPU, not just memory. A non-numeric or non-positive value falls back to the default. Read per request. |
-| `FATHOM_MAX_RELOAD_BYTES` | REST, gRPC | `5242880` (5 MB) | Body cap on the reload route specifically, which the data-plane cap skips. gRPC's own receive limit is set below this. Same fallback behaviour. Read per request. |
+| `FATHOM_MAX_RELOAD_BYTES` | REST | `5242880` (5 MB) | Body cap on the reload route specifically, which the data-plane cap skips. Same fallback behaviour. Read per request. gRPC does not read it: its receive limit is a fixed 4 MB on every RPC, `Reload` included. |
 | `FATHOM_EXPOSE_DOCS` | REST | `0` | Set to `1` to serve `/docs`, `/redoc`, and `/openapi.json`. Off by default because they publish route and schema names to unauthenticated callers. Read once at import. |
 | `FATHOM_GRPC_TLS_CERT` | gRPC | *(none)* | PEM certificate path. Required with `FATHOM_GRPC_TLS_KEY` unless insecure mode is opted into. |
 | `FATHOM_GRPC_TLS_KEY` | gRPC | *(none)* | PEM private-key path, paired with the certificate above. |
 | `FATHOM_GRPC_ALLOW_INSECURE` | gRPC | `0` | Set to `1` to bind a plaintext port when no TLS pair is configured. See the warning below. |
-| `FATHOM_METRICS` | Engine | `0` | Set to `1` to enable Prometheus metrics collection without passing `enabled=True` to `MetricsCollector`. No-ops when `prometheus_client` is not installed, so setting it is safe on an install without the `metrics` extra. |
+| `FATHOM_METRICS` | Engine, REST | `0` | Set to `1` to enable Prometheus metrics collection without passing `enabled=True` to `MetricsCollector`. The REST app also mounts `GET /metrics` (Prometheus text format, bearer-token auth like `/v1/*`). That route is not in `openapi.json`, which is exported with metrics off. REST reads it once at import. No-ops when `prometheus_client` is not installed, so setting it is safe on an install without the `metrics` extra. |
 | `FATHOM_TOKEN` | CLI | *(unset)* | Default bearer token for CLI commands that call a server. `--token` overrides it. |
 
 ## gRPC TLS

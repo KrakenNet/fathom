@@ -16,7 +16,8 @@ last_verified: 2026-04-15
  Load a rule pack and display loaded constructs.                                
                                                                                 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
-│ *    path      PATH  Path to a rule pack directory to inspect. [required]    │
+│ *    path      DIRECTORY  Path to a rule pack directory to inspect.          │
+│                           [required]                                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --help          Show this message and exit.                                  │

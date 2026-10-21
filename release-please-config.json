@@ -16,11 +16,6 @@
           "path": "src/fathom/__init__.py"
         },
         {
-          "type": "json",
-          "path": "packages/fathom-ts/package.json",
-          "jsonpath": "$.version"
-        },
-        {
           "type": "generic",
           "path": "README.md"
         },
@@ -29,6 +24,12 @@
           "path": "docs/index.md"
         }
       ]
+    },
+    "packages/fathom-ts": {
+      "release-type": "node",
+      "package-name": "@fathom-rules/sdk",
+      "component": "fathom-ts",
+      "include-component-in-tag": true
     }
   }
 }

@@ -15,7 +15,7 @@ sources:
   - src/fathom/integrations/openai_agents.py
   - src/fathom/integrations/google_adk.py
   - protos/fathom.proto
-last_verified: 2026-08-27
+last_verified: 2026-10-21
 ---
 
 # Planned Integrations
@@ -85,9 +85,9 @@ at [Go SDK](./go-sdk/fathom-go.md).
 **Status:** Partial.
 
 **Location:** `packages/fathom-ts/` — published identity
-`@fathom-rules/sdk`, versioned in lockstep with the engine (release-please
-writes `package.json` from the same tag, and `scripts/check_version_sync.py`
-fails the build if the two drift). Source lives in
+`@fathom-rules/sdk`, versioned apart from the engine: it is its own
+release-please component, tagged `fathom-ts-vX.Y.Z`, and only that tag
+publishes it to npm. Source lives in
 `src/client.ts` (215 lines), `src/errors.ts` (77 lines), and
 `src/index.ts` (26 lines). Vitest suites in `test/client.test.ts` and
 `test/errors.test.ts`.
@@ -164,10 +164,13 @@ blocks the call. A denylist of known-bad decisions would fail open on
 anything it had not heard of.
 
 *How* each adapter blocks is dictated by its framework, and only LangChain
-blocks by raising. CrewAI, the Agents SDK and ADK all wrap the handler call
-in `try/except`, log whatever it raises, and then run the tool anyway — so
-in those three a raised exception is a fail-open, and the block has to be a
-return value:
+blocks by raising. CrewAI wraps the hook call in `try/except`, logs whatever
+it raises, and then runs the tool anyway, so there a raised exception is a
+fail-open and the block has to be a return value. The Agents SDK and ADK
+abort the run when a guardrail or callback raises (the tool does not run;
+checked on openai-agents 0.20.0 and google-adk 2.3.0), but an abort ends the
+whole run rather than refusing one call, so they block with a return value
+too:
 
 | Adapter | Block signal | Carries the reason? |
 |---------|--------------|---------------------|

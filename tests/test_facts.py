@@ -480,9 +480,9 @@ class TestTypeMismatch:
         with pytest.raises(ValidationError, match="expects"):
             all_types_engine.assert_fact("all_types", data)
 
-    @pytest.mark.parametrize("bad_value", [123, 1.5, True])
+    @pytest.mark.parametrize("bad_value", [123, 1.5])
     def test_non_string_coerced_for_string_slot(self, all_types_engine, bad_value):
-        """Non-string values for string slots are coerced to str, not rejected."""
+        """Numbers for string slots are coerced to str, not rejected."""
         all_types_engine.assert_fact(
             "all_types",
             {
@@ -579,6 +579,26 @@ class TestBoolRejection:
                     "s_integer": 1,
                 },
             )
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_bool_rejected_for_string(self, all_types_engine, flag):
+        # str(True) is "True", which would satisfy `matches(.+)`.
+        with pytest.raises(ValidationError, match="expects string"):
+            all_types_engine.assert_fact(
+                "all_types",
+                {"s_string": flag, "s_symbol": "s", "s_float": 1.0, "s_integer": 1},
+            )
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    @pytest.mark.parametrize("slot", ["s_float", "s_integer"])
+    def test_non_finite_number_rejected(self, all_types_engine, slot, bad):
+        # NaN compares true against both `< x` and `> x` in CLIPS, so a NaN
+        # score satisfied an allow-if-low-risk rule. Inf on an integer slot
+        # crashed coercion with a raw OverflowError.
+        data = {"s_string": "x", "s_symbol": "s", "s_float": 1.0, "s_integer": 1}
+        data[slot] = bad
+        with pytest.raises(ValidationError, match="finite"):
+            all_types_engine.assert_fact("all_types", data)
 
     def test_bool_rejected_for_float_false(self, all_types_engine):
         with pytest.raises(ValidationError, match="expects float"):
@@ -1244,3 +1264,35 @@ def test_ttl_expires_a_fact_a_rule_asserted(tmp_path) -> None:
     engine._fact_manager.cleanup_expired()
 
     assert engine.query("alert") == []
+
+
+def test_null_in_a_required_slot_is_missing(multi_template_engine) -> None:
+    """A JSON null in a required slot must not become the string ``"None"``.
+
+    The string coercion turned ``None`` into ``"None"``, which satisfies
+    ``matches(.+)``, so a request with no agent identity passed as one.
+    """
+    with pytest.raises(ValidationError, match="Missing required"):
+        multi_template_engine.assert_fact("user", {"name": None, "age": 1})
+
+
+@pytest.mark.parametrize("bad_value", [None, {"a": 1}, [1, 2]])
+def test_non_scalar_for_a_string_slot_is_rejected(coercion_engine, bad_value) -> None:
+    """Only numbers and bools are coerced to str; null, dicts and lists are not."""
+    with pytest.raises(ValidationError, match="expects string"):
+        coercion_engine.assert_fact("coerce", {"s_val": bad_value})
+    assert coercion_engine.query("coerce") == []
+
+
+@pytest.mark.parametrize("op", ["query", "count", "retract"])
+def test_unknown_filter_slot_is_rejected(multi_template_engine, op) -> None:
+    """A filter key the template does not have is an error, not a non-match.
+
+    ``row.get(k) == v`` made ``{"x": None}`` match every fact, so a retract
+    with a typo'd null filter emptied the template.
+    """
+    e = multi_template_engine
+    e.assert_fact("user", {"name": "Alice", "age": 30})
+    with pytest.raises(ValidationError, match="Unknown slot"):
+        getattr(e, op)("user", {"x": None})
+    assert e.count("user") == 1
