@@ -534,12 +534,15 @@ class ChainedAttestationLog:
         with self._write_lock:
             return self._append_locked(record)
 
-    def _append_locked(self, record: dict[str, Any]) -> ChainedRecord:
+    def _refuse_if_corrupt(self) -> None:
         if self._corruption is not None:
             raise AttestationError(
                 f"chained log {self._path} is corrupt; refusing append: {self._corruption}",
                 operation="append",
             )
+
+    def _append_locked(self, record: dict[str, Any]) -> ChainedRecord:
+        self._refuse_if_corrupt()
         fh = self._fh if self._fh is not None else self._open_for_append()
         iat = int(time.time())
         seq = self._next_seq
@@ -597,11 +600,7 @@ class ChainedAttestationLog:
                     f"log_id {state.log_id} on disk is not this log's {self._log_id}; "
                     "the file was replaced"
                 )
-            if self._corruption is not None:
-                raise AttestationError(
-                    f"chained log {self._path} is corrupt; refusing append: {self._corruption}",
-                    operation="append",
-                )
+            self._refuse_if_corrupt()
             fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         except BaseException:
             os.close(lock_fd)
