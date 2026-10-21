@@ -553,3 +553,21 @@ class TestMCPContractShape:
         tool_error = _tool_error_class(_mcp_server_class())
         with pytest.raises(tool_error, match="nope"):
             asyncio.run(server._mcp.call_tool("fathom.query", {"template": "nope"}))
+
+    def test_an_evaluation_error_does_not_echo_the_clips_diagnostic(self, tmp_path) -> None:
+        """REST and gRPC answer `evaluation failed`; MCP passed on the CLIPS
+        text, which names the function and the fact value that broke it."""
+        import asyncio
+
+        from tests.test_classification_ops import _fc_engine
+
+        cond = "          - {slot: clearance, expression: 'below($o.level)'}\n"
+        _fc_engine(tmp_path, cond, obj_conditions="[]")
+        server = FathomMCPServer(rules_path=str(tmp_path))
+        tool_error = _tool_error_class(_mcp_server_class())
+        call = server._mcp.call_tool
+        for template, data in (("obj", {"level": "secret"}), ("subj", {"clearance": "XLBL"})):
+            asyncio.run(call("fathom.assert_fact", {"template": template, "data": data}))
+        with pytest.raises(tool_error) as info:
+            asyncio.run(call("fathom.evaluate", {}))
+        assert str(info.value).endswith(": evaluation_error: evaluation failed")

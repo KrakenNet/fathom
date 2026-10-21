@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import functools
 import importlib
+import logging
 from typing import TYPE_CHECKING, Any
 
 from fathom.engine import Engine
-from fathom.errors import FathomError
+from fathom.errors import EvaluationError, EvaluationLimitError, FathomError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 __all__ = ["FathomMCPServer"]
+
+logger = logging.getLogger(__name__)
 
 
 class FathomMCPServer:
@@ -181,6 +184,13 @@ def _create_mcp_app(server: FathomMCPServer) -> Any:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return fn(*args, **kwargs)
+            except EvaluationLimitError as exc:
+                raise tool_error(str(exc)) from exc
+            except EvaluationError as exc:
+                # As REST and gRPC: the CLIPS diagnostic names rule functions
+                # and fact values. Log it, do not echo it.
+                logger.warning("%s: evaluation failed", fn.__name__, exc_info=True)
+                raise tool_error("evaluation_error: evaluation failed") from exc
             except FathomError as exc:
                 raise tool_error(str(exc)) from exc
 
