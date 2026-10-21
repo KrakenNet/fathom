@@ -1244,3 +1244,21 @@ def test_ttl_expires_a_fact_a_rule_asserted(tmp_path) -> None:
     engine._fact_manager.cleanup_expired()
 
     assert engine.query("alert") == []
+
+
+def test_null_in_a_required_slot_is_missing(multi_template_engine) -> None:
+    """A JSON null in a required slot must not become the string ``"None"``.
+
+    The string coercion turned ``None`` into ``"None"``, which satisfies
+    ``matches(.+)``, so a request with no agent identity passed as one.
+    """
+    with pytest.raises(ValidationError, match="Missing required"):
+        multi_template_engine.assert_fact("user", {"name": None, "age": 1})
+
+
+@pytest.mark.parametrize("bad_value", [None, {"a": 1}, [1, 2]])
+def test_non_scalar_for_a_string_slot_is_rejected(coercion_engine, bad_value) -> None:
+    """Only numbers and bools are coerced to str; null, dicts and lists are not."""
+    with pytest.raises(ValidationError, match="expects string"):
+        coercion_engine.assert_fact("coerce", {"s_val": bad_value})
+    assert coercion_engine.query("coerce") == []

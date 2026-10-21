@@ -408,3 +408,32 @@ class TestErrorEnvelope:
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "invalid ruleset path"
+
+
+class TestFactBoundaryOverTheWire:
+    """Null/non-scalar slot values and unknown filter slots are 422s."""
+
+    def test_null_agent_id_is_422_not_allow(
+        self, ruleset_root: Path, client: TestClient, auth_headers: dict[str, str]
+    ) -> None:
+        """`"id": null` became the string "None" and the hello example allowed it."""
+        response = client.post(
+            "/v1/evaluate",
+            json={
+                "ruleset": "strict",
+                "facts": [
+                    {"template": "agent", "data": {"id": None, "clearance": "secret"}},
+                    {
+                        "template": "data_request",
+                        "data": {
+                            "agent_id": "x",
+                            "classification": "unclassified",
+                            "resource": "r",
+                        },
+                    },
+                ],
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == "validation_error"

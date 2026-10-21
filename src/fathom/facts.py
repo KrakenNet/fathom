@@ -491,13 +491,16 @@ class FactManager:
                 # so a whole-numbered float arrives as `3` and a caller cannot
                 # express `3.0` at all.
                 result[key] = float(value)
-            elif slot.type == SlotType.STRING and not isinstance(value, str):
+            elif slot.type == SlotType.STRING and isinstance(value, (int, float)):
+                # Only scalars: str(None) is "None" and str({...}) a Python
+                # repr, both of which would pass a `matches(.+)` check.
                 result[key] = str(value)
         return result
 
     def _check_required(self, template: TemplateDefinition, data: dict[str, Any]) -> None:
         """Raise ValidationError if required slots are missing."""
-        missing = [s.name for s in template.slots if s.required and s.name not in data]
+        # A null counts as missing; JSON clients send it for "no value".
+        missing = [s.name for s in template.slots if s.required and data.get(s.name) is None]
         if missing:
             raise ValidationError(
                 f"Missing required slot(s) {missing} in template '{template.name}'",

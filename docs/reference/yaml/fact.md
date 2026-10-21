@@ -126,6 +126,7 @@ the assertion.
 4. **Required check** (`_check_required`, lines 274–283). Slots marked
    `required: true` still missing after defaults raise
    `ValidationError("Missing required slot(s) […] in template 'X'")`.
+   A `None` value (JSON `null`) counts as missing.
    **Note:** [Template reference](./template.md) documents
    `SlotDefinition.required` as "not currently enforced" — that is
    accurate for the compiler and CLIPS emission, but `FactManager`
@@ -138,7 +139,9 @@ the assertion.
      against a FLOAT slot, so without this the assert failed after
      validation had already passed it. JSON has one number type, so a
      REST or TypeScript caller cannot send `3.0` at all.
-   - `STRING` slot with a non-`str` value → coerced via `str(value)`.
+   - `STRING` slot with an `int`, `float` or `bool` value → coerced via
+     `str(value)`. `None`, dicts and lists are not coerced and fail the
+     type check below, so `null` never becomes the string `"None"`.
    `SYMBOL` slots are wrapped later — see
    [CLIPS coercion](#clips-coercion).
 6. **Type check** (`_check_types`, lines 428–464). Validates against
@@ -201,8 +204,7 @@ engine.query("access-request", {"subject": "alice"})
 
 `Engine.retract(template, fact_filter=None) -> int` forwards to
 `FactManager.retract` (`src/fathom/facts.py` lines 115–147). Filter
-semantics match `query`: a `None`/empty filter retracts **all** facts
-of the template. Matches are collected first, then retracted, to avoid
+semantics match `query`: a `None`/empty filter retracts **all** facts of the template. Matches are collected first, then retracted, to avoid
 mutating the CLIPS fact list during iteration. Returns the retracted
 count. Accessible via `DELETE /v1/facts`
 (`src/fathom/integrations/rest.py` lines 404–420), which takes a
