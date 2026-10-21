@@ -192,7 +192,9 @@ stringified on readout (facts.py lines 96–98), so callers receive plain
 fact matches only when **every** filter key satisfies
 `row.get(k) == v` (facts.py lines 100–104) — equality is Python `==`,
 values are not coerced. A `None` or empty filter returns all facts.
-Unknown template raises `ValidationError("Unknown template 'X'")`.
+Unknown template raises `ValidationError("Unknown template 'X'")`, and
+a filter key that is not a slot of the template raises the same
+`ValidationError("Unknown slot(s) […]")` as an assert does.
 `Engine.count` is `len(query(...))` (facts.py lines 107–113).
 
 ```python
@@ -204,7 +206,8 @@ engine.query("access-request", {"subject": "alice"})
 
 `Engine.retract(template, fact_filter=None) -> int` forwards to
 `FactManager.retract` (`src/fathom/facts.py` lines 115–147). Filter
-semantics match `query`: a `None`/empty filter retracts **all** facts of the template. Matches are collected first, then retracted, to avoid
+semantics match `query`, including the unknown-slot rejection: a
+`None`/empty filter retracts **all** facts of the template. Matches are collected first, then retracted, to avoid
 mutating the CLIPS fact list during iteration. Returns the retracted
 count. Accessible via `DELETE /v1/facts`
 (`src/fathom/integrations/rest.py` lines 404–420), which takes a

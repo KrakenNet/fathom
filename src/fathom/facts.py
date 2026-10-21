@@ -222,6 +222,10 @@ class FactManager:
                 f"Unknown template '{template_name}'",
                 template=template_name,
             )
+        if fact_filter:
+            # An unknown key would match nothing -- or, with a null value,
+            # everything, since `row.get(k)` is then None for every fact.
+            self._check_unknown_slots(template_def, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         results: list[dict[str, Any]] = []
@@ -274,6 +278,9 @@ class FactManager:
                 f"Unknown template '{template_name}'",
                 template=template_name,
             )
+        if fact_filter:
+            # Same check as `query`.
+            self._check_unknown_slots(template_def, fact_filter)
         tpl = env.find_template(template_name)
         slot_names = [s.name for s in template_def.slots]
         # Collect (fact, slot_dict) pairs first to avoid mutating during

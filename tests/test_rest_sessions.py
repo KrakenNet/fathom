@@ -437,3 +437,42 @@ class TestFactBoundaryOverTheWire:
         )
         assert response.status_code == 422
         assert response.json()["error"] == "validation_error"
+
+    @pytest.mark.parametrize(("method", "path"), [("POST", "/v1/query"), ("DELETE", "/v1/facts")])
+    def test_unknown_filter_slot_is_422(
+        self,
+        ruleset_root: Path,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        method: str,
+        path: str,
+    ) -> None:
+        """`{"x": null}` matched every fact, so a DELETE emptied the template."""
+        client.post(
+            "/v1/evaluate",
+            json={"facts": [], "ruleset": "strict", "session_id": "F"},
+            headers=auth_headers,
+        )
+        asserted = client.post(
+            "/v1/facts",
+            json={
+                "session_id": "F",
+                "template": "agent",
+                "data": {"id": "a1", "clearance": "secret"},
+            },
+            headers=auth_headers,
+        )
+        assert asserted.status_code == 200
+        response = client.request(
+            method,
+            path,
+            json={"session_id": "F", "template": "agent", "filter": {"x": None}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+        left = client.post(
+            "/v1/query",
+            json={"session_id": "F", "template": "agent"},
+            headers=auth_headers,
+        )
+        assert len(left.json()["facts"]) == 1

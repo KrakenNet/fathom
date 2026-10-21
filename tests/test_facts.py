@@ -1262,3 +1262,17 @@ def test_non_scalar_for_a_string_slot_is_rejected(coercion_engine, bad_value) ->
     with pytest.raises(ValidationError, match="expects string"):
         coercion_engine.assert_fact("coerce", {"s_val": bad_value})
     assert coercion_engine.query("coerce") == []
+
+
+@pytest.mark.parametrize("op", ["query", "count", "retract"])
+def test_unknown_filter_slot_is_rejected(multi_template_engine, op) -> None:
+    """A filter key the template does not have is an error, not a non-match.
+
+    ``row.get(k) == v`` made ``{"x": None}`` match every fact, so a retract
+    with a typo'd null filter emptied the template.
+    """
+    e = multi_template_engine
+    e.assert_fact("user", {"name": "Alice", "age": 30})
+    with pytest.raises(ValidationError, match="Unknown slot"):
+        getattr(e, op)("user", {"x": None})
+    assert e.count("user") == 1
