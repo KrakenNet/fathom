@@ -232,9 +232,17 @@ consequences, both compile errors rather than a silently wrong answer:
   Rename it in one of them.
 
 When the argument is a cross-fact reference (`$other.level`) rather than a
-literal, the hierarchy cannot be resolved at compile time and the call goes to
-the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
-within one hierarchy.
+literal, there is no level to resolve by. With one hierarchy loaded the call
+goes to that hierarchy; with more than one it is a `CompilationError`. Compare
+with a literal, or call `<hier>-meets-or-exceeds` from a `test:` condition.
+
+**An unknown level fails closed.** A value that is not a level of the
+hierarchy -- a typo, a different case, a label from another ladder -- makes
+`below` and `meets_or_exceeds` false on either side, the same as
+`within_scope`. It is never ranked below or above anything. Note what this
+means for a deny written with `below`: an unknown label does not fire it, so
+pair such a deny with a default-deny decision, or restrict the slot with
+`allowed_values`.
 
 Temporal operators emit `(test …)` CEs that call
 external functions registered at runtime. A rule that uses one also matches

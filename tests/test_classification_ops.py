@@ -258,10 +258,6 @@ class TestEdgeCases:
         result = parse_compartments(123)  # type: ignore[arg-type]
         assert result == ["123"]
 
-    def test_dominates_both_unknown_levels_same_rank(self) -> None:
-        # Both unknown levels get rank -1; -1 >= -1 is true, empty comps superset of empty
-        assert dominates("cosmic", "", "ultra", "", "classification", _REGISTRY) is True
-
     def test_dominates_unknown_subject_known_object(self) -> None:
         # Unknown subject rank -1 < known object rank 0, so fails
         assert dominates("cosmic", "", "unclassified", "", "classification", _REGISTRY) is False
@@ -366,3 +362,131 @@ class TestHierarchyNamingAndResolution:
         engine.assert_fact("agent", {"id": "a-1", "trust": "untrusted"})
 
         assert engine.evaluate().decision == "deny"
+
+
+# ---------------------------------------------------------------------------
+# An out-of-hierarchy level fails closed on every entry point
+# ---------------------------------------------------------------------------
+
+_FC_TEMPLATES = """
+templates:
+  - name: subj
+    slots:
+      - {name: clearance, type: symbol}
+      - {name: trust, type: symbol}
+      - {name: comps, type: string, default: ""}
+  - name: obj
+    slots:
+      - {name: level, type: symbol}
+      - {name: trust_req, type: symbol}
+      - {name: comps, type: string, default: ""}
+"""
+
+_FC_ONE_HIER = """
+hierarchies:
+  - name: clearance
+    levels: [unclassified, confidential, secret, top-secret]
+functions:
+  - {name: c, type: classification, params: [a, b], hierarchy_ref: clearance}
+"""
+
+_FC_TWO_HIER = """
+hierarchies:
+  - name: clearance
+    levels: [unclassified, confidential, secret, top-secret]
+  - name: trust
+    levels: [anon, verified, staff]
+functions:
+  - {name: c, type: classification, params: [a, b], hierarchy_ref: clearance}
+  - {name: t, type: classification, params: [a, b], hierarchy_ref: trust}
+"""
+
+
+def _fc_engine(
+    root,
+    subj_conditions: str,
+    functions: str = _FC_ONE_HIER,
+    obj_conditions: str = "[{slot: level, bind: '?ol'}, {slot: comps, bind: '?oc'}]",
+) -> Engine:
+    rules = (
+        "ruleset: rs\nmodule: m\nrules:\n  - name: hit\n    when:\n"
+        "      - template: obj\n        alias: $o\n"
+        f"        conditions: {obj_conditions}\n"
+        "      - template: subj\n        conditions:\n"
+        f"{subj_conditions}"
+        "    then: {action: allow, reason: hit}\n"
+    )
+    for sub, body in (
+        ("templates", _FC_TEMPLATES),
+        ("modules", "modules:\n  - name: m\n"),
+        ("functions", functions),
+        ("rules", rules),
+    ):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+        (root / sub / "a.yaml").write_text(body, encoding="utf-8")
+    return Engine.from_rules(str(root))
+
+
+def _fires(engine: Engine, subj: dict, obj: dict) -> bool:
+    return engine.evaluate_once([("subj", subj), ("obj", obj)]).decision == "allow"
+
+
+class TestUnknownLevelFailsClosed:
+    """An unknown or mis-cased label must never compare as a rank.
+
+    The rank of a level outside the hierarchy is -1, and `below`,
+    `meets_or_exceeds` and `dominates` compared it like any other rank, so
+    `secret >= TOP-SECRET` and `none >= codeword` were both true.
+    """
+
+    def test_dominates_both_unknown_is_false(self) -> None:
+        assert dominates("cosmic", "", "ultra", "", "classification", _REGISTRY) is False
+
+    def test_dominates_unknown_object_is_false(self) -> None:
+        assert dominates("top-secret", "", "TOP-SECRET", "", "classification", _REGISTRY) is False
+
+    def test_meets_or_exceeds_cross_ref_unknown_either_side(self, tmp_path) -> None:
+        cond = "          - {slot: clearance, expression: 'meets_or_exceeds($o.level)'}\n"
+        engine = _fc_engine(tmp_path, cond, obj_conditions="[]")
+        assert _fires(engine, {"clearance": "secret"}, {"level": "confidential"})
+        assert not _fires(engine, {"clearance": "secret"}, {"level": "TOP-SECRET"})
+        assert not _fires(engine, {"clearance": "none"}, {"level": "codeword"})
+        assert not _fires(engine, {"clearance": "none"}, {"level": "unclassified"})
+
+    def test_below_cross_ref_unknown_either_side(self, tmp_path) -> None:
+        cond = "          - {slot: clearance, expression: 'below($o.level)'}\n"
+        engine = _fc_engine(tmp_path, cond, obj_conditions="[]")
+        assert _fires(engine, {"clearance": "confidential"}, {"level": "secret"})
+        assert not _fires(engine, {"clearance": "codeword"}, {"level": "secret"})
+
+    def test_scoped_deffunctions_in_a_test_ce(self, tmp_path) -> None:
+        cond = (
+            "          - {slot: clearance, bind: '?sl'}\n"
+            "          - test: '(clearance-meets-or-exceeds ?sl ?ol)'\n"
+        )
+        engine = _fc_engine(tmp_path, cond)
+        assert _fires(engine, {"clearance": "secret"}, {"level": "secret"})
+        assert not _fires(engine, {"clearance": "secret"}, {"level": "codeword"})
+
+    def test_fathom_dominates_builtin(self, tmp_path) -> None:
+        cond = (
+            "          - {slot: clearance, bind: '?sl'}\n"
+            "          - {slot: comps, bind: '?sc'}\n"
+            "          - test: '(fathom-dominates ?sl ?sc ?ol ?oc clearance)'\n"
+        )
+        engine = _fc_engine(tmp_path, cond)
+        subj = {"clearance": "secret", "comps": "nato"}
+        assert _fires(engine, subj, {"level": "secret", "comps": "nato"})
+        assert not _fires(engine, subj, {"level": "TOP-SECRET", "comps": "nato"})
+        assert not _fires(engine, subj, {"level": "codeword", "comps": "nato"})
+
+    def test_cross_ref_with_two_hierarchies_is_refused(self, tmp_path) -> None:
+        """The cross-ref form went to the first hierarchy's shim, where every
+        level of the second ranks -1, so `anon >= staff` was true."""
+        import pytest
+
+        from fathom.errors import CompilationError
+
+        cond = "          - {slot: trust, expression: 'meets_or_exceeds($o.trust_req)'}\n"
+        with pytest.raises(CompilationError, match="more than one hierarchy"):
+            _fc_engine(tmp_path, cond, _FC_TWO_HIER)

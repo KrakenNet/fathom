@@ -755,20 +755,24 @@ class Compiler:
             f"        (default -1)))"
         )
 
-        # Scoped deffunctions namespaced by hierarchy name
+        # Scoped deffunctions namespaced by hierarchy name.
+        #
+        # A level outside the hierarchy ranks -1, and comparing that like any
+        # other rank made `meets_or_exceeds(secret, TOP-SECRET)` and
+        # `none >= codeword` true -- a mis-cased or unknown label was readable
+        # by anyone. Both ranks must be real, as `within-scope` already asks.
+        known = f"(>= ({rank_name} ?a) 0) (>= ({rank_name} ?b) 0)"
         scoped_below = (
-            f"(deffunction MAIN::{name}-below (?a ?b)\n    (< ({rank_name} ?a) ({rank_name} ?b)))"
+            f"(deffunction MAIN::{name}-below (?a ?b)\n"
+            f"    (and {known} (< ({rank_name} ?a) ({rank_name} ?b))))"
         )
 
         scoped_meets = (
             f"(deffunction MAIN::{name}-meets-or-exceeds (?a ?b)\n"
-            f"    (>= ({rank_name} ?a) ({rank_name} ?b)))"
+            f"    (and {known} (>= ({rank_name} ?a) ({rank_name} ?b))))"
         )
 
-        scoped_scope = (
-            f"(deffunction MAIN::{name}-within-scope (?a ?b)\n"
-            f"    (and (>= ({rank_name} ?a) 0) (>= ({rank_name} ?b) 0)))"
-        )
+        scoped_scope = f"(deffunction MAIN::{name}-within-scope (?a ?b)\n    (and {known}))"
 
         parts = [rank_fn, scoped_below, scoped_meets, scoped_scope]
 
@@ -1416,7 +1420,9 @@ class Compiler:
                 tests.append(f"(test (eq ?{existing} {var}))")
         return parts, tests
 
-    def _scoped_classification_fn(self, op: str, unscoped: str, level: str, slot: str) -> str:
+    def _scoped_classification_fn(
+        self, op: str, unscoped: str, level: str, slot: str, cross_ref: bool = False
+    ) -> str:
         """Pick the hierarchy a classification operator meant, by the level it names.
 
         ``below`` / ``meets-or-exceeds`` / ``within-scope`` are emitted once as
@@ -1436,12 +1442,27 @@ class Compiler:
         deffunction. When the level is ambiguous or unknown the answer would
         be a silent always-true, so it is a compile error instead.
 
+        A ``$alias.field`` argument names no level, so there is nothing to
+        resolve by. With one hierarchy loaded that one is meant; with more it
+        is a compile error, because the shim would rank every level of the
+        others as unknown.
+
         Falls back to the unscoped shim when no hierarchy has been compiled
         into this Compiler: the deffunction may have been supplied directly
         through ``load_clips_function``.
         """
         if op not in _HIERARCHY_SCOPED_OPS or not self._hierarchy_levels:
             return unscoped
+        if cross_ref:
+            if len(self._hierarchy_levels) == 1:
+                return f"{next(iter(self._hierarchy_levels))}-{unscoped}"
+            raise CompilationError(
+                f"{op}({level}) on slot '{slot}': a cross-fact reference names no "
+                f"level, and more than one hierarchy is loaded "
+                f"({', '.join(sorted(self._hierarchy_levels))}), so the hierarchy to "
+                f"rank it in is ambiguous. Compare with a literal level, or call "
+                f"'<hierarchy>-{unscoped}' from a test: condition.",
+            )
 
         owners = [name for name, levels in self._hierarchy_levels.items() if level in levels]
         if len(owners) == 1:
@@ -1709,8 +1730,9 @@ class Compiler:
             # Resolve the argument (cross-ref or literal)
             cross_ref = self._resolve_cross_refs(arg)
             arg_var = cross_ref if cross_ref is not None else self._validate_operator_arg(arg, op)
-            if cross_ref is None:
-                clips_fn = self._scoped_classification_fn(op, clips_fn, arg, slot)
+            clips_fn = self._scoped_classification_fn(
+                op, clips_fn, arg, slot, cross_ref is not None
+            )
             slot_binding = f"({slot} {slot_var})"
             test_ce = f"(test ({clips_fn} {slot_var} {arg_var}))"
             return slot_binding, test_ce

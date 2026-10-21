@@ -56,8 +56,11 @@ identifiers all begin with the hierarchy name (e.g. `clearance-rank`,
 `_compile_classification_functions`, is:
 
 - `(deffunction MAIN::<hier>-rank (?level) (switch ?level (case LEVEL then INDEX) … (default -1)))` — one `case` per level, in declaration order; out-of-hierarchy inputs return `-1`.
-- `(deffunction MAIN::<hier>-below (?a ?b) (< (<hier>-rank ?a) (<hier>-rank ?b)))`.
-- `(deffunction MAIN::<hier>-meets-or-exceeds (?a ?b) (>= (<hier>-rank ?a) (<hier>-rank ?b)))`.
+- `(deffunction MAIN::<hier>-below (?a ?b) (and <both-known> (< (<hier>-rank ?a) (<hier>-rank ?b))))`.
+- `(deffunction MAIN::<hier>-meets-or-exceeds (?a ?b) (and <both-known> (>= (<hier>-rank ?a) (<hier>-rank ?b))))`.
+  `<both-known>` is `(>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)`: an
+  out-of-hierarchy level on either side makes `below` and `meets-or-exceeds`
+  false, so a mis-cased or unknown label never compares as a rank.
 - `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — both inputs must be in-hierarchy.
 
 The compiler also emits **unscoped backward-compat shims** —
@@ -70,11 +73,11 @@ unscoped shims.
 A rule's classification operator does **not** compile to a shim. It compiles to
 the scoped deffunction of the hierarchy that owns the level it names — see
 [`meets_or_exceeds` in the rule reference](./rule.md#supported-operators). The
-shims exist for a deffunction supplied directly through `load_clips_function`,
-and for the cross-fact form (`$other.level`), whose hierarchy is not knowable at
-compile time. Routing every rule through them is what made a second hierarchy
-unusable: its levels ranked `-1` through the first hierarchy's table, so
-`meets_or_exceeds` was true for every value and `below` false for every value.
+shims exist for a deffunction supplied directly through `load_clips_function`.
+The cross-fact form (`$other.level`) names no level, so it compiles to the
+scoped deffunction of the only hierarchy loaded, and is a `CompilationError`
+when more than one is loaded. Routing it through the first hierarchy's shim
+ranked every level of a second hierarchy as unknown.
 
 Compilation failures:
 
@@ -122,7 +125,7 @@ is registered, referenced or not.
 | Field          | Type               | Default | Required | Description                                                                                                                                       |
 |----------------|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`         | `str`              | —       | yes      | Hierarchy name. Drives the emitted deffunction prefix (`<name>-rank`, `<name>-below`, …).                                                          |
-| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; out-of-hierarchy inputs rank `-1`. |
+| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; out-of-hierarchy inputs rank `-1` and make them false. |
 | `compartments` | `list[str] \| None`| `None`  | no       | Accepted by the model but **not** consumed by `_compile_classification_functions` today. Reserved for future compartment-aware emission.           |
 
 ## Worked example — `classification`
@@ -153,10 +156,10 @@ functions:
         (default -1)))
 
 (deffunction MAIN::clearance-below (?a ?b)
-    (< (clearance-rank ?a) (clearance-rank ?b)))
+    (and (>= (clearance-rank ?a) 0) (>= (clearance-rank ?b) 0) (< (clearance-rank ?a) (clearance-rank ?b))))
 
 (deffunction MAIN::clearance-meets-or-exceeds (?a ?b)
-    (>= (clearance-rank ?a) (clearance-rank ?b)))
+    (and (>= (clearance-rank ?a) 0) (>= (clearance-rank ?b) 0) (>= (clearance-rank ?a) (clearance-rank ?b))))
 
 (deffunction MAIN::clearance-within-scope (?a ?b)
     (and (>= (clearance-rank ?a) 0) (>= (clearance-rank ?b) 0)))
@@ -216,6 +219,9 @@ Engine-registered builtins (`fathom-matches`, `fathom-count-exceeds`,
 requested name starts with `fathom-`. YAML `raw` bodies are not
 re-checked by the compiler, but avoid the prefix in authored CLIPS to
 prevent collisions with the runtime's own bindings.
+
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` is FALSE when
+either level is not a level of `hierarchy`, or the hierarchy is not loaded.
 
 ## Validators — what is rejected
 
