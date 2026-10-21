@@ -119,9 +119,12 @@ with a count rather than once per rule.
 | `bind:` or `test:` | A bind is a join; a raw CLIPS conditional element has no translation. |
 | A `$alias.field` reference | A cross-fact reference. |
 
-A refused rule is left out entirely. `--strict` exits non-zero when anything
-was refused; without it the command exits non-zero only when *nothing*
-exported.
+A refused rule is left out entirely, unless it decides `deny`: leaving a
+deny out would make the Rego allow what the ruleset denied, so a refused
+`deny` rule fails the whole export -- the command exits 3 and writes nothing,
+and `export_engine` raises `CompilationError`. Otherwise `--strict` exits
+non-zero when anything was refused; without it the command exits non-zero only
+when *nothing* exported.
 
 ## What the export changes even when it succeeds
 

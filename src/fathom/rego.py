@@ -519,6 +519,10 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
     Returns:
         A :class:`ConversionResult`. Check ``skipped`` before trusting the
         output to be the whole policy.
+
+    Raises:
+        CompilationError: If any `deny` rule could not be converted. Leaving
+            it out would widen the policy, so nothing is returned.
     """
     package = _package_path(ast)
     module = re.sub(r"[^A-Za-z0-9]+", "_", package).strip("_") or "policy"
@@ -677,6 +681,17 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
             rule["salience"] = _DENY_SALIENCE
         result.rules.append(rule)
         guarded.append((rule, dict(rule_slots)))
+
+    # Dropping a rule whole keeps the output faithful only for `allow`, where
+    # the result is narrower. A dropped `deny` takes a deny condition out of
+    # the policy, and the result allows what the policy denies.
+    dropped_denies = [skipped for skipped in result.skipped if skipped.rule == "deny"]
+    if dropped_denies:
+        raise CompilationError(
+            "a `deny` rule could not be converted, and leaving it out would allow "
+            "input the policy denies: " + "; ".join(map(str, dropped_denies)),
+            construct="rule:deny",
+        )
 
     # Presence guards go on last, using the slot types as finally widened: a
     # slot widened to `string` by a later rule needs the string sentinel, not
@@ -945,6 +960,10 @@ def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
         An :class:`ExportResult` holding the Rego source, the rules that were
         refused with the reason for each, and notes about what the export
         changes even where it succeeded.
+
+    Raises:
+        CompilationError: If any rule deciding `deny` was refused. Leaving it
+            out would allow what the ruleset denies, so nothing is returned.
     """
     registry = dict(engine.rule_registry)
     rules = list(registry.values())
@@ -963,15 +982,24 @@ def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
         return f"input.{slot}" if flat else f"input.{template}.{slot}"
 
     documents: dict[str, list[tuple[Any, list[str]]]] = {}
+    dropped_denies: list[Skipped] = []
     for rule in rules:
         exported = _export_rule(rule, templates, reference)
         if isinstance(exported, Skipped):
             result.skipped.append(exported)
+            if rule.then.action == "deny":
+                dropped_denies.append(exported)
             continue
         document, body = exported
         documents.setdefault(document, []).append((rule, body))
         result.rule_count += 1
 
+    if dropped_denies:
+        raise CompilationError(
+            "a rule deciding `deny` cannot be exported, and leaving it out would "
+            "allow what the ruleset denied: " + "; ".join(map(str, dropped_denies)),
+            construct="rule:deny",
+        )
     result.notes.extend(_export_notes(rules, documents))
     result.source = _render_rego(result.package, documents, flat)
     return result

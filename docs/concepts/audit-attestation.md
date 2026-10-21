@@ -173,6 +173,11 @@ Three implementations ship with Fathom:
   exists. Every append would succeed and the log would verify as
   `malformed line 3: seq 1, expected 2`, which reads as tampering. The second
   writer is therefore refused: its first append raises `AttestationError`.
+  The lock is taken at a writer's first append (and again after `close()`),
+  and the head is re-read from the file once it is held, so a writer opened
+  while another was still running -- a rolling restart -- continues from the
+  real head once the other has closed. A writer whose file was replaced by
+  another log is refused.
   The lock is OS-level and lives on a `<log>.lock` file beside the log, never
   on the log itself — Windows locks are mandatory, so locking the log would
   make it unreadable to `verify()` and `fathom verify-chain` while a writer

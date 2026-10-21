@@ -9,9 +9,11 @@ templates:
         required: true
       - name: action
         type: symbol
+        allowed_values: [read, write, execute, delete, admin, escalate, override]
         required: true
       - name: clearance
         type: symbol
+        allowed_values: [unclassified, cui, confidential, secret, top_secret]
         default: unclassified
       - name: context
         type: string
@@ -21,6 +23,7 @@ templates:
     slots:
       - name: event_type
         type: symbol
+        allowed_values: [login, logout, access, modify, delete, export, escalate, override]
         required: true
       - name: subject
         type: string
@@ -30,6 +33,7 @@ templates:
         default: ""
       - name: outcome
         type: symbol
+        allowed_values: [success, failed, denied, unknown]
         default: unknown
       - name: ts
         type: float
@@ -45,10 +49,15 @@ templates:
         required: true
       - name: classification
         type: symbol
+        # The cmmc pack matches cui_basic / cui_specified on this template.
+        allowed_values: [unclassified, cui_basic, cui_specified, confidential, secret, top_secret]
         default: unclassified
       - name: size_bytes
         type: integer
         default: 0
       - name: protocol
         type: symbol
+        # Closed so a misspelled or unlisted insecure protocol (FTP, http) is
+        # refused at assert instead of slipping past the SC-7/SC-8 deny list.
+        allowed_values: [unknown, plaintext, ftp, telnet, https, tls, ssh, sftp, scp]
         default: unknown

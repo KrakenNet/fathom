@@ -2,8 +2,8 @@ package authz.refusals
 
 import rego.v1
 
-deny if {
-	not input.authenticated
+allow if {
+	not input.suspended
 }
 
 allow if {

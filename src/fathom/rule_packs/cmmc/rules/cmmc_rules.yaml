@@ -11,7 +11,7 @@ rules:
       - template: cui_policy
         conditions:
           - slot: justification
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
           - slot: action
             expression: "in([read, write, admin])"
     then:
@@ -34,7 +34,7 @@ rules:
           - slot: classification
             expression: "in([cui_basic, cui_specified, secret, top_secret])"
           - slot: destination
-            expression: "matches(external|public|untrusted)"
+            expression: "matches((?i)external|public|untrusted)"
     then:
       action: deny
       reason: "CUI transfer blocked: controlled information cannot flow to external destination (AC.L2-3.1.3)"
@@ -55,7 +55,7 @@ rules:
           - slot: action
             expression: "in([admin, escalate, override, delete])"
           - slot: justification
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
     then:
       action: deny
       reason: "Privileged CUI action requires explicit justification (AC.L2-3.1.5)"
@@ -95,7 +95,7 @@ rules:
       - template: audit_event
         conditions:
           - slot: subject
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
           - slot: event_type
             expression: "in([access, modify, delete, export])"
     then:

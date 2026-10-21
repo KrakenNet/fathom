@@ -72,13 +72,13 @@ from fathom.errors import AttestationError
 def _claim_exclusive_writer(path: Path) -> int:
     """Take the writer lock for *path*, or refuse to be the second writer.
 
-    Every writer keeps ``_next_seq`` and ``_head_sha256`` in memory, derived
-    once at construction and never re-read. A second writer on the same path
-    therefore starts from a stale head and appends lines whose ``seq`` and
-    ``prev_sha256`` describe a file that no longer exists: every append
-    succeeds, nothing on the record or the log object says otherwise, and the
-    log verifies as ``malformed line 3: seq 1, expected 2`` — which reads to an
-    auditor as tampering. Failing closed here is the same posture the class
+    Every writer keeps ``_next_seq`` and ``_head_sha256`` in memory and
+    re-reads them only when it takes this lock. Two writers appending at once
+    would each advance a head the other never sees, and write lines whose
+    ``seq`` and ``prev_sha256`` describe a file that no longer exists: every
+    append succeeds, nothing on the record or the log object says otherwise,
+    and the log verifies as ``malformed line 3: seq 1, expected 2`` — which
+    reads to an auditor as tampering. Failing closed here is the same posture the class
     already takes on a torn line.
 
     The lock is taken on a ``<log>.lock`` sidecar, never on the log itself,
@@ -540,6 +540,7 @@ class ChainedAttestationLog:
                 f"chained log {self._path} is corrupt; refusing append: {self._corruption}",
                 operation="append",
             )
+        fh = self._fh if self._fh is not None else self._open_for_append()
         iat = int(time.time())
         seq = self._next_seq
         prev = self._head_sha256
@@ -563,18 +564,9 @@ class ChainedAttestationLog:
                 "v": FORMAT_VERSION,
             }
         )
-        if self._fh is None:
-            lock_fd = _claim_exclusive_writer(self._path)
-            try:
-                fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-            except BaseException:
-                os.close(lock_fd)
-                raise
-            self._lock_fd = lock_fd
-            self._fh = os.fdopen(fd, "ab")
-        self._fh.write(line + b"\n")
-        self._fh.flush()
-        os.fsync(self._fh.fileno())
+        fh.write(line + b"\n")
+        fh.flush()
+        os.fsync(fh.fileno())
         self._next_seq = seq + 1
         self._head_sha256 = _sha256_hex(line)
         return ChainedRecord(
@@ -585,6 +577,40 @@ class ChainedAttestationLog:
             jws=token,
             line_sha256=self._head_sha256,
         )
+
+    def _open_for_append(self) -> IO[bytes]:
+        """Claim the writer lock, then re-read the head the lock now guards.
+
+        The head in memory came from the scan at construction, or from this
+        object's last append before it closed. Another writer may have
+        appended since, between our open and its close -- a rolling restart
+        does exactly that -- so the lock alone does not make that head
+        current. Rescanning under the lock does.
+        """
+        lock_fd = _claim_exclusive_writer(self._path)
+        try:
+            state = _scan(self._path)
+            if state.error is not None:
+                self._corruption = state.error
+            elif state.count and state.log_id != self._log_id:
+                self._corruption = (
+                    f"log_id {state.log_id} on disk is not this log's {self._log_id}; "
+                    "the file was replaced"
+                )
+            if self._corruption is not None:
+                raise AttestationError(
+                    f"chained log {self._path} is corrupt; refusing append: {self._corruption}",
+                    operation="append",
+                )
+            fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        except BaseException:
+            os.close(lock_fd)
+            raise
+        self._next_seq = state.count
+        self._head_sha256 = state.head_sha256
+        self._lock_fd = lock_fd
+        self._fh = os.fdopen(fd, "ab")
+        return self._fh
 
     def records(self) -> list[ChainedRecord]:
         """All parseable records. Raises on a malformed line.

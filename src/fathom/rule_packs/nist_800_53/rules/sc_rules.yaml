@@ -11,7 +11,7 @@ rules:
       - template: data_transfer
         conditions:
           - slot: destination
-            expression: "matches(external|public|untrusted|dmz)"
+            expression: "matches((?i)external|public|untrusted|dmz)"
           - slot: protocol
             expression: "in([unknown, plaintext, ftp, telnet])"
     then:

@@ -9,6 +9,7 @@ templates:
         required: true
       - name: access_level
         type: symbol
+        allowed_values: [read, write, admin]
         default: read
       - name: justification
         type: string
@@ -29,5 +30,5 @@ templates:
         type: symbol
         default: phi
       - name: encrypted
-        type: symbol
+        type: string
         default: "FALSE"

@@ -1237,7 +1237,11 @@ def convert_to_rego(
         _print_error(f"[fathom.cli] export failed: cannot load {ruleset}: {exc}")
         raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
 
-    result = export_engine(engine, package=package)
+    try:
+        result = export_engine(engine, package=package)
+    except CompilationError as exc:
+        _print_error(f"[fathom.cli] export failed: {_compilation_error_text(exc)}")
+        raise typer.Exit(code=_EXIT_MALFORMED) from exc
     _report_export(result)
 
     if not result.exported_anything:

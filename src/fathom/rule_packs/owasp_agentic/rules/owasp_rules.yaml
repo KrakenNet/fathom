@@ -24,7 +24,7 @@ rules:
       - template: tool_request
         conditions:
           - slot: tool_name
-            expression: "in([exec, shell, eval, subprocess, os_command])"
+            expression: "matches((?i)^(exec|shell|eval|subprocess|os_command)$)"
     then:
       action: deny
       reason: "Tool call is in the dangerous tools list (LLM04: Excessive Agency)"
