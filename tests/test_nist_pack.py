@@ -393,11 +393,15 @@ class TestAuditEvents:
         assert "AU-2" not in (result.reason or "")
 
     def test_non_audit_event_not_escalated(self, nist_engine: Engine) -> None:
-        """Non-auditable event type with unknown outcome should NOT trigger AU-2."""
+        """An event type outside AU-2's list, with unknown outcome, should NOT trigger AU-2.
+
+        `event_type` is a closed vocabulary, so this is a listed type AU-2
+        does not name, not a free-form one such as `heartbeat`.
+        """
         nist_engine.assert_fact(
             "audit_event",
             {
-                "event_type": "heartbeat",
+                "event_type": "export",
                 "subject": "system",
                 "outcome": "unknown",
                 "ts": 1700000000.0,

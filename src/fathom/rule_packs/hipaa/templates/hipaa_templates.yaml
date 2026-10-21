@@ -9,6 +9,7 @@ templates:
         required: true
       - name: access_level
         type: symbol
+        allowed_values: [read, write, admin]
         default: read
       - name: justification
         type: string

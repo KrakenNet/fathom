@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from fathom.engine import Engine
+from fathom.errors import ValidationError
 
 
 def _decide(pack: str, template: str, data: dict) -> tuple[str | None, list[str]]:
@@ -121,3 +122,54 @@ def test_owasp_exec_deny_ignores_case(tool: str) -> None:
     )
     assert decision == "deny"
     assert trace == ["owasp::deny-excessive-agency-exec"]
+
+
+@pytest.mark.parametrize(
+    ("pack", "template", "data", "slot", "bad"),
+    [
+        ("nist-800-53", "data_transfer", {"source": "a", "destination": "b"}, "protocol", "FTP"),
+        ("nist-800-53", "data_transfer", {"source": "a", "destination": "b"}, "protocol", "http"),
+        (
+            "nist-800-53",
+            "data_transfer",
+            {"source": "a", "destination": "b"},
+            "classification",
+            "Secret",
+        ),
+        ("nist-800-53", "access_request", {"subject": "u", "resource": "r"}, "action", "Admin"),
+        (
+            "nist-800-53",
+            "access_request",
+            {"subject": "u", "resource": "r", "action": "read"},
+            "clearance",
+            "Unclassified",
+        ),
+        ("nist-800-53", "audit_event", {"subject": "u", "ts": 1.0}, "event_type", "Delete"),
+        (
+            "nist-800-53",
+            "audit_event",
+            {"subject": "u", "event_type": "login", "ts": 1.0},
+            "outcome",
+            "FAILED",
+        ),
+        ("cmmc", "cui_policy", {"subject": "u", "resource": "r", "ts": 1.0}, "action", "Admin"),
+        (
+            "hipaa",
+            "phi_policy",
+            {"resource": "chart", "role": "nurse", "ts": 1.0},
+            "access_level",
+            "Read",
+        ),
+    ],
+)
+def test_an_enum_slot_a_deny_reads_refuses_an_unknown_spelling(
+    pack: str, template: str, data: dict, slot: str, bad: str
+) -> None:
+    """A wrong-case or unknown value would match none of the rule's set and
+    pass; refusing it at assert fails closed, as the ssvc pack does."""
+    engine = Engine(default_decision="allow")
+    if pack == "cmmc":
+        engine.load_pack("nist-800-53")
+    engine.load_pack(pack)
+    with pytest.raises(ValidationError, match="not in allowed values"):
+        engine.assert_fact(template, {**data, slot: bad})
