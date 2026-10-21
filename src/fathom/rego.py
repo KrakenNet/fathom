@@ -509,6 +509,15 @@ def _expression_text(operator: str, value: object) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _refuse_dropped_denies(dropped: list[Skipped], what: str) -> None:
+    """Raise if any `deny` rule was dropped: the result would allow what it denied."""
+    if dropped:
+        raise CompilationError(
+            f"{what}: " + "; ".join(map(str, dropped)),
+            construct="rule:deny",
+        )
+
+
 def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionResult:
     """Convert a parsed Rego module into Fathom template/module/rule dicts.
 
@@ -685,13 +694,11 @@ def convert_ast(ast: dict[str, Any], *, template: str = "input") -> ConversionRe
     # Dropping a rule whole keeps the output faithful only for `allow`, where
     # the result is narrower. A dropped `deny` takes a deny condition out of
     # the policy, and the result allows what the policy denies.
-    dropped_denies = [skipped for skipped in result.skipped if skipped.rule == "deny"]
-    if dropped_denies:
-        raise CompilationError(
-            "a `deny` rule could not be converted, and leaving it out would allow "
-            "input the policy denies: " + "; ".join(map(str, dropped_denies)),
-            construct="rule:deny",
-        )
+    _refuse_dropped_denies(
+        [skipped for skipped in result.skipped if skipped.rule == "deny"],
+        "a `deny` rule could not be converted, and leaving it out would allow "
+        "input the policy denies",
+    )
 
     # Presence guards go on last, using the slot types as finally widened: a
     # slot widened to `string` by a later rule needs the string sentinel, not
@@ -994,12 +1001,11 @@ def export_engine(engine: Any, *, package: str | None = None) -> ExportResult:
         documents.setdefault(document, []).append((rule, body))
         result.rule_count += 1
 
-    if dropped_denies:
-        raise CompilationError(
-            "a rule deciding `deny` cannot be exported, and leaving it out would "
-            "allow what the ruleset denied: " + "; ".join(map(str, dropped_denies)),
-            construct="rule:deny",
-        )
+    _refuse_dropped_denies(
+        dropped_denies,
+        "a rule deciding `deny` cannot be exported, and leaving it out would "
+        "allow what the ruleset denied",
+    )
     result.notes.extend(_export_notes(rules, documents))
     result.source = _render_rego(result.package, documents, flat)
     return result
