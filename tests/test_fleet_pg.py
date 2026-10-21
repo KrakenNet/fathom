@@ -77,17 +77,16 @@ class TestPostgresAssertFact:
         await store.subscribe("agent", on_change)
         fact_id = await store.assert_fact("agent", {"id": "a1"})
 
-        # Subscribers are reached twice: once by the direct local dispatch and
-        # once by the out-of-band LISTEN delivery of the same pg_notify.
+        # Delivered by the LISTEN connection only, as to any peer: once.
         for _ in range(20):
             if received:
                 break
             await asyncio.sleep(0.25)
+        await asyncio.sleep(0.25)
 
-        assert received
-        assert {n.action for n in received} == {"assert"}
-        assert all(n.fact_id == fact_id for n in received)
-        assert all(n.data == {"id": "a1"} for n in received)
+        assert [(n.action, n.fact_id, n.data) for n in received] == [
+            ("assert", fact_id, {"id": "a1"})
+        ]
 
     @pytest.mark.asyncio
     async def test_notify_failure_leaves_no_orphan_row(
@@ -145,11 +144,11 @@ class TestPostgresRetract:
         await store.assert_fact("agent", {"id": "a1"})
         await store.retract("agent")
 
-        # Each change reaches the subscriber twice (local dispatch + LISTEN).
-        actions = [n.action for n in received]
-        assert set(actions) == {"assert", "retract"}
-        assert actions[0] == "assert"
-        assert actions[-1] == "retract"
+        for _ in range(20):
+            if len(received) >= 2:
+                break
+            await asyncio.sleep(0.25)
+        assert [n.action for n in received] == ["assert", "retract"]
 
 
 class TestPostgresQueryAndCount:
@@ -310,13 +309,9 @@ class TestPostgresListenRecovery:
         await store.subscribe("tool", on_change)
         await store.assert_fact("tool", {"id": "t1"})
 
-        # The local dispatch lands first and says nothing about LISTEN; wait
-        # for the out-of-band delivery, which is the one under test.
         for _ in range(20):
-            if len(received) >= 2:
+            if received:
                 break
             await asyncio.sleep(0.25)
 
-        assert [n.template for n in received] == ["tool", "tool"], (
-            "the local dispatch and the LISTEN delivery must both arrive"
-        )
+        assert [n.template for n in received] == ["tool"], "LISTEN delivery must arrive"

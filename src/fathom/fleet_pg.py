@@ -29,6 +29,7 @@ except ImportError as _exc:
     ) from _exc
 
 from fathom.errors import FleetConnectionError, FleetError
+from fathom.fleet import _dispatch
 from fathom.models import FactChangeNotification
 
 __all__ = ["PostgresFactStore"]
@@ -199,8 +200,7 @@ class PostgresFactStore:
 
     async def _notify_subscribers(self, notification: FactChangeNotification) -> None:
         """Invoke local subscriber callbacks."""
-        for cb in self._subscribers.get(notification.template, []):
-            await cb(notification)
+        await _dispatch(self._subscribers.get(notification.template, []), notification)
 
     # ------------------------------------------------------------------
     # LISTEN support
@@ -316,10 +316,15 @@ class PostgresFactStore:
                 # INSERT and NOTIFY commit together: a notify failure must not
                 # leave a durable row that no subscriber was ever told about.
                 await conn.execute(_INSERT_SQL, fact_uuid, template, json.dumps(data))
-                notification = FactChangeNotification(
-                    template=template, fact_id=fact_id, action="assert", data=data
+                # Subscribers in this process hear it through the LISTEN
+                # connection like every peer does, so each hears it once.
+                await self._notify_pg(
+                    conn,
+                    template,
+                    FactChangeNotification(
+                        template=template, fact_id=fact_id, action="assert", data=data
+                    ),
                 )
-                await self._notify_pg(conn, template, notification)
         except (FleetError, FleetConnectionError):
             raise
         except OSError as exc:
@@ -331,7 +336,6 @@ class PostgresFactStore:
             raise FleetError(
                 f"PostgreSQL error during assert_fact: {exc}",
             ) from exc
-        await self._notify_subscribers(notification)
         return fact_id
 
     async def query(
@@ -385,8 +389,6 @@ class PostgresFactStore:
                     )
                     for notif in notifs:
                         await self._notify_pg(conn, template, notif)
-                for notif in notifs:
-                    await self._notify_subscribers(notif)
                 # deleted is e.g. "DELETE 3"
                 return int(str(deleted).split()[-1]) if deleted else 0
             else:
@@ -408,8 +410,6 @@ class PostgresFactStore:
                         )
                         notifs.append(notif)
                         await self._notify_pg(conn, template, notif)
-                for notif in notifs:
-                    await self._notify_subscribers(notif)
                 return len(notifs)
         except (FleetError, FleetConnectionError):
             raise

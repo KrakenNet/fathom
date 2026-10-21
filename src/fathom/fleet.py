@@ -57,12 +57,33 @@ class FactStore(Protocol):
         template: str,
         callback: Callable[[FactChangeNotification], Coroutine[Any, Any, None]],
     ) -> Callable[[], None]:
-        """Subscribe to changes on a template. Return an unsubscribe callable."""
+        """Subscribe to changes on a template. Return an unsubscribe callable.
+
+        A change is delivered once to each subscriber. A callback that raises
+        is logged and skipped: it never fails the write that caused the
+        change, and it never ends the subscription or reaches the other
+        subscribers.
+        """
         ...
 
 
 # Callback type alias for readability
 _SubscriptionCallback = Callable[[FactChangeNotification], Coroutine[Any, Any, None]]
+
+
+async def _dispatch(
+    callbacks: list[_SubscriptionCallback], notification: FactChangeNotification
+) -> None:
+    """Run every callback, isolating each one's failure (see :meth:`FactStore.subscribe`)."""
+    for cb in list(callbacks):
+        try:
+            await cb(notification)
+        except Exception:
+            logger.exception(
+                "fact store subscriber raised on %s of '%s'; continuing",
+                notification.action,
+                notification.template,
+            )
 
 
 class InMemoryFactStore:
@@ -85,8 +106,7 @@ class InMemoryFactStore:
         return all(data.get(k) == v for k, v in fact_filter.items())
 
     async def _notify(self, notification: FactChangeNotification) -> None:
-        for cb in self._subscribers.get(notification.template, []):
-            await cb(notification)
+        await _dispatch(self._subscribers.get(notification.template, []), notification)
 
     # ------------------------------------------------------------------
     # FactStore interface
