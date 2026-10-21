@@ -27,7 +27,7 @@ primitives, see [Five Primitives](../../concepts/five-primitives.md).
 | `description` | `str`                             | `""`        | no       | Author-facing prose. Not emitted to CLIPS.                                                           |
 | `slots`       | `list[SlotDefinition]`            | —           | yes      | One or more slot definitions. Empty list is accepted by Pydantic but rejected at compile time.       |
 | `ttl`         | `int \| None`                     | `None`      | no       | Fact-expiry metadata (seconds). Not emitted to CLIPS; reserved for runtime fact-expiry.              |
-| `scope`       | `Literal["session", "fleet"]`     | `"session"` | no       | Authoring hint consumed by the fleet layer. Not emitted to CLIPS.                                    |
+| `scope`       | `Literal["session", "fleet"]`     | `"session"` | no       | Consumed by the fleet layer. Not emitted to CLIPS. A rule `assert` into a `fleet` template is a `CompilationError` at load. |
 
 The `name` field is validated by `_name_must_be_clips_ident` at model
 construction and re-checked (for emptiness) by `compile_template`.

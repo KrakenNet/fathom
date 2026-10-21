@@ -698,6 +698,23 @@ class TestCompileAssertAction:
         )
         assert "(assert (routing_decision (source_id ?sid)))" in result
 
+    def test_assert_into_a_fleet_template_is_refused(self, compiler: Compiler) -> None:
+        """A rule RHS cannot reach the fleet store, so asserting there is refused.
+
+        The fact landed in the one session that fired the rule and never
+        reached the shared FactStore: the node silently diverged from its
+        peers, which is what the fleet scope guard exists to prevent.
+        """
+        from fathom.models import TemplateDefinition
+
+        rule = _make_rule(
+            name="forge",
+            then=ThenBlock(asserts=[AssertSpec(template="heartbeat", slots={"agent": "x"})]),
+        )
+        templates = {"heartbeat": TemplateDefinition(name="heartbeat", scope="fleet", slots=[])}
+        with pytest.raises(CompilationError, match="fleet-scoped template 'heartbeat'"):
+            compiler.compile_rule(rule, "MAIN", templates)
+
     def test_empty_asserts_with_action(self, compiler: Compiler) -> None:
         """FR-15: empty asserts + action emits only the __fathom_decision line."""
         rule = _make_rule(

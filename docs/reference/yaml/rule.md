@@ -254,7 +254,7 @@ For worked examples of each operator see
 | `attestation` | `bool`                    | `False`             | Emitted as `TRUE`/`FALSE` on the decision fact's `attestation` slot. **Not** a signing switch — see [Audit & Attestation](../../concepts/audit-attestation.md). |
 | `metadata`    | `dict[str, str]`          | `{}`                | JSON-serialized (sorted keys) and emitted as a quoted string when non-empty; otherwise an empty quoted string.              |
 | `scope`       | `str \| None`             | `None`              | Accepted for authoring but not emitted by `_compile_action` (reserved).                                                    |
-| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. |
+| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. Targeting a `scope: fleet` template is a `CompilationError` at load: a rule's assert never reaches the fleet store. |
 
 ### `ThenBlock` validator
 
