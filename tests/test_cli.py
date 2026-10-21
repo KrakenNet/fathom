@@ -787,7 +787,8 @@ class TestCompileOutputLoads:
         lines = [ln for ln in result.output.splitlines() if ln.strip()]
         assert "?*fathom-decision-seq*" in lines[0]
         assert "__fathom_decision" in lines[1]
-        assert "(defmodule MAIN (export ?ALL))" in lines[2]
+        assert "__fathom_epoch" in lines[2]
+        assert "(defmodule MAIN (export ?ALL))" in lines[3]
 
     def test_templates_are_emitted_before_the_rules_that_match_them(self, tmp_path: Path) -> None:
         """`modules/` sorts before `rules/`, which sorts before `templates/`."""

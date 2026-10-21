@@ -66,6 +66,10 @@ _GENERATED_VAR_RE = re.compile(r"^s_\d+_")
 #: (``?<alias>-<slot>``); CLIPS rejects a leading underscore outright.
 _EVIDENCE_VAR = "fathom-ev-"
 
+# Fact the evaluator renews before every run so rules with a temporal
+# operator re-match over the whole fact set; see ``compile_rule``.
+_EPOCH_TEMPLATE_NAME = "__fathom_epoch"
+
 
 class Compiler:
     """Compiles Fathom YAML definitions into CLIPS construct strings.
@@ -283,6 +287,19 @@ class Compiler:
                 lhs = f"?{_EVIDENCE_VAR}{pattern_index} <- {lhs}"
             lines.append(f"    {lhs}")
             all_test_ces.extend(test_ces)
+
+        # A temporal operator's test CE queries working memory, and CLIPS
+        # evaluates a test CE only when the patterns before it match. Without
+        # this pattern a request asserted before its history was judged
+        # against an empty history, so the decision depended on assertion
+        # order. The evaluator renews the epoch fact before every run, which
+        # re-matches the rule and re-runs the test over the whole fact set.
+        if any(
+            (cond.expression or "").split("(", 1)[0].strip() in self._TEMPORAL_OPS
+            for pattern in defn.when
+            for cond in pattern.conditions
+        ):
+            lines.append(f"    ({_EPOCH_TEMPLATE_NAME})")
 
         # Append test CEs after all pattern CEs
         for test_ce in all_test_ces:
