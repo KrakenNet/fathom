@@ -141,3 +141,18 @@ def test_an_invalid_regex_fails_at_load(tmp_path: Path) -> None:
     bad = _OVERSIZED_INPUT.replace("matches(^evil)", "matches([)")
     with pytest.raises(CompilationError, match="invalid regex"):
         _engine(tmp_path, bad)
+
+
+@_CASES
+def test_errors_do_not_echo_to_stderr(
+    tmp_path: Path, rules: str, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """The exception carries the CLIPS text; stderr does not get a second copy."""
+    engine = _engine(tmp_path, rules)
+    with pytest.raises(EvaluationError):
+        engine.evaluate_once(_FACTS)
+    bad = _OVERSIZED_INPUT.replace("matches(^evil)", "greater_than(abc)").replace("user", "amount")
+    with pytest.raises(CompilationError, match="ARGACCES2"):
+        (tmp_path / "bad").mkdir()
+        _engine(tmp_path / "bad", bad)
+    assert capfd.readouterr().err == ""
