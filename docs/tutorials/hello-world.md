@@ -87,7 +87,7 @@ engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
 result = engine.evaluate()
 
 print(result.decision)      # -> "allow"
-print(result.rule_trace)    # -> [governance::"allow-public"]
+print(result.rule_trace)    # -> ['governance::allow-public']
 ```
 
 The `no-verify` tag skips snippet execution because the install step and file paths aren't part of the test harness. The engine calls themselves are verified in [working memory](working-memory.md), which builds on this example with a real in-memory path.
