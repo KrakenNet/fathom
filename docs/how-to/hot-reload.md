@@ -308,7 +308,9 @@ is missing, unset, or unreadable, `build_app()` raises a
 `RuntimeError` with the message `ruleset pubkey unreadable or missing;
 set FATHOM_RULESET_PUBKEY_PATH or enable dev escape` and the server
 never starts. This is deliberate — failing at boot beats failing on
-first reload attempt.
+first reload attempt. The check lives in `build_app()` only: the
+module-level `fathom.integrations.rest:app` mounts no Engine, never reads
+the key, and starts without it, answering every reload `503 not_ready`.
 
 ## Dev escape (development only)
 
@@ -445,9 +447,11 @@ operator has ever had a "signatures optional" hot-reload in
 production. However, operators who have been experimenting with
 pre-release dev builds that accepted unsigned rulesets need to know:
 
-- **The default is fail-closed.** After upgrading, a server started
-  without `FATHOM_RULESET_PUBKEY_PATH` will refuse to boot with
-  `ruleset pubkey unreadable or missing…`. This is intentional.
+- **The default is fail-closed.** After upgrading, a server built with
+  `build_app()` and started without `FATHOM_RULESET_PUBKEY_PATH` will
+  refuse to boot with `ruleset pubkey unreadable or missing…`. This is
+  intentional. The module-level `fathom.integrations.rest:app` has no
+  reloadable Engine and boots either way.
 - **Before restart, pick one of:**
   1. **Production path (recommended).** Generate a runtime keypair
      (or decide to reuse the release key), publish the pubkey file,
