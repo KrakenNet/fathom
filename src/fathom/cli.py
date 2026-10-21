@@ -1046,6 +1046,36 @@ def repl(
         raise typer.Exit(code=_EXIT_ERROR) from exc
 
 
+@app.command()
+def mcp(
+    rules: Path = typer.Argument(  # noqa: B008
+        ...,
+        help="Path to a rule pack directory or file to serve.",
+        exists=True,
+    ),
+) -> None:
+    """Serve the Fathom MCP tools over stdio (requires the `mcp` extra)."""
+    try:
+        from fathom.integrations.mcp_server import FathomMCPServer
+
+        server = FathomMCPServer(str(rules))
+        # Load the pack now, so a broken one fails here with an exit code
+        # instead of on the client's first tool call.
+        server._get_engine()
+    except ImportError as exc:
+        _print_error(f"[fathom.cli] mcp failed: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+    except CompilationError as exc:
+        msg = f"compilation error loading rules from {rules}: {_compilation_error_text(exc)}"
+        _print_error(f"[fathom.cli] mcp failed: {msg}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+    except OSError as exc:
+        _print_error(f"[fathom.cli] mcp failed: cannot read rule pack at {rules}: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+    # stdout is the MCP channel from here on: print nothing else to it.
+    server.run()
+
+
 # ===========================================================================
 # convert -- move a policy between Fathom and another engine
 # ===========================================================================

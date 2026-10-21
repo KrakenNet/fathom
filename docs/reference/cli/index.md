@@ -16,6 +16,7 @@ last_verified: 2026-04-15
 | [`fathom convert rego`](convert-rego.md) | |
 | [`fathom convert to-rego`](convert-to-rego.md) | |
 | [`fathom info`](info.md) | |
+| [`fathom mcp`](mcp.md) | |
 | [`fathom repl`](repl.md) | |
 | [`fathom status`](status.md) | |
 | [`fathom test`](test.md) | |
