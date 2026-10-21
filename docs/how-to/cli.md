@@ -202,6 +202,19 @@ Pass `--json` to emit the verification result as JSON. The command
 exits 0 when the chain is valid, 1 when verification fails, and 2 when
 the log or key file cannot be read — a file that is not a parseable PEM
 counts as a key that cannot be read, and reports that rather than raising.
+It exits 3 when the key is a valid PEM but not an Ed25519 key.
+
+## mcp
+
+Serve the Fathom MCP tools over stdio, backed by one rule pack. Needs the
+`mcp` extra. The pack is compiled first, so a broken pack exits 1 before
+the server starts; after that, stdout belongs to the MCP protocol.
+
+```shell
+fathom mcp examples/01-hello-allow-deny
+```
+
+See [MCP tools](../reference/mcp/index.md) for registering it with a client.
 
 ## repl
 
@@ -276,6 +289,7 @@ command, see the generated reference pages:
 - [test](../reference/cli/test.md)
 - [bench](../reference/cli/bench.md)
 - [verify-chain](../reference/cli/verify-chain.md)
+- [mcp](../reference/cli/mcp.md)
 - [convert rego](../reference/cli/convert-rego.md)
 - [convert to-rego](../reference/cli/convert-to-rego.md)
 - [repl](../reference/cli/repl.md)

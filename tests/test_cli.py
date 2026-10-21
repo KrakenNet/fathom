@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 if TYPE_CHECKING:
     from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -843,3 +844,51 @@ class TestInfoListsFunctions:
         assert "Functions (0)" not in result.output
         assert "fathom-matches" in result.output
         assert "fathom-count-exceeds" in result.output
+
+
+# ===========================================================================
+# mcp — launch the stdio MCP server
+# ===========================================================================
+
+
+class TestMcp:
+    """`fathom mcp` is the documented way to start FathomMCPServer."""
+
+    def test_mcp_serves_tools_over_stdio(self, tmp_path: Path) -> None:
+        pytest.importorskip("mcp")
+        import sys
+
+        import anyio
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        pack = _make_rule_pack(tmp_path)
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "fathom.cli", "mcp", str(pack)]
+        )
+
+        async def session() -> tuple[set[str], str]:
+            async with (
+                stdio_client(params) as (read, write),
+                ClientSession(read, write) as client,
+            ):
+                await client.initialize()
+                tools = {t.name for t in (await client.list_tools()).tools}
+                await client.call_tool(
+                    "fathom.assert_fact",
+                    {"template": "request", "data": {"action": "read", "user": "alice"}},
+                )
+                result = await client.call_tool("fathom.evaluate", {})
+                return tools, result.content[0].text  # type: ignore[union-attr]
+
+        tools, evaluated = anyio.run(session)
+        assert {"fathom.evaluate", "fathom.assert_fact", "fathom.trace"} <= tools
+        assert "allow" in evaluated
+
+    def test_mcp_bad_rules_fail_before_serving(self, tmp_path: Path) -> None:
+        pytest.importorskip("mcp")
+        bad = tmp_path / "bad"
+        (bad / "rules").mkdir(parents=True)
+        (bad / "rules" / "r.yaml").write_text("rules: [{nope: 1}]\n", encoding="utf-8")
+        result = runner.invoke(app, ["mcp", str(bad)])
+        assert result.exit_code == 1
