@@ -101,6 +101,14 @@ name the same modules.
 - **The YAML authoring surface** — every key documented under
   [`docs/reference/yaml/`](docs/reference/yaml/index.md): the fields each
   construct accepts, the condition-expression grammar, and the operator set.
+- **The classification built-ins** — the CLIPS functions the Engine
+  registers for `test:` conditions and `raw` bodies:
+  `(fathom-dominates level-a comps-a level-b comps-b hierarchy)`,
+  `(fathom-parse-compartments comps)`, `(fathom-has-compartment comps name)`
+  and `(fathom-compartments-superset comps required)`, where every `comps`
+  argument is a pipe-delimited string (`"a|b"`) and `hierarchy` names a
+  hierarchy loaded with the ruleset. Use these rather than the Python helpers
+  in `fathom.engine`, which are not covered.
 - **The REST API** — the paths, request bodies, and response bodies published
   in [`docs/reference/rest/openapi.json`](docs/reference/rest/openapi.json).
 - **The gRPC service** — the messages and RPCs in
