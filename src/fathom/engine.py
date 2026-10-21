@@ -281,6 +281,7 @@ class Engine:
         self._module_registry: dict[str, ModuleDefinition] = {}
         self._rule_registry: dict[str, RuleDefinition] = {}
         self._has_asserting_rules: bool = False
+        self._has_temporal_rules: bool = False
         self._hierarchy_registry: dict[str, HierarchyDefinition] = {}
         # Everything built into the env that is neither a template, a module
         # nor a rule, kept so a hot reload can replay it onto the fresh
@@ -998,6 +999,9 @@ class Engine:
             self._has_asserting_rules = any(
                 bool(r.then.asserts) for r in self._rule_registry.values()
             )
+            self._has_temporal_rules = any(
+                Compiler.is_temporal(r) for r in self._rule_registry.values()
+            )
             self._lock.release()
             if count:
                 self._metrics.record_rules_loaded(count)
@@ -1424,6 +1428,7 @@ class Engine:
             new_rule_registry[key] = rule_defn
 
         new_has_asserting_rules = any(bool(r.then.asserts) for r in new_rule_registry.values())
+        new_has_temporal_rules = any(Compiler.is_temporal(r) for r in new_rule_registry.values())
 
         # Step 4: atomic swap. Critical section is pointer assignments
         # only — no I/O, no compilation — so any reader holding the old
@@ -1451,6 +1456,7 @@ class Engine:
                 self._module_registry.clear()
                 self._module_registry.update(new_module_registry)
                 self._has_asserting_rules = new_has_asserting_rules
+                self._has_temporal_rules = new_has_temporal_rules
                 self._ruleset_yaml_bytes = ruleset_yaml
                 # The new env starts empty. The TTL timestamps are keyed by
                 # old-env fact index and would otherwise expire unrelated
@@ -1930,7 +1936,8 @@ class Engine:
         """
         with self._lock:
             self._refresh_all_rules()
-            self._renew_epoch()
+            if self._has_temporal_rules:
+                self._renew_epoch()
 
             # Pre-snapshot user facts when any loaded rule declares `asserts`,
             # so newly-asserted facts can be captured for the audit record.

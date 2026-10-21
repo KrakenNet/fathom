@@ -295,11 +295,7 @@ class Compiler:
         # against an empty history, so the decision depended on assertion
         # order. The evaluator renews the epoch fact before every run, which
         # re-matches the rule and re-runs the test over the whole fact set.
-        if any(
-            (cond.expression or "").split("(", 1)[0].strip() in self._TEMPORAL_OPS
-            for pattern in defn.when
-            for cond in pattern.conditions
-        ):
+        if self.is_temporal(defn):
             lines.append(f"    ({_EPOCH_TEMPLATE_NAME})")
 
         # Append test CEs after all pattern CEs
@@ -1197,6 +1193,15 @@ class Compiler:
             hierarchies[hier.name] = hier
 
         return results, hierarchies
+
+    @classmethod
+    def is_temporal(cls, defn: RuleDefinition) -> bool:
+        """Whether *defn* has a temporal condition, so matches the epoch fact."""
+        return any(
+            cond.expression and cls._parse_operator(cond.expression)[0] in cls._TEMPORAL_OPS
+            for pattern in defn.when
+            for cond in pattern.conditions
+        )
 
     @staticmethod
     def _parse_operator(expr: str) -> tuple[str, str]:
