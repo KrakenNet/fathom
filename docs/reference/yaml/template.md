@@ -59,7 +59,8 @@ A `float` slot accepts a Python `int` as well as a `float`; `FactManager`
 widens it before it reaches CLIPS, which types `1` as INTEGER and would
 otherwise reject it. `bool` is refused for both. An `integer` slot takes
 only `int`, or a `float` with no fractional part. `NaN` and infinities
-are refused for both.
+are refused for both. A `string` slot takes an `int` or `float` as its decimal text but
+refuses `bool`.
 
 Source: `src/fathom/compiler.py` lines 29–40.
 

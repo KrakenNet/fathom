@@ -15,15 +15,16 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 try:
-    from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
+    from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Security
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse, Response
+    from fastapi.security import HTTPBearer
 except ImportError as _exc:
     raise ImportError(
         "fastapi is required for the REST server. "
         "Install it with: pip install fathom-rules[server]"
     ) from _exc
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 if TYPE_CHECKING:
@@ -52,6 +53,7 @@ from fathom.errors import ValidationError as FathomValidationError
 from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.integrations.sessions import (
+    MAX_SESSION_ID_LENGTH,
     SessionLimitError,
     SessionRulesetMismatchError,
     SessionStore,
@@ -94,24 +96,26 @@ def _make_error_response(
     )
 
 
-def _require_auth(
-    authorization: str | None = Header(default=None),
-) -> None:
+# Declares the bearer scheme in the OpenAPI document. It never refuses on
+# its own (auto_error=False); the raw header is checked by verify_token, the
+# same function the gRPC server uses.
+_bearer = HTTPBearer(auto_error=False)
+
+
+def _require_auth(request: Request, _: object = Security(_bearer)) -> None:
     """FastAPI dependency enforcing data-plane bearer-token auth."""
-    if not verify_token(authorization):
+    if not verify_token(request.headers.get("Authorization")):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
-def _require_admin_auth(
-    authorization: str | None = Header(default=None),
-) -> None:
+def _require_admin_auth(request: Request, _: object = Security(_bearer)) -> None:
     """FastAPI dependency enforcing the scoped reload admin token.
 
     When ``FATHOM_ADMIN_TOKEN`` is set, only that token is accepted (the
     data-plane ``FATHOM_API_TOKEN`` is rejected). When it is unset, this
     falls back to the data-plane token — backward compatible.
     """
-    if not verify_admin_token(authorization):
+    if not verify_admin_token(request.headers.get("Authorization")):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
@@ -361,7 +365,12 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 # session contract instead of FastAPI's 422. Declare it here instead.
 _SESSION_HEADER = {
     "parameters": [
-        {"name": "X-Session-Id", "in": "header", "required": True, "schema": {"type": "string"}}
+        {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": True,
+            "schema": {"type": "string", "maxLength": MAX_SESSION_ID_LENGTH},
+        }
     ]
 }
 
@@ -529,6 +538,11 @@ def _require_session_id(request: Request) -> str:
     x_session_id = request.headers.get("X-Session-Id")
     if not x_session_id:
         raise HTTPException(status_code=400, detail="X-Session-Id header required")
+    if len(x_session_id) > MAX_SESSION_ID_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"X-Session-Id longer than {MAX_SESSION_ID_LENGTH} characters",
+        )
     return x_session_id
 
 
@@ -718,6 +732,8 @@ class RulesetReloadRequest(BaseModel):
     Exactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.
     ``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     ruleset_path: str | None = None
     ruleset_yaml: str | None = None

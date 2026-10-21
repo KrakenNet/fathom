@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from fathom.integrations.sessions import MAX_SESSION_ID_LENGTH
+
 # CLIPS identifiers (template, module, rule, function names) are emitted
 # verbatim into the CLIPS source stream. Restrict them to a conservative
 # ASCII subset so a crafted name cannot break out of the enclosing
@@ -646,7 +648,7 @@ class AuditRecord(BaseModel):
     """Immutable audit record written to the audit sink after evaluation."""
 
     timestamp: str
-    session_id: str
+    session_id: str = Field(max_length=MAX_SESSION_ID_LENGTH)
     input_facts: list[dict[str, Any]] | None = None
     modules_traversed: list[str]
     rules_fired: list[str]
@@ -665,10 +667,14 @@ class AuditRecord(BaseModel):
 
 
 # --- REST Models (Phase 2) ---
+# Request models forbid unknown keys: a misspelled ``sesion_id`` would
+# otherwise be dropped and the call answered statelessly with a 200.
 
 
 class FactInput(BaseModel):
     """REST API input for a single fact assertion."""
+
+    model_config = ConfigDict(extra="forbid")
 
     template: str
     data: dict[str, Any]
@@ -676,6 +682,8 @@ class FactInput(BaseModel):
 
 class EvaluateRequest(BaseModel):
     """REST API request body for the evaluate endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
 
     #: The CLIPS join is quadratic in the number of facts, so the byte cap on
     #: the request body (``FATHOM_MAX_REQUEST_BYTES``) does not bound the CPU
@@ -696,7 +704,7 @@ class EvaluateRequest(BaseModel):
     #: this cap, which is why the budget exists.
     facts: list[FactInput] = Field(max_length=500)
     ruleset: str
-    session_id: str | None = None
+    session_id: str | None = Field(default=None, max_length=MAX_SESSION_ID_LENGTH)
 
 
 class EvaluateResponse(BaseModel):
@@ -723,7 +731,9 @@ class EvaluateResponse(BaseModel):
 class AssertFactRequest(BaseModel):
     """REST API request body for POST /v1/facts."""
 
-    session_id: str
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(max_length=MAX_SESSION_ID_LENGTH)
     template: str
     data: dict[str, Any]
 
@@ -737,7 +747,9 @@ class AssertFactResponse(BaseModel):
 class QueryFactsRequest(BaseModel):
     """REST API request body for POST /v1/query."""
 
-    session_id: str
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(max_length=MAX_SESSION_ID_LENGTH)
     template: str
     filter: dict[str, Any] | None = None
 
@@ -751,7 +763,9 @@ class QueryFactsResponse(BaseModel):
 class RetractFactsRequest(BaseModel):
     """REST API request body for DELETE /v1/facts."""
 
-    session_id: str
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(max_length=MAX_SESSION_ID_LENGTH)
     template: str
     filter: dict[str, Any] | None = None
 
@@ -772,6 +786,8 @@ class ErrorResponse(BaseModel):
 
 class CompileRequest(BaseModel):
     """REST API request body for the compile endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
 
     yaml_content: str = Field(max_length=1_000_000)
 
