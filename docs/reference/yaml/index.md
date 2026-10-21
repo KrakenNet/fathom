@@ -21,6 +21,25 @@ Schemas are regenerated from `fathom.models` on every docs build.
 | Function | [Function](function.md) |
 | Fact | [Fact](fact.md) |
 
+## File-level keys
+
+Each YAML file holds one kind of construct, named by its top-level key.
+Any other top-level key is a `CompilationError` at load (`parse_*_file`,
+`Engine.reload_rules`), an error from `fathom validate`, and an error
+from `POST /v1/compile`:
+
+| File | Allowed top-level keys |
+|---|---|
+| Template | `templates` |
+| Module | `modules`, `focus_order` |
+| Function | `functions`, `hierarchies` |
+| Rule | `ruleset`, `version`, `module`, `rules` |
+
+A mapping key given twice anywhere in a file (two `expression:` keys in
+one condition, say) is invalid YAML to Fathom: every loader rejects it
+instead of keeping the last value. Overriding a key merged in with `<<`
+is not a duplicate.
+
 ## Downloads
 
 | Construct | Schema |

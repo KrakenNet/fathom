@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 import yaml
 
 from fathom.errors import CompilationError
+from fathom.yaml_utils import safe_load
 
 # Subdirectories that a well-formed rule pack should contain.
 REQUIRED_SUBDIRS = ("templates", "rules", "modules")
@@ -37,7 +38,7 @@ def load_pack_yaml(pack_dir: Path, filename: str) -> dict[str, Any]:
         )
     try:
         with open(filepath) as f:
-            data = yaml.safe_load(f)
+            data = safe_load(f)
     except (yaml.YAMLError, OSError) as exc:
         raise CompilationError(
             f"Cannot read pack YAML file: {filepath}",

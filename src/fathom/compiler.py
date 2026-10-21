@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -25,12 +25,36 @@ from fathom.models import (
     TemplateDefinition,
     ThenBlock,
 )
+from fathom.yaml_utils import safe_load
 
 __all__ = ["Compiler"]
 
 #: Classification operators whose CLIPS function is per-hierarchy. The rest of
 #: `_CLASSIFICATION_OPS` map to `fathom-*` externals, which take no hierarchy.
 _HIERARCHY_SCOPED_OPS = frozenset({"below", "meets_or_exceeds", "within_scope"})
+
+#: The keys each kind of YAML file may hold at its top level. The models
+#: inside are `extra="forbid"`, but the file around them was not checked, so
+#: a misspelled `focus_order:` was dropped and declaration order used instead.
+TOP_LEVEL_KEYS: dict[str, frozenset[str]] = {
+    "templates": frozenset({"templates"}),
+    "modules": frozenset({"modules", "focus_order"}),
+    "functions": frozenset({"functions", "hierarchies"}),
+    "rules": frozenset({"ruleset", "version", "module", "rules"}),
+}
+
+
+def unknown_top_level_keys(data: dict[str, Any], kind: str) -> str | None:
+    """Describe the keys of *data* a *kind* file may not hold, or None."""
+    unknown = sorted(str(key) for key in data if key not in TOP_LEVEL_KEYS[kind])
+    if not unknown:
+        return None
+    noun = "key" if len(unknown) == 1 else "keys"
+    return (
+        f"unknown top-level {noun} {', '.join(repr(k) for k in unknown)} in a {kind} file "
+        f"(allowed: {', '.join(sorted(TOP_LEVEL_KEYS[kind]))})"
+    )
+
 
 # Mapping from SlotType to CLIPS type strings
 _CLIPS_TYPE_MAP: dict[SlotType, str] = {
@@ -828,7 +852,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse template failed: invalid YAML in {file_str}",
@@ -846,6 +870,13 @@ class Compiler:
             raise CompilationError(
                 "[fathom.compiler] parse template failed: "
                 "YAML file must contain a top-level 'templates' key",
+                file=file_str,
+            )
+
+        unknown = unknown_top_level_keys(data, "templates")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse template failed: {unknown}",
                 file=file_str,
             )
 
@@ -919,7 +950,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse rules failed: invalid YAML in {file_str}",
@@ -937,6 +968,13 @@ class Compiler:
             raise CompilationError(
                 "[fathom.compiler] parse rules failed: "
                 "YAML file must contain a top-level 'rules' key",
+                file=file_str,
+            )
+
+        unknown = unknown_top_level_keys(data, "rules")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse rules failed: {unknown}",
                 file=file_str,
             )
 
@@ -1003,7 +1041,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse module failed: invalid YAML in {file_str}",
@@ -1021,6 +1059,13 @@ class Compiler:
             raise CompilationError(
                 "[fathom.compiler] parse module failed: "
                 "YAML file must contain a top-level 'modules' key",
+                file=file_str,
+            )
+
+        unknown = unknown_top_level_keys(data, "modules")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse module failed: {unknown}",
                 file=file_str,
             )
 
@@ -1071,8 +1116,21 @@ class Compiler:
     def parse_function_file(self, path: Path) -> list[FunctionDefinition]:
         """Parse a YAML function file into FunctionDefinition objects.
 
+        The file's ``hierarchies:`` are validated and dropped; use
+        :meth:`parse_function_bundle` to get them as well.
+        """
+        return self.parse_function_bundle(path)[0]
+
+    def parse_function_bundle(
+        self, path: Path
+    ) -> tuple[list[FunctionDefinition], dict[str, HierarchyDefinition]]:
+        """Parse a YAML function file into its functions and bundled hierarchies.
+
         Expected YAML format::
 
+            hierarchies:
+              - name: classification
+                levels: [unclassified, secret]
             functions:
               - name: classification
                 params: [a, b]
@@ -1082,8 +1140,13 @@ class Compiler:
         Args:
             path: Path to a YAML file containing function definitions.
 
+        A classification function's ``hierarchy_ref`` names a hierarchy from
+        ``hierarchies:`` in the same file, or failing that a hierarchy file
+        on disk (see ``Engine._resolve_hierarchy``).
+
         Returns:
-            A list of validated FunctionDefinition objects.
+            The validated FunctionDefinition objects, and the file's
+            hierarchies keyed by name.
 
         Raises:
             CompilationError: On invalid YAML, missing fields, or validation errors.
@@ -1091,7 +1154,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse function failed: invalid YAML in {file_str}",
@@ -1109,6 +1172,13 @@ class Compiler:
             raise CompilationError(
                 "[fathom.compiler] parse function failed: "
                 "YAML file must contain a top-level 'functions' key",
+                file=file_str,
+            )
+
+        unknown = unknown_top_level_keys(data, "functions")
+        if unknown:
+            raise CompilationError(
+                f"[fathom.compiler] parse function failed: {unknown}",
                 file=file_str,
             )
 
@@ -1148,7 +1218,40 @@ class Compiler:
             seen_names.add(defn.name)
             results.append(defn)
 
-        return results
+        raw_hierarchies = data.get("hierarchies", [])
+        if not isinstance(raw_hierarchies, list):
+            raise CompilationError(
+                "[fathom.compiler] parse function failed: 'hierarchies' must be a list",
+                file=file_str,
+            )
+        hierarchies: dict[str, HierarchyDefinition] = {}
+        for idx, raw in enumerate(raw_hierarchies):
+            if not isinstance(raw, dict):
+                raise CompilationError(
+                    f"[fathom.compiler] parse function failed: hierarchy entry {idx} "
+                    "is not a mapping",
+                    file=file_str,
+                )
+            try:
+                hier = HierarchyDefinition(**raw)
+            except PydanticValidationError as exc:
+                name = raw.get("name", f"<entry {idx}>")
+                raise CompilationError(
+                    f"[fathom.compiler] parse function failed: invalid hierarchy '{name}'",
+                    file=file_str,
+                    construct=f"hierarchy:{name}",
+                    detail=str(exc),
+                ) from exc
+            if hier.name in hierarchies:
+                raise CompilationError(
+                    "[fathom.compiler] parse function failed: "
+                    f"duplicate hierarchy name '{hier.name}'",
+                    file=file_str,
+                    construct=f"hierarchy:{hier.name}",
+                )
+            hierarchies[hier.name] = hier
+
+        return results, hierarchies
 
     @staticmethod
     def _parse_operator(expr: str) -> tuple[str, str]:

@@ -117,6 +117,9 @@ YAML load):
 - Any key not listed in the tables above, on either model — both
   `TemplateDefinition` and `SlotDefinition` are `extra="forbid"`, so a
   misspelled field is an error rather than a silently dropped line.
+- A top-level key in a template file other than `templates` →
+  `CompilationError` from `parse_template_file` (see
+  [File-level keys](index.md#file-level-keys)).
 - `TemplateDefinition.name` that does not match
   `^[A-Za-z_][A-Za-z0-9_\-]*$` → `ValueError` from
   `_name_must_be_clips_ident`.

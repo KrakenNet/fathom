@@ -178,6 +178,10 @@ Duplicate module names are rejected by `parse_module_file` (at YAML
 load) and again by `Engine.load_modules` (across files), both as
 `CompilationError`.
 
+A top-level key other than `modules` and `focus_order` is rejected by
+`parse_module_file` as `CompilationError`, so a misspelled `focus_order:`
+cannot silently fall back to declaration order.
+
 ## What is not emitted
 
 These YAML fields are accepted by the model but never appear in the

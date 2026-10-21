@@ -1,4 +1,4 @@
-"""YAML validation behind the CLI ``validate`` command."""
+"""Strict YAML loading, and the validation behind the CLI ``validate`` command."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pathlib import Path
 
+import yaml
 from pydantic import ValidationError as PydanticValidationError
 
 from fathom.models import (
@@ -17,6 +18,51 @@ from fathom.models import (
     RulesetDefinition,
     TemplateDefinition,
 )
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that rejects a mapping key given twice.
+
+    PyYAML keeps the last of two equal keys, so a condition holding
+    ``expression: not_equals(admin)`` and then ``expression: equals(admin)``
+    compiled as the second, which reverses the rule. A ``<<`` merge is not a
+    duplicate: overriding a merged key is what merging is for.
+    """
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue
+            key = self.construct_object(key_node, deep=deep)  # type: ignore[no-untyped-call]
+            try:
+                duplicate = key in seen
+            except TypeError:
+                continue  # unhashable: the base class rejects it
+            if duplicate:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    f"found duplicate key {key!r}",
+                    key_node.start_mark,
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+def safe_load(stream: Any) -> Any:
+    """``yaml.safe_load`` that rejects duplicate mapping keys.
+
+    Every place Fathom parses user YAML goes through this or
+    :func:`safe_load_all`. The error is a ``yaml.YAMLError``, so callers
+    report it as they report any other invalid YAML.
+    """
+    return yaml.load(stream, Loader=_StrictLoader)  # noqa: S506 - SafeLoader subclass
+
+
+def safe_load_all(stream: Any) -> list[Any]:
+    """``yaml.safe_load_all`` that rejects duplicate mapping keys."""
+    return list(yaml.load_all(stream, Loader=_StrictLoader))  # noqa: S506 - SafeLoader subclass
 
 
 def _format_errors(
@@ -108,6 +154,44 @@ def _validate_rule_file(data: dict[str, Any], file_path: Path) -> list[str]:
     return errors
 
 
+def template_names_in(data: Any) -> set[str]:
+    """Names of the templates a ``templates:`` document declares."""
+    if not isinstance(data, dict) or not isinstance(data.get("templates"), list):
+        return set()
+    return {
+        t["name"]
+        for t in data["templates"]
+        if isinstance(t, dict) and isinstance(t.get("name"), str)
+    }
+
+
+def unregistered_template_errors(
+    data: dict[str, Any],
+    templates: set[str],
+    file_path: Path,
+) -> list[str]:
+    """Rule patterns in *data* that match a template not in *templates*.
+
+    The loader rejects these (``Engine._unregistered_templates_error``); a
+    pattern with no slot constraint on a misspelled template would otherwise
+    build and never match. Needs the pack's templates, so ``fathom validate``
+    calls it once every file has been read.
+    """
+    errors: list[str] = []
+    rules = data.get("rules")
+    for rule in rules if isinstance(rules, list) else []:
+        if not isinstance(rule, dict) or not isinstance(rule.get("when"), list):
+            continue
+        for pattern in rule["when"]:
+            name = pattern.get("template") if isinstance(pattern, dict) else None
+            if isinstance(name, str) and name not in templates:
+                errors.append(
+                    f"{file_path}: rule '{rule.get('name')}' matches template "
+                    f"'{name}', which is not registered"
+                )
+    return errors
+
+
 def validate_document(
     data: dict[str, Any],
     file_path: Path,
@@ -123,6 +207,15 @@ def validate_document(
     Returns a list of error strings (empty on success).
     """
     errors: list[str] = []
+
+    from fathom.compiler import unknown_top_level_keys
+
+    for kind in ("templates", "modules", "functions", "rules"):
+        if kind in data:
+            unknown = unknown_top_level_keys(data, kind)
+            if unknown:
+                errors.append(f"{file_path}: {unknown}")
+            break
 
     if "templates" in data:
         for idx, raw in _list_entries(data["templates"], "templates", file_path, errors):
@@ -147,6 +240,15 @@ def validate_document(
             except PydanticValidationError as exc:
                 errors.extend(
                     _format_errors(exc, "function", file_path, f"functions -> {idx} -> ")
+                )
+        for idx, raw in _list_entries(
+            data.get("hierarchies", []), "hierarchies", file_path, errors
+        ):
+            try:
+                HierarchyDefinition(**raw)
+            except PydanticValidationError as exc:
+                errors.extend(
+                    _format_errors(exc, "hierarchy", file_path, f"hierarchies -> {idx} -> ")
                 )
     elif "rules" in data:
         errors.extend(_validate_rule_file(data, file_path))

@@ -8,10 +8,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
-import yaml
-
 from fathom.compiler import Compiler
 from fathom.errors import CompilationError
+from fathom.yaml_utils import safe_load
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -80,7 +79,7 @@ def _group_flat_files(pack_dir: Path) -> dict[str, list[Path]]:
     grouped: dict[str, list[Path]] = {kind: [] for kind in LOAD_ORDER}
     for yaml_file in sorted(pack_dir.glob(TEMPLATE_GLOB)):
         with open(yaml_file) as handle:
-            data = yaml.safe_load(handle)
+            data = safe_load(handle)
         if not isinstance(data, dict):
             continue
         if "templates" in data:
