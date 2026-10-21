@@ -39,9 +39,10 @@ The loader tries two discovery strategies, in order:
    `load_modules`, `load_functions`, or `load_rules` method.
 2. **Key-inspection fallback**. If none of those subdirectories exist, every
    `*.yaml` file directly under `path` is opened and routed by its top-level
-   key: `templates` → templates loader, `modules` or `focus_order` → modules
-   loader, `functions` → functions loader, `rules` or `ruleset` → rules
-   loader.
+   key: `templates` → templates loader, `modules` → modules loader (a
+   `focus_order:` goes in the same file as the `modules:` it orders; a file
+   holding only `focus_order:` is refused, by `fathom validate` too),
+   `functions` → functions loader, `rules` or `ruleset` → rules loader.
 
 Both strategies load in the same fixed order: **templates → modules →
 functions → rules**. The order matters because templates define the slot
@@ -209,8 +210,8 @@ The check runs first, so the second pack is not half-loaded: the engine is
 left exactly as it was. Identical definitions are allowed and simply reused.
 
 This affects real combinations today — `hipaa` and `nist-800-53`/`cmmc` both
-define `data_transfer`, `audit_event` and `access_request` with different
-slots, so they cannot share an `Engine`. Load them into separate `Engine`
+define `data_transfer` with different slots, so they cannot share an
+`Engine`. Load them into separate `Engine`
 instances and evaluate against each.
 
 ### Error handling
@@ -235,6 +236,18 @@ only happens for exotic namespace-package setups.
 Nothing stops you from mixing both in one `Engine`: call `load_pack` for a
 shared baseline, then `load_rules` or `load_templates` on a local directory
 for application-specific overlays.
+
+**An overlay can override the pack.** Each load appends its modules to the
+focus order, and the decision is last-write-wins, so a module loaded after
+the pack has the last word: an overlay `allow` that matches the same fact
+as a pack `deny` wins. To keep the pack's denies binding, put the pack's
+module last once everything is loaded:
+
+```python
+engine.load_pack("hipaa")
+engine.load_pack_dir("/srv/packs/local-overlay")
+engine.set_focus([m for m in engine.focus_order if m != "hipaa"] + ["hipaa"])
+```
 
 ## Related reading
 

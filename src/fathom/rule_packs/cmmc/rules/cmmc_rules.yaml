@@ -12,8 +12,10 @@ rules:
         conditions:
           - slot: justification
             expression: "matches(^\\s*$)"
+          # Every non-privileged action; escalate, override and delete are
+          # ac-l2-least-privilege's.
           - slot: action
-            expression: "in([read, write, admin])"
+            expression: "in([read, write, execute, export, admin])"
     then:
       action: deny
       reason: "CUI access denied: authorized access justification required (AC.L2-3.1.1)"
@@ -97,7 +99,7 @@ rules:
           - slot: subject
             expression: "matches(^\\s*$)"
           - slot: event_type
-            expression: "in([access, modify, delete, export])"
+            expression: "in([access, modify, delete, export, escalate, override])"
     then:
       action: deny
       reason: "Audit traceability failed: subject identity required for all CUI actions (AU.L2-3.3.2)"

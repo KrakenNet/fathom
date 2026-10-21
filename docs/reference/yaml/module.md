@@ -178,6 +178,15 @@ Duplicate module names are rejected by `parse_module_file` (at YAML
 load) and again by `Engine.load_modules` (across files), both as
 `CompilationError`.
 
+A `focus_order:` may name a module another pack defines (cmmc focuses
+the nist pack's module), so it is not checked at YAML load and `fathom
+validate` accepts it. `Engine.load_modules` -- and so `load_pack_dir`,
+`from_rules` and `load_pack` -- raises `CompilationError` with
+`construct="focus_order"` if, once the call's modules are loaded, the
+order still names a module the engine does not have. Load the dependency
+pack first. `Engine.set_focus(...)` called directly raises `ValueError`
+for the same case.
+
 A top-level key other than `modules` and `focus_order` is rejected by
 `parse_module_file` as `CompilationError`, so a misspelled `focus_order:`
 cannot silently fall back to declaration order.

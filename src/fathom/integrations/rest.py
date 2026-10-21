@@ -1104,7 +1104,7 @@ def _opa_facts(engine: Engine, template: str, document: dict[str, Any]) -> dict[
     """
     definition = engine.template_registry[template]
     declared = {slot.name for slot in definition.slots}
-    return {k: v for k, v in flatten_input(document).items() if k in declared}
+    return flatten_input(document, declared=declared)
 
 
 def _opa_undefined(engine: Engine, document_name: str) -> JSONResponse:

@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
+import yaml
+
 from fathom.compiler import Compiler
 from fathom.errors import CompilationError
 from fathom.yaml_utils import file_kind, safe_load
@@ -79,8 +81,15 @@ def _group_flat_files(pack_dir: Path) -> dict[str, list[Path]]:
     """
     grouped: dict[str, list[Path]] = {kind: [] for kind in LOAD_ORDER}
     for yaml_file in sorted(pack_dir.glob(TEMPLATE_GLOB)):
-        with open(yaml_file) as handle:
-            data = safe_load(handle)
+        try:
+            with open(yaml_file, encoding="utf-8") as handle:
+                data = safe_load(handle)
+        except (yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
+            raise CompilationError(
+                f"[fathom.packs] load pack failed: cannot read {yaml_file}",
+                file=str(yaml_file),
+                detail=str(exc),
+            ) from exc
         if not isinstance(data, dict):
             continue
         kind = file_kind(data)
@@ -176,9 +185,8 @@ class RulePackLoader:
             try:
                 RulePackLoader._load_from_dir(engine, name, pack_dir, state)
             except ValueError as exc:
-                # Engine loading raises a bare ValueError for e.g. an unknown
-                # module in a focus order; the documented pack failure mode is
-                # CompilationError.
+                # The documented pack failure mode is CompilationError; keep
+                # a stray ValueError from engine loading inside it.
                 raise CompilationError(
                     f"Rule pack '{name}' failed to load",
                     construct=f"pack:{name}",

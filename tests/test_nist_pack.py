@@ -780,3 +780,17 @@ class TestSalienceOrdering:
         assert "nist::audit-review-analysis" in result.rule_trace
         assert result.decision == "deny"
         assert "AC-3" in (result.reason or "")
+
+
+@pytest.mark.parametrize("event_type", ["access", "modify", "delete", "export"])
+def test_every_data_event_needs_a_resource(event_type: str) -> None:
+    engine = Engine(default_decision="allow")
+    engine.load_pack("nist-800-53")
+    fact = {
+        "event_type": event_type,
+        "subject": "bob",
+        "resource": "",
+        "outcome": "success",
+        "ts": 1.0,
+    }
+    assert "nist::audit-generation" in engine.evaluate_once([("audit_event", fact)]).rule_trace

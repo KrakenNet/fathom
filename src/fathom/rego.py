@@ -32,7 +32,7 @@ from fathom.compiler import _ARG_TOKEN_RE, Compiler
 from fathom.errors import CompilationError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Collection
 
     from fathom.engine import Engine
 
@@ -284,7 +284,9 @@ def _slot_name(path: list[str]) -> str:
     return "_".join(_escape_segment(segment) for segment in path[1:])
 
 
-def flatten_input(document: dict[str, Any]) -> dict[str, Any]:
+def flatten_input(
+    document: dict[str, Any], *, declared: Collection[str] | None = None
+) -> dict[str, Any]:
     """Flatten an OPA `input` document into Fathom slot values.
 
     The inverse of what :func:`_slot_name` does at conversion time, and it has
@@ -301,8 +303,15 @@ def flatten_input(document: dict[str, Any]) -> dict[str, Any]:
     two input paths can land in the same slot: `{"user": {"role": x}}` fills
     `user_role` and a top-level `"user_role"` fills `user__role`, which is the
     slot a policy reading `input.user_role` was converted against.
+
+    An OPA caller sends its whole input, and a field no slot declares fails
+    the assert. Pass the template's slot names as *declared* to keep only
+    those.
     """
-    return _flatten(document, "")
+    flat = _flatten(document, "")
+    if declared is not None:
+        return {k: v for k, v in flat.items() if k in declared}
+    return flat
 
 
 def _flatten(document: dict[str, Any], prefix: str) -> dict[str, Any]:
@@ -848,6 +857,30 @@ def _rego_set(raw: str, slot_type: str) -> str:
     return "{" + ", ".join(_rego_literal(m, slot_type) for m in members) + "}"
 
 
+#: Python `re` constructs OPA's RE2 does not have. `regex.match` on one is a
+#: runtime error, which OPA's default mode turns into "undefined": the rule
+#: silently never fires.
+_RE2_UNSUPPORTED = ("(?=", "(?!", "(?<=", "(?<!", "(?P=", "(?(", "(?>")
+
+
+def _why_not_re2(pattern: str) -> str | None:
+    """Name the first construct in *pattern* that RE2 cannot evaluate, if any."""
+    index = 0
+    while index < len(pattern):
+        if pattern[index] == "\\":
+            # An escape consumes the next character, so `\\1` is a literal
+            # backslash followed by `1`, not a backreference.
+            if pattern[index + 1 : index + 2].isdigit() and pattern[index + 1] != "0":
+                return f"backreference `{pattern[index : index + 2]}`"
+            index += 2
+            continue
+        for construct in _RE2_UNSUPPORTED:
+            if pattern.startswith(construct, index):
+                return f"`{construct}`"
+        index += 1
+    return None
+
+
 def _rego_condition(reference: str, op: str, arg: str, slot_type: str) -> str | None:
     """One Fathom condition as a Rego body expression, or None if it has none."""
     if op in _REGO_COMPARISONS:
@@ -944,6 +977,13 @@ def _export_rule(
                 name,
                 condition.expression,
                 "the condition references another fact pattern; Rego has one input document",
+            )
+        if op == "matches" and (construct := _why_not_re2(_unquote(arg))) is not None:
+            return Skipped(
+                name,
+                condition.expression,
+                f"the regex uses {construct}, which OPA's RE2 engine does not "
+                "support; `regex.match` would error and the rule would never fire",
             )
         rendered = _rego_condition(
             reference(pattern.template, condition.slot),

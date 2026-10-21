@@ -972,6 +972,16 @@ class Engine:
             # A pack cannot reorder a focus another pack established; within
             # one pack the declared order is kept.
             focus = list(dict.fromkeys([*self._focus_order, *(declared or loaded)]))
+            # A focus order may name a dependency pack's module, so it is only
+            # checkable here; set_focus's ValueError is not a FathomError.
+            unknown = [m for m in focus if m and m not in self._module_registry]
+            if unknown:
+                raise CompilationError(
+                    "[fathom.engine] load module failed: "
+                    f"unknown modules in focus order: {unknown}",
+                    file=str(path),
+                    construct="focus_order",
+                )
             if focus != self._focus_order:
                 self.set_focus(focus)
         finally:

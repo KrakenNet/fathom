@@ -68,7 +68,7 @@ rules:
           - slot: resource
             expression: "matches(^\\s*$)"
           - slot: event_type
-            expression: "in([access, modify, delete])"
+            expression: "in([access, modify, delete, export])"
     then:
       action: deny
       reason: "Audit generation requires resource identification for data events (AU-12)"

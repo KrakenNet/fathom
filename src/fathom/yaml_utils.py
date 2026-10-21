@@ -285,6 +285,11 @@ def validate_document(
                 errors.extend(_format_errors(exc, "module", file_path, f"modules -> {idx} -> "))
         if "focus_order" in data and not isinstance(data["focus_order"], list):
             errors.append(f"{file_path}: 'focus_order' must be a list")
+    elif "focus_order" in data:
+        # The loader reads focus_order only beside the modules it orders.
+        errors.append(
+            f"{file_path}: 'focus_order' needs a top-level 'modules' key in the same file"
+        )
     elif "functions" in data:
         for idx, raw in _list_entries(data["functions"], "functions", file_path, errors):
             try:
