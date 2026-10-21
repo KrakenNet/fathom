@@ -176,9 +176,8 @@ class RulePackLoader:
             try:
                 RulePackLoader._load_from_dir(engine, name, pack_dir, state)
             except ValueError as exc:
-                # Engine loading raises a bare ValueError for e.g. an unknown
-                # module in a focus order; the documented pack failure mode is
-                # CompilationError.
+                # The documented pack failure mode is CompilationError; keep
+                # a stray ValueError from engine loading inside it.
                 raise CompilationError(
                     f"Rule pack '{name}' failed to load",
                     construct=f"pack:{name}",

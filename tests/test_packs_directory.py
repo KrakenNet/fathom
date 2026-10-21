@@ -218,6 +218,31 @@ class TestLoadPackDirRejections:
 # =========================================================================
 
 
+class TestAnUnknownFocusModuleIsACompilationError:
+    """A focus order naming a module no loaded pack defines (cmmc's names the
+    nist pack's) raised a bare ValueError from every loader but load_pack."""
+
+    @pytest.fixture
+    def pack(self, tmp_path: Path) -> Path:
+        (tmp_path / "modules").mkdir()
+        (tmp_path / "modules" / "m.yaml").write_text(
+            "modules:\n  - name: app\nfocus_order: [app, nist]\n"
+        )
+        return tmp_path
+
+    def test_from_rules(self, pack: Path) -> None:
+        with pytest.raises(CompilationError, match="nist"):
+            Engine.from_rules(str(pack))
+
+    def test_load_pack_dir(self, pack: Path) -> None:
+        with pytest.raises(CompilationError, match="nist"):
+            Engine().load_pack_dir(pack)
+
+    def test_load_modules(self, pack: Path) -> None:
+        with pytest.raises(CompilationError, match="nist"):
+            Engine().load_modules(str(pack / "modules"))
+
+
 class TestFromRulesSharesTheLoader:
     """One implementation of the ordering, reached two ways."""
 

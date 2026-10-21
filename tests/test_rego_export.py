@@ -505,6 +505,16 @@ class TestCli:
         assert "locked" in result.stderr
         assert "package" not in result.stdout
 
+    def test_a_pack_whose_focus_names_another_pack_exits_3(self) -> None:
+        """cmmc focuses the nist module it depends on; exported from its own
+        directory that module is missing, which crashed with a traceback."""
+        result = CliRunner(mix_stderr=False).invoke(
+            app, ["convert", "to-rego", str(SHIPPED_PACKS / "cmmc")]
+        )
+        assert result.exit_code == 3
+        assert "nist" in result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
     def test_a_missing_directory_is_rejected(self, tmp_path: Path) -> None:
         result = CliRunner(mix_stderr=False).invoke(
             app, ["convert", "to-rego", str(tmp_path / "nope")]
