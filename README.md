@@ -181,8 +181,8 @@ grpcurl -import-path protos -proto fathom.proto \
 
 ```python
 from fathom.integrations.mcp_server import FathomMCPServer
-server = FathomMCPServer(engine)
-server.serve()
+server = FathomMCPServer("rules/")
+server.run()  # stdio
 ```
 
 ## Documentation
