@@ -28,6 +28,9 @@ _BASE_DELAY = 0.1  # seconds; delays: 0.1, 0.3, 0.9
 _SubscriptionCallback = Callable[[FactChangeNotification], Coroutine[Any, Any, None]]
 
 
+__all__ = ["RedisFactStore"]
+
+
 class RedisFactStore:
     """Redis-backed implementation of :class:`~fathom.fleet.FactStore`.
 

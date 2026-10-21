@@ -155,25 +155,34 @@ result = engine.evaluate()
 **As a REST sidecar**
 
 ```bash
-docker run -p 8080:8080 -v ./rules:/rules ghcr.io/krakennet/fathom:latest
-curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8080/v1/evaluate \
-  -d '{"facts": [...], "ruleset": "access-control"}'
+# ./rules/access-control/ holds a ruleset (templates/, rules/, ...);
+# the image serves rulesets from /rules (FATHOM_RULESET_ROOT).
+export TOKEN=change-me
+docker run -p 8080:8080 -e FATHOM_API_TOKEN="$TOKEN" \
+  -v "$PWD/rules:/rules:ro" ghcr.io/krakennet/fathom:latest
+curl -X POST localhost:8080/v1/evaluate \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"facts": [], "ruleset": "access-control"}'
 ```
 
 **As a gRPC sidecar**
 
 ```bash
-# protos/fathom.proto — regenerate Go/TS clients from the proto
-grpcurl -H "authorization: Bearer $TOKEN" \
-  -d '{"facts": [...]}' localhost:50051 fathom.v1.Fathom/Evaluate
+# Server: fathom.integrations.grpc_server.serve(), TLS by default
+# (docs/reference/configuration.md#grpc-tls). It has no reflection, so
+# grpcurl reads protos/fathom.proto — regenerate Go/TS clients from it too.
+grpcurl -import-path protos -proto fathom.proto \
+  -H "authorization: Bearer $TOKEN" \
+  -d '{"ruleset": "access-control", "facts": []}' \
+  localhost:50051 fathom.v1.FathomService/Evaluate
 ```
 
 **As an MCP tool**
 
 ```python
 from fathom.integrations.mcp_server import FathomMCPServer
-server = FathomMCPServer(engine)
-server.serve()
+server = FathomMCPServer("rules/")
+server.run()  # stdio
 ```
 
 ## Documentation
@@ -239,7 +248,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines and [CHAN
 
 Fathom is pre-1.0. [VERSIONING.md](VERSIONING.md) names the surfaces that are
 covered — `fathom.__all__`, the YAML authoring keys, the REST/gRPC/MCP
-contracts, and the CLI — states what a `0.x` minor and patch bump each mean for
+contracts, the CLI, the rule packs and pack format, the framework
+integrations, the Rego converter, and the Redis/Postgres fleet stores — states what a `0.x` minor and patch bump each mean for
 them, and defines the deprecation period. The symbol list there is checked
 against the package on every test run.
 

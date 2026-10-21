@@ -7,6 +7,8 @@ from typing import Any
 
 from fathom.engine import Engine
 
+__all__ = ["FathomMCPServer"]
+
 
 class FathomMCPServer:
     """MCP tool server backed by a single process-wide Engine.

@@ -9,12 +9,24 @@ document is current. These tests fail on that drift instead.
 from __future__ import annotations
 
 import re
+from importlib.metadata import distribution
 from pathlib import Path
 
 import pytest
 
 import fathom
-from fathom import attestation, audit, chained_log, engine, errors, fleet, models
+from fathom import (
+    attestation,
+    audit,
+    chained_log,
+    engine,
+    errors,
+    fleet,
+    integrations,
+    models,
+    packs,
+    rego,
+)
 
 VERSIONING = Path(__file__).resolve().parents[1] / "VERSIONING.md"
 _EXAMPLE_BLP = Path(__file__).resolve().parents[1] / "examples" / "03-classification-blp"
@@ -26,7 +38,34 @@ _COVERED_BLOCK = re.compile(
 _BULLET = re.compile(r"^- `([^`]+)`$", re.M)
 
 #: Every module VERSIONING.md names as having its own covered ``__all__``.
-DOCUMENTED_MODULES = [attestation, audit, chained_log, engine, errors, fleet, models]
+DOCUMENTED_MODULES = [
+    attestation,
+    audit,
+    chained_log,
+    engine,
+    errors,
+    fleet,
+    integrations,
+    models,
+    packs,
+    rego,
+]
+
+#: The covered modules that need an optional extra to import. Checked the same
+#: way, and skipped where the extra is not installed.
+EXTRA_MODULES = [
+    "fathom.fleet_pg",
+    "fathom.fleet_redis",
+    "fathom.integrations.crewai",
+    "fathom.integrations.google_adk",
+    "fathom.integrations.grpc_server",
+    "fathom.integrations.langchain",
+    "fathom.integrations.mcp_server",
+    "fathom.integrations.openai_agents",
+    "fathom.integrations.rest",
+]
+
+_TABLE_ROW = re.compile(r"^\| `(fathom[\w.]*)` \|", re.M)
 
 
 def _documented_symbols() -> list[str]:
@@ -50,13 +89,42 @@ def test_every_exported_symbol_resolves(name: str) -> None:
     assert getattr(fathom, name, None) is not None
 
 
-@pytest.mark.parametrize("module", DOCUMENTED_MODULES, ids=lambda m: m.__name__)
-def test_documented_modules_declare_a_surface(module: object) -> None:
+def _assert_declares_a_surface(module: object) -> None:
     names = getattr(module, "__all__", None)
     assert names, f"{module.__name__} is named in VERSIONING.md but declares no __all__"
     assert list(names) == sorted(names), f"{module.__name__}.__all__ is not sorted"
     for name in names:
         assert hasattr(module, name), f"{module.__name__}.__all__ names a missing {name!r}"
+
+
+@pytest.mark.parametrize("module", DOCUMENTED_MODULES, ids=lambda m: m.__name__)
+def test_documented_modules_declare_a_surface(module: object) -> None:
+    _assert_declares_a_surface(module)
+
+
+@pytest.mark.parametrize("name", EXTRA_MODULES)
+def test_documented_extra_modules_declare_a_surface(name: str) -> None:
+    _assert_declares_a_surface(pytest.importorskip(name))
+
+
+def test_versioning_md_tables_exactly_the_checked_modules() -> None:
+    """A module added to the table but not here would be covered and unchecked."""
+    tabled = _TABLE_ROW.findall(VERSIONING.read_text(encoding="utf-8"))
+    checked = [m.__name__ for m in DOCUMENTED_MODULES] + EXTRA_MODULES
+    assert sorted(tabled) == sorted(checked)
+
+
+def test_pack_format_is_what_versioning_md_covers() -> None:
+    """The pack format is covered: the entry-point group, layout and dependency hook."""
+    assert packs.LOAD_ORDER == ("templates", "modules", "functions", "rules")
+    assert packs.DEPENDENCIES_ATTR == "PACK_DEPENDENCIES"
+    text = VERSIONING.read_text(encoding="utf-8")
+    shipped = [
+        ep.name for ep in distribution("fathom-rules").entry_points if ep.group == "fathom.packs"
+    ]
+    assert shipped, "fathom-rules registers no fathom.packs entry points"
+    missing = [name for name in shipped if f"`{name}`" not in text]
+    assert not missing, f"shipped rule packs not named in VERSIONING.md: {missing}"
 
 
 def test_top_level_exports_come_from_a_module_that_declares_them() -> None:

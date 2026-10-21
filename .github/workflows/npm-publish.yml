@@ -1,12 +1,18 @@
 name: npm-publish
 
+# The TS SDK's own release tags only. It is a separate release-please
+# component (see release-please-config.json), tagged `fathom-ts-vX.Y.Z`, so an
+# engine release (`vX.Y.Z`) never publishes it. Riding the engine's tag, the
+# 1.0.0 engine release would have published an SDK covering 4 of 10 REST
+# endpoints as 1.0.0.
+#
 # Tag pushes only. `workflow_dispatch: {}` used to sit here as well, which
 # meant any account with write access could publish from any ref -- the `npm`
 # environment carries no protection rules and no branch policy to stop it.
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "fathom-ts-v*.*.*"
 
 permissions:
   contents: read
@@ -84,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           pkg="$(node -p "require('./package.json').version")"
-          if [ "v${pkg}" != "${TAG}" ]; then
+          if [ "fathom-ts-v${pkg}" != "${TAG}" ]; then
             echo "::error::packages/fathom-ts/package.json is ${pkg} but the tag is ${TAG}"
             exit 1
           fi

@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Any
 # was the only import path before this class was shared.
 from fathom.integrations import PolicyViolation as PolicyViolation
 
+__all__ = ["fathom_tool_guardrail"]
+
 try:
     # `agents.tool_guardrails` landed in openai-agents 0.4.0. Importing it here
     # — rather than bare `agents` — makes an older install fail loudly at

@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from fathom.engine import Engine
     from fathom.models import TemplateDefinition
 
+__all__ = ["RulePackLoader"]
+
 #: Module attribute a rule pack may define to declare packs that must be
 #: loaded before it, by their ``fathom.packs`` entry-point name.
 #: Example: ``PACK_DEPENDENCIES = ("nist-800-53",)``.

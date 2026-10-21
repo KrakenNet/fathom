@@ -46,6 +46,8 @@ if TYPE_CHECKING:
     from fathom.attestation import AttestationService
     from fathom.engine import Engine
 
+__all__ = ["FathomServicer", "serve"]
+
 logger = logging.getLogger(__name__)
 
 # Inbound gRPC message cap. Matches gRPC's built-in 4 MB default; set
