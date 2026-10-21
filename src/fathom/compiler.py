@@ -73,6 +73,17 @@ _EVIDENCE_VAR = "fathom-ev-"
 _EPOCH_TEMPLATE_NAME = "__fathom_epoch"
 
 
+def _reason(exc: PydanticValidationError) -> str:
+    """One line naming each field a model rejected and why.
+
+    ``str(exc)`` is multi-line and stays in ``CompilationError.detail``;
+    without this the message said only *that* a file was invalid.
+    """
+    return "; ".join(
+        f"{'.'.join(str(p) for p in err['loc']) or 'value'}: {err['msg']}" for err in exc.errors()
+    )
+
+
 class Compiler:
     """Compiles Fathom YAML definitions into CLIPS construct strings.
 
@@ -878,7 +889,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse template failed: invalid template '{name}'",
+                    "[fathom.compiler] parse template failed: "
+                    f"invalid template '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"template:{name}",
                     detail=str(exc),
@@ -964,7 +976,8 @@ class Compiler:
             )
         except PydanticValidationError as exc:
             raise CompilationError(
-                f"[fathom.compiler] parse rules failed: invalid ruleset in {file_str}",
+                "[fathom.compiler] parse rules failed: "
+                f"invalid ruleset in {file_str}: {_reason(exc)}",
                 file=file_str,
                 detail=str(exc),
             ) from exc
@@ -1043,7 +1056,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse module failed: invalid module '{name}'",
+                    "[fathom.compiler] parse module failed: "
+                    f"invalid module '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"module:{name}",
                     detail=str(exc),
@@ -1144,7 +1158,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse function failed: invalid function '{name}'",
+                    "[fathom.compiler] parse function failed: "
+                    f"invalid function '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"function:{name}",
                     detail=str(exc),
@@ -1179,7 +1194,8 @@ class Compiler:
             except PydanticValidationError as exc:
                 name = raw.get("name", f"<entry {idx}>")
                 raise CompilationError(
-                    f"[fathom.compiler] parse function failed: invalid hierarchy '{name}'",
+                    "[fathom.compiler] parse function failed: "
+                    f"invalid hierarchy '{name}': {_reason(exc)}",
                     file=file_str,
                     construct=f"hierarchy:{name}",
                     detail=str(exc),

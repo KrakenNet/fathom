@@ -336,3 +336,11 @@ def test_strict_loader_is_still_safe(load: Any) -> None:
     # object tags the way yaml.safe_load does.
     with pytest.raises(yaml.constructor.ConstructorError):
         load("!!python/object/apply:os.system ['true']")
+
+
+def test_invalid_ruleset_message_names_the_field(tmp_path: Path) -> None:
+    # `reason: no` loads as YAML False. The message used to say only
+    # "invalid ruleset in <path>", leaving the reason in `.detail`.
+    rules = _rule(then="{action: deny, reason: no}")
+    with pytest.raises(CompilationError, match=r"rules\.0\.then\.reason: Input should be"):
+        Engine.from_rules(str(_pack(tmp_path, rules)))
