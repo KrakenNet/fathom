@@ -47,6 +47,7 @@ except ImportError:
 
 try:
     from rich.console import Console as RichConsole
+    from rich.markup import escape
 
     _console = RichConsole(stderr=True)
     _HAS_RICH = True
@@ -68,7 +69,7 @@ app = typer.Typer(name="fathom", help="Fathom reasoning runtime CLI.")
 def _print_error(message: str) -> None:
     """Print an error message using rich if available, otherwise typer.echo."""
     if _HAS_RICH and _console is not None:
-        _console.print(f"[bold red]Error:[/bold red] {message}")
+        _console.print(f"[bold red]Error:[/bold red] {escape(message)}")
     else:
         typer.echo(f"Error: {message}", err=True)
 
@@ -76,7 +77,7 @@ def _print_error(message: str) -> None:
 def _print_warning(message: str) -> None:
     """Print a warning message using rich if available, otherwise typer.echo."""
     if _HAS_RICH and _console is not None:
-        _console.print(f"[bold yellow]Warning:[/bold yellow] {message}")
+        _console.print(f"[bold yellow]Warning:[/bold yellow] {escape(message)}")
     else:
         typer.echo(f"Warning: {message}", err=True)
 
@@ -84,7 +85,7 @@ def _print_warning(message: str) -> None:
 def _print_success(message: str) -> None:
     """Print a success message using rich if available, otherwise typer.echo."""
     if _HAS_RICH and _console is not None:
-        _console.print(f"[bold green]{message}[/bold green]")
+        _console.print(f"[bold green]{escape(message)}[/bold green]")
     else:
         typer.echo(message)
 

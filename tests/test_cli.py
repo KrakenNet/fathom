@@ -893,3 +893,12 @@ class TestMcp:
         (bad / "rules" / "r.yaml").write_text("rules: [{nope: 1}]\n", encoding="utf-8")
         result = runner.invoke(app, ["mcp", str(bad)])
         assert result.exit_code == 1
+
+
+def test_error_messages_keep_their_bracketed_prefix(capsys: pytest.CaptureFixture[str]) -> None:
+    """Rich read `[fathom.cli]` as markup and dropped it from every error."""
+    from fathom import cli
+
+    cli._print_error("[fathom.cli] mcp failed: boom")
+
+    assert "[fathom.cli] mcp failed" in capsys.readouterr().err
