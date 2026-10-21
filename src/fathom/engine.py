@@ -1682,6 +1682,27 @@ class Engine:
                 activations=activations,
             )
 
+    def hierarchy(self, name: str) -> HierarchyDefinition:
+        """Return the loaded classification hierarchy called *name*.
+
+        Hierarchies are registered by ``load_functions`` (and so by
+        ``load_pack_dir``/``from_rules``) when a classification function
+        references one.
+
+        Args:
+            name: Hierarchy name, e.g. ``clearance``.
+
+        Returns:
+            The :class:`~fathom.models.HierarchyDefinition`, levels lowest first.
+
+        Raises:
+            ValidationError: No hierarchy by that name is loaded.
+        """
+        definition = self._hierarchy_registry.get(name)
+        if definition is None:
+            raise ValidationError(f"no loaded hierarchy named '{name}'")
+        return definition
+
     def _find_rule(self, env: clips.Environment, rule: str) -> tuple[Any, str]:
         """Resolve *rule* to a clipspy rule and its module-qualified name.
 

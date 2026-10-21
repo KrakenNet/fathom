@@ -99,3 +99,9 @@ def test_engine_registries_are_read_only(prop: str) -> None:
         view["x"] = None  # type: ignore[index]
     assert not hasattr(view, "clear")
 
+
+def test_engine_hierarchy_accessor() -> None:
+    eng = fathom.Engine.from_rules(str(_EXAMPLE_BLP))
+    assert eng.hierarchy("clearance").levels[0] == "unclassified"
+    with pytest.raises(fathom.ValidationError, match="nope"):
+        eng.hierarchy("nope")
