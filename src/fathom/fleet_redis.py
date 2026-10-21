@@ -12,17 +12,56 @@ try:
     import redis.asyncio as aioredis
     from redis.exceptions import ConnectionError as RedisConnectionError
     from redis.exceptions import RedisError
+    from redis.exceptions import TimeoutError as RedisTimeoutError
 except ImportError as _exc:
     raise ImportError(
         "redis is required for Redis fleet store. Install it with: pip install fathom-rules[fleet]"
     ) from _exc
 
 from fathom.errors import FleetConnectionError, FleetError
+from fathom.fleet import _dispatch
 from fathom.models import FactChangeNotification
 
 # Retry configuration for transient Redis failures
 _MAX_RETRIES = 3
 _BASE_DELAY = 0.1  # seconds; delays: 0.1, 0.3, 0.9
+
+# ponytail: fixed cap on each change stream; make it a parameter if a
+# subscriber ever needs to replay further back than this.
+_STREAM_MAXLEN = 10_000
+
+# Each write is one script, so the fact and its change notification land
+# together or not at all; Redis runs a script without interleaving other
+# clients. The XADD goes first: if it is refused (NOPERM, WRONGTYPE) nothing
+# has been written yet.
+# KEYS: fact hash, index set, stream. ARGV: fact_id, ttl or "", maxlen,
+# template, data JSON, then the hash's field/value pairs.
+_ASSERT_LUA = """
+local id = redis.call('XADD', KEYS[3], 'MAXLEN', '~', ARGV[3], '*',
+    'template', ARGV[4], 'fact_id', ARGV[1], 'action', 'assert', 'data', ARGV[5])
+local r = redis.pcall('HSET', KEYS[1], unpack(ARGV, 6))
+if type(r) ~= 'table' then r = redis.pcall('SADD', KEYS[2], ARGV[1]) end
+if type(r) ~= 'table' and ARGV[2] ~= '' then r = redis.pcall('EXPIRE', KEYS[1], ARGV[2]) end
+if type(r) == 'table' then
+    redis.pcall('SREM', KEYS[2], ARGV[1])
+    redis.call('DEL', KEYS[1])
+    redis.call('XDEL', KEYS[3], id)
+    return r
+end
+return 1
+"""
+
+# Retracts one fact if it still exists. Returns 1 if this call removed it, so
+# concurrent retracts of the same fact count and announce it once.
+# KEYS: fact hash, index set, stream. ARGV: fact_id, maxlen, template, data JSON.
+_RETRACT_LUA = """
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+redis.call('XADD', KEYS[3], 'MAXLEN', '~', ARGV[2], '*',
+    'template', ARGV[3], 'fact_id', ARGV[1], 'action', 'retract', 'data', ARGV[4])
+redis.call('DEL', KEYS[1])
+redis.pcall('SREM', KEYS[2], ARGV[1])
+return 1
+"""
 
 # Callback type alias
 _SubscriptionCallback = Callable[[FactChangeNotification], Coroutine[Any, Any, None]]
@@ -66,13 +105,18 @@ class RedisFactStore:
         self._client = aioredis.Redis(host=host, port=port, db=db, password=password, ssl=ssl)
         self._ttl = ttl
         self._subscriber_tasks: list[asyncio.Task[None]] = []
+        self._assert_script = self._client.register_script(_ASSERT_LUA)
+        self._retract_script = self._client.register_script(_RETRACT_LUA)
 
     # ------------------------------------------------------------------
     # Retry helper
     # ------------------------------------------------------------------
 
     async def _retry(self, operation: str, coro_factory: Callable[[], Any]) -> Any:
-        """Execute a Redis operation with exponential backoff retry.
+        """Execute a Redis operation, retrying connection loss and timeouts.
+
+        Any other Redis error (NOPERM, WRONGTYPE, a script error) cannot
+        succeed on retry and raises :class:`FleetError` at once.
 
         Parameters
         ----------
@@ -86,7 +130,7 @@ class RedisFactStore:
         for attempt in range(_MAX_RETRIES):
             try:
                 return await coro_factory()
-            except RedisConnectionError as exc:
+            except (RedisConnectionError, RedisTimeoutError) as exc:
                 last_exc = exc
                 if attempt < _MAX_RETRIES - 1:
                     delay = _BASE_DELAY * (3**attempt)
@@ -98,14 +142,7 @@ class RedisFactStore:
                     backend="redis",
                 ) from exc
             except RedisError as exc:
-                last_exc = exc
-                if attempt < _MAX_RETRIES - 1:
-                    delay = _BASE_DELAY * (3**attempt)
-                    await asyncio.sleep(delay)
-                    continue
-                raise FleetError(
-                    f"Redis operation {operation} failed after {_MAX_RETRIES} attempts: {exc}",
-                ) from exc
+                raise FleetError(f"Redis operation {operation} failed: {exc}") from exc
         # Should not reach here, but satisfy type checker
         raise FleetError(  # pragma: no cover
             f"Redis operation {operation} failed: {last_exc}"
@@ -131,22 +168,6 @@ class RedisFactStore:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
-
-    async def _publish_change(
-        self, template: str, fact_id: str, action: str, data: dict[str, Any] | None
-    ) -> None:
-        """Publish a change notification to the Redis Stream."""
-        payload: dict[str, str] = {
-            "template": template,
-            "fact_id": fact_id,
-            "action": action,
-        }
-        if data is not None:
-            payload["data"] = json.dumps(data)
-        await self._retry(
-            "publish_change",
-            lambda: self._client.xadd(self._stream_key(template), payload),  # type: ignore[arg-type]
-        )
 
     def _matches(self, data: dict[str, Any], fact_filter: dict[str, Any] | None) -> bool:
         """Return True if *data* satisfies every key/value pair in *fact_filter*."""
@@ -183,17 +204,11 @@ class RedisFactStore:
         key = self._fact_key(template, fact_id)
         # Store each field as a hash entry; every value is JSON-encoded so the
         # decode in query()/retract() is symmetric and type-preserving.
-        mapping: dict[str, str] = self._encode_fields(data)
-
-        async def _do_assert() -> None:
-            await self._client.hset(key, mapping=mapping)  # type: ignore[misc]
-            await self._client.sadd(self._index_key(template), fact_id)  # type: ignore[misc]
-            if self._ttl is not None:
-                await self._client.expire(key, self._ttl)
-
-        await self._retry("assert_fact", _do_assert)
-        # Publish change notification
-        await self._publish_change(template, fact_id, "assert", data)
+        fields = [item for pair in self._encode_fields(data).items() for item in pair]
+        keys = [key, self._index_key(template), self._stream_key(template)]
+        ttl = "" if self._ttl is None else str(self._ttl)
+        args: list[str | int] = [fact_id, ttl, _STREAM_MAXLEN, template, json.dumps(data), *fields]
+        await self._retry("assert_fact", lambda: self._assert_script(keys=keys, args=args))
         return fact_id
 
     async def query(
@@ -237,10 +252,10 @@ class RedisFactStore:
                     continue
                 data = self._decode_fields(raw_data)
                 if self._matches(data, fact_filter):
-                    await self._client.delete(key)
-                    await self._client.srem(index_key, fid)  # type: ignore[misc]
-                    await self._publish_change(template, fid, "retract", data)
-                    removed += 1
+                    removed += await self._retract_script(
+                        keys=[key, index_key, self._stream_key(template)],
+                        args=[fid, _STREAM_MAXLEN, template, json.dumps(data)],
+                    )
             return removed
 
         result: int = await self._retry("retract", _do_retract)
@@ -313,7 +328,7 @@ class RedisFactStore:
                             action=action,
                             data=parsed_data,
                         )
-                        await callback(notification)
+                        await _dispatch([callback], notification)
 
         task = asyncio.create_task(_listener())
         self._subscriber_tasks.append(task)

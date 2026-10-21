@@ -266,6 +266,42 @@ class TestFleetEngineCreateSession:
         assert e1 is not e2
         assert len(fleet.sessions) == 2
 
+    def test_duplicate_id_raises(self) -> None:
+        from fathom.errors import FleetError
+
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        first = fleet.create_session("sess-1")
+        with pytest.raises(FleetError, match="replace_session") as info:
+            fleet.create_session("sess-1")
+        assert info.value.session_id == "sess-1"
+        assert fleet.sessions["sess-1"] is first
+
+    def test_replace_session_rebuilds(self) -> None:
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        first = fleet.create_session("sess-1")
+        second = fleet.replace_session("sess-1")
+        assert second is not first
+        assert fleet.sessions["sess-1"] is second
+
+    def test_remove_session(self) -> None:
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        fleet.create_session("sess-1")
+        fleet.remove_session("sess-1")
+        assert fleet.sessions == {}
+        fleet.create_session("sess-1")
+
+    @pytest.mark.asyncio
+    async def test_unknown_id_raises_key_error_everywhere(self) -> None:
+        fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=FIXTURES_DIR)
+        with pytest.raises(KeyError, match="nope"):
+            fleet.replace_session("nope")
+        with pytest.raises(KeyError, match="nope"):
+            fleet.remove_session("nope")
+        with pytest.raises(KeyError, match="nope"):
+            await fleet.sync_fleet_facts("nope")
+        with pytest.raises(KeyError, match="nope"):
+            await fleet.assert_fact("nope", "agent", {"id": "a1"})
+
 
 class TestFleetEngineSyncAndQuery:
     """FleetEngine fleet-scoped sync and query."""
@@ -329,7 +365,7 @@ class TestFleetEngineSyncAndQuery:
         await store.assert_fact("shared_status", {"status": "online"})
 
         # Sync should inject the fact into the session
-        await fleet.sync_fleet_facts(session)
+        await fleet.sync_fleet_facts("sess-1")
 
         # Verify fact is now in session's working memory
         facts = list(session._env.facts())
@@ -345,7 +381,7 @@ class TestFleetEngineSyncAndQuery:
 
         # "agent" template is loaded from fixtures as session-scoped (default)
         await store.assert_fact("agent", {"id": "a1"})
-        await fleet.sync_fleet_facts(session)
+        await fleet.sync_fleet_facts("sess-1")
 
         # Session-scoped template facts should NOT be synced
         facts = list(session._env.facts())
@@ -385,7 +421,7 @@ async def test_fleet_assert_fact_write_through(tmp_path: Path) -> None:
     await fleet.assert_fact("A", "user_session", {"user": "alice"})
 
     # Session B pulls fleet facts
-    await fleet.sync_fleet_facts(eng_b)
+    await fleet.sync_fleet_facts("B")
     facts = eng_b.query("user_session")
     assert any(f["user"] == "alice" for f in facts)
 
@@ -608,7 +644,7 @@ class TestFleetScopeGuardIsSymmetric:
         _seed_shared_status(engine)
         engine._assert_local("shared_status", {"status": "online"})
 
-        with pytest.raises(ScopeError, match="fleet-scoped"):
+        with pytest.raises(ScopeError, match=r"fleet-scoped.*replace_session\(\)"):
             engine.retract("shared_status")
 
         # Refused, not partially applied.
@@ -664,7 +700,7 @@ class TestSyncFleetFactsResilience:
         _seed_shared_status(peer)
 
         with caplog.at_level("WARNING", logger="fathom.fleet"):
-            await fleet.sync_fleet_facts(peer)
+            await fleet.sync_fleet_facts("B")
 
         assert peer.query("shared_status") == [{"status": "online"}]
         assert any("skipping unsyncable fleet fact" in r.message for r in caplog.records)

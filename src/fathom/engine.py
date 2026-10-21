@@ -23,7 +23,7 @@ from fathom.audit import AuditLog, AuditSink, NullSink
 from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
 from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
 from fathom.evaluator import Evaluator
-from fathom.facts import FactManager
+from fathom.facts import FactManager, _plain
 from fathom.metrics import MetricsCollector
 from fathom.models import ActionType, Activation, HierarchyDefinition, RuleMatches
 from fathom.yaml_utils import safe_load, unknown_top_level_keys
@@ -1598,7 +1598,7 @@ class Engine:
 
         Returns:
             ``(validated, handles)``. *validated* is the slot dict the engine
-            accepted, defaults applied and values coerced: what FleetEngine
+            accepted, every slot present, defaults applied and values coerced: what FleetEngine
             writes to the store, so store rows equal what rules match on.
             *handles* are the facts this call actually created — empty when
             CLIPS de-duplicated the assert onto a fact that already existed.
@@ -1613,7 +1613,11 @@ class Engine:
                 [(_, validated)], handles = self._fact_manager.assert_facts_scoped(
                     [(template, data)]
                 )
-                return validated, handles
+                # A slot with no declared default still holds CLIPS' implicit
+                # one ("" for a string); spell it out so store rows match too.
+                slots = self._current_env().find_template(template).slots
+                implicit = {s.name: _plain(s.default_value) for s in slots}
+                return implicit | validated, handles
             finally:
                 self._metrics.record_fact_asserted(template)
                 self._publish_working_memory([template])
@@ -1696,8 +1700,8 @@ class Engine:
                 of the one on :meth:`assert_fact`: dropping a fleet fact on
                 one node only diverges that node from the shared FactStore,
                 which is exactly what the assert-side guard exists to
-                prevent. Fleet retraction does not propagate at all (see the
-                module docstring of :mod:`fathom.fleet`), so this fails
+                prevent. Fleet retraction does not propagate at all (see
+                :class:`~fathom.fleet.FleetEngine`), so this fails
                 loudly rather than diverging silently.
         """
         with self._lock:
@@ -1706,7 +1710,8 @@ class Engine:
                 raise ScopeError(
                     f"template '{template}' is fleet-scoped; retracting it locally "
                     "would diverge this node from the shared FactStore. Fleet "
-                    "retraction does not propagate — recreate the session instead."
+                    "retraction does not propagate — rebuild the session with "
+                    "FleetEngine.replace_session() instead."
                 )
             retracted = self._fact_manager.retract(template, fact_filter)
             self._publish_working_memory([template])
