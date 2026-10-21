@@ -22,7 +22,7 @@ from fathom.audit import AuditLog, AuditSink, NullSink
 from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
 from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
 from fathom.evaluator import Evaluator
-from fathom.facts import FactManager
+from fathom.facts import FactManager, _plain
 from fathom.metrics import MetricsCollector
 from fathom.models import Activation, HierarchyDefinition, RuleMatches
 from fathom.yaml_utils import safe_load, unknown_top_level_keys
@@ -1559,7 +1559,7 @@ class Engine:
 
         Returns:
             ``(validated, handles)``. *validated* is the slot dict the engine
-            accepted, defaults applied and values coerced: what FleetEngine
+            accepted, every slot present, defaults applied and values coerced: what FleetEngine
             writes to the store, so store rows equal what rules match on.
             *handles* are the facts this call actually created — empty when
             CLIPS de-duplicated the assert onto a fact that already existed.
@@ -1574,7 +1574,11 @@ class Engine:
                 [(_, validated)], handles = self._fact_manager.assert_facts_scoped(
                     [(template, data)]
                 )
-                return validated, handles
+                # A slot with no declared default still holds CLIPS' implicit
+                # one ("" for a string); spell it out so store rows match too.
+                slots = self._current_env().find_template(template).slots
+                implicit = {s.name: _plain(s.default_value) for s in slots}
+                return implicit | validated, handles
             finally:
                 self._metrics.record_fact_asserted(template)
                 self._publish_working_memory([template])
