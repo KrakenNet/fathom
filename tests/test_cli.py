@@ -558,7 +558,9 @@ class TestTestCommandExitCodes:
         result = runner.invoke(app, ["test", str(pack), str(tests_dir)])
 
         assert result.exit_code != 0
-        assert "is not a list of test cases" in result.output
+        # The error panel wraps at the terminal width, and a long tmp path
+        # (macOS) pushes the message across a line break.
+        assert "is not a list of test cases" in " ".join(result.output.split())
 
     def test_read_error_exits_nonzero(self, tmp_path: Path) -> None:
         """A file counted as failed must also make the run fail."""
