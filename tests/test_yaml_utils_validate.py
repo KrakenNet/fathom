@@ -90,6 +90,15 @@ class TestCanonicalModuleFiles:
         errors = validate_document(data, tmp_path / "modules.yaml")
         assert errors == [f"{tmp_path / 'modules.yaml'}: 'focus_order' must be a list"]
 
+    def test_a_focus_order_without_modules_is_refused(self, tmp_path: Path) -> None:
+        """Every loader refuses this file; validate used to pass it."""
+        data = _doc("""\
+            focus_order: [governance]
+        """)
+        errors = validate_document(data, tmp_path / "modules.yaml")
+        assert errors
+        assert "'modules'" in errors[0]
+
 
 class TestCanonicalRuleFiles:
     def test_valid_rule_file_has_no_errors(self, tmp_path: Path) -> None:

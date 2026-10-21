@@ -39,9 +39,10 @@ The loader tries two discovery strategies, in order:
    `load_modules`, `load_functions`, or `load_rules` method.
 2. **Key-inspection fallback**. If none of those subdirectories exist, every
    `*.yaml` file directly under `path` is opened and routed by its top-level
-   key: `templates` → templates loader, `modules` or `focus_order` → modules
-   loader, `functions` → functions loader, `rules` or `ruleset` → rules
-   loader.
+   key: `templates` → templates loader, `modules` → modules loader (a
+   `focus_order:` goes in the same file as the `modules:` it orders; a file
+   holding only `focus_order:` is refused, by `fathom validate` too),
+   `functions` → functions loader, `rules` or `ruleset` → rules loader.
 
 Both strategies load in the same fixed order: **templates → modules →
 functions → rules**. The order matters because templates define the slot
