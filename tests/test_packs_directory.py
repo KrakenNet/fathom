@@ -218,6 +218,19 @@ class TestLoadPackDirRejections:
 # =========================================================================
 
 
+class TestALooseFileThatDoesNotParse:
+    """The key-inspection fallback parsed each loose file with no error
+    handling, so bad YAML escaped as a raw yaml error, not a FathomError."""
+
+    @pytest.mark.parametrize(
+        "body", ["templates: [\n", "templates: []\ntemplates: []\n"], ids=["syntax", "dup-key"]
+    )
+    def test_is_a_compilation_error(self, tmp_path: Path, body: str) -> None:
+        (tmp_path / "bad.yaml").write_text(body)
+        with pytest.raises(CompilationError, match="bad.yaml"):
+            Engine().load_pack_dir(tmp_path)
+
+
 class TestAnUnknownFocusModuleIsACompilationError:
     """A focus order naming a module no loaded pack defines (cmmc's names the
     nist pack's) raised a bare ValueError from every loader but load_pack."""

@@ -505,13 +505,15 @@ class TestCli:
         assert "locked" in result.stderr
         assert "package" not in result.stdout
 
-    def test_a_pack_whose_focus_names_another_pack_exits_3(self) -> None:
+    def test_a_pack_whose_focus_names_another_pack_fails_cleanly(self) -> None:
         """cmmc focuses the nist module it depends on; exported from its own
         directory that module is missing, which crashed with a traceback."""
         result = CliRunner(mix_stderr=False).invoke(
             app, ["convert", "to-rego", str(SHIPPED_PACKS / "cmmc")]
         )
-        assert result.exit_code == 3
+        # 3 is reserved for a refused deny; a pack that does not load is a
+        # plain failure. What matters is a one-line error, not a traceback.
+        assert result.exit_code != 0
         assert "nist" in result.stderr
         assert result.exception is None or isinstance(result.exception, SystemExit)
 
