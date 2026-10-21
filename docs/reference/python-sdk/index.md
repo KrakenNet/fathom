@@ -32,3 +32,8 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 - [`ValidationError`](validationerror.md)
 - [`verify_chain`](verify_chain.md)
 - [`verify_token`](verify_token.md)
+
+## Optional fleet stores
+
+- [`fathom.fleet_redis.RedisFactStore`](redisfactstore.md) — `pip install fathom-rules[fleet]`
+- [`fathom.fleet_pg.PostgresFactStore`](postgresfactstore.md) — `pip install fathom-rules[fleet-pg]`

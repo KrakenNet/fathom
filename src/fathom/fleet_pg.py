@@ -85,6 +85,36 @@ _RECONNECT_MAX_DELAY = 30.0
 class PostgresFactStore:
     """Async fact store backed by PostgreSQL.
 
+    Call ``await connect()`` before anything else: it creates the
+    connection pool and the ``fleet_facts`` table. Before it,
+    :meth:`assert_fact`, :meth:`query`, :meth:`retract`, :meth:`count` and
+    :meth:`ensure_table` raise :class:`~fathom.errors.FleetError`. Call
+    :meth:`close` when done.
+
+    Each write runs in one transaction with its ``pg_notify``, so a fact and
+    its notification commit together or not at all. Postgres limits a
+    NOTIFY payload to 8000 bytes; a fact whose payload (template, fact_id,
+    action and data as JSON) is larger fails :meth:`assert_fact` with
+    :class:`~fathom.errors.FleetError` and nothing is stored. A retract
+    over the limit rolls back the same way.
+
+    :meth:`subscribe` LISTENs on the template's channel, so a callback runs
+    after the write commits, once, also in the writing process. If the
+    LISTEN connection drops, the store reconnects with backoff (0.5s
+    doubling to 30s); NOTIFY has no replay, so changes made while it is
+    down are lost.
+
+    Channels are named ``fathom_changes_<template>`` with every
+    non-alphanumeric character replaced by ``_``. When that is over
+    Postgres' 63-byte identifier limit the channel is
+    ``fathom_changes_<first 32 hex digits of sha256(template)>``. There is
+    no limit on the template name itself.
+
+    Errors are not retried. An ``OSError`` (server unreachable) raises
+    :class:`~fathom.errors.FleetConnectionError`; an ``asyncpg``
+    ``PostgresError``, including a connection lost mid-statement, raises
+    :class:`~fathom.errors.FleetError`. There is no fact TTL.
+
     Parameters
     ----------
     dsn:

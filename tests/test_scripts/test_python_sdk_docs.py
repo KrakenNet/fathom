@@ -19,5 +19,8 @@ def test_python_sdk_docs_generated(tmp_path: Path) -> None:
     flat = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in all_md)
     assert "Engine" in flat, "expected Engine stub"
     assert "EvaluationResult" in flat, "expected EvaluationResult stub"
+    # Optional fleet stores are outside fathom.__all__ but still get a page
+    assert ":::" in (out_dir / "redisfactstore.md").read_text(encoding="utf-8")
+    assert ":::" in (out_dir / "postgresfactstore.md").read_text(encoding="utf-8")
     # Every stub must contain a mkdocstrings directive
     assert ":::" in flat, "expected mkdocstrings ::: directive"

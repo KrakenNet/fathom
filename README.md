@@ -86,7 +86,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - Rule-assertion actions (`then.assert` + `bind`) and user-defined Python functions (`Engine.register_function`)
 - Structured JSON audit log with append-only sinks
 - Ed25519 attestation service for signed evaluation results
-- Fleet reasoning with Redis and Postgres backends for shared working memory
+- [Fleet reasoning](docs/how-to/fleet.md) with Redis and Postgres backends for shared working memory
 
 **Integrations**
 
