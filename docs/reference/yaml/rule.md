@@ -144,7 +144,7 @@ from compiling it as part of a ruleset:
 | Slot type | Emitted as | Example |
 |---|---|---|
 | `string` | quoted CLIPS string, escaped | `equals(a@b.com)` → `(id "a@b.com")` |
-| `symbol`, `integer`, `float`, `boolean` | bare CLIPS token | `equals(admin)` → `(role admin)` |
+| `symbol`, `integer`, `float` | bare CLIPS token | `equals(admin)` → `(role admin)` |
 
 Compiling without the templates is not a mistake CLIPS reliably catches.
 `equals` and `not_in` emit a pattern constraint, so an unquoted literal
