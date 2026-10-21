@@ -932,6 +932,7 @@ attestation = [
 cli = [
     { name = "cryptography" },
     { name = "httpx" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "rich" },
     { name = "typer" },
 ]
@@ -1033,6 +1034,7 @@ requires-dist = [
     { name = "prometheus-fastapi-instrumentator", marker = "extra == 'metrics'", specifier = ">=7,<9" },
     { name = "pydantic", specifier = ">=2.0,<3" },
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'attestation'", specifier = ">=2.8,<3" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'cli'", specifier = ">=2.8,<3" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "redis", extras = ["hiredis"], marker = "extra == 'fleet'", specifier = ">=5,<9" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13,<16" },
