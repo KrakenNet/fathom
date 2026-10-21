@@ -21,7 +21,7 @@ import httpx
 import yaml
 
 from fathom.compiler import Compiler
-from fathom.engine import _DECISION_SEQ_GLOBAL, _DECISION_TEMPLATE, _EPOCH_TEMPLATE, Engine
+from fathom.engine import _PREAMBLE, Engine
 from fathom.errors import CompilationError, ValidationError
 from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
@@ -445,7 +445,7 @@ def _assemble(by_kind: dict[str, list[str]]) -> list[str]:
     is a command the evaluator issues per evaluation, not a construct, and a
     loader rejects it.
     """
-    ordered = [_DECISION_SEQ_GLOBAL, _DECISION_TEMPLATE, _EPOCH_TEMPLATE]
+    ordered = [construct for construct, _ in _PREAMBLE]
     if by_kind.get("modules"):
         ordered.append("(defmodule MAIN (export ?ALL))")
     for kind in ("templates", "modules", "functions", "rules"):

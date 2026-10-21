@@ -110,6 +110,14 @@ _EPOCH_TEMPLATE = f"(deftemplate MAIN::{_EPOCH_TEMPLATE_NAME})"
 # module does ``(import MAIN ?ALL)``, so a rule in any module can increment it.
 _DECISION_SEQ_GLOBAL = "(defglobal MAIN ?*fathom-decision-seq* = 0)"
 
+# What every environment is built with first, as ``(construct, context)``
+# pairs: Engine.__init__, reload_rules and ``fathom compile`` all open with it.
+_PREAMBLE: tuple[tuple[str, str], ...] = (
+    (_DECISION_SEQ_GLOBAL, "__fathom_decision"),
+    (_DECISION_TEMPLATE, "__fathom_decision"),
+    (_EPOCH_TEMPLATE, "__fathom_epoch"),
+)
+
 # Built only on an ``Engine(match_evidence=True)``. Lives in MAIN, which every
 # generated module imports with ``(import MAIN ?ALL)``, so a rule in any module
 # can assert it.
@@ -330,9 +338,8 @@ class Engine:
         self._metrics = MetricsCollector(enabled=metrics)
 
         # Build the decision template into the CLIPS environment
-        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision")
-        self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision")
-        self._safe_build(_EPOCH_TEMPLATE, context="__fathom_epoch")
+        for construct, context in _PREAMBLE:
+            self._safe_build(construct, context=context)
         if match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence")
 
@@ -1341,9 +1348,8 @@ class Engine:
         new_env = clips.Environment()
 
         # Decision template — matches what __init__ does on startup.
-        self._safe_build(_DECISION_SEQ_GLOBAL, context="__fathom_decision", env=new_env)
-        self._safe_build(_DECISION_TEMPLATE, context="__fathom_decision", env=new_env)
-        self._safe_build(_EPOCH_TEMPLATE, context="__fathom_epoch", env=new_env)
+        for construct, context in _PREAMBLE:
+            self._safe_build(construct, context=context, env=new_env)
         if self._match_evidence:
             self._safe_build(_EVIDENCE_TEMPLATE, context="__fathom_evidence", env=new_env)
 
