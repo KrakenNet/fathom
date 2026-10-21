@@ -176,7 +176,9 @@ asyncio.run(main())
 
 Postgres caps a NOTIFY payload at 8000 bytes, and each write sends the fact
 as JSON in one. A fact larger than that fails `assert_fact` with
-`FleetError` and nothing is stored. Errors are not retried.
+`FleetError` and nothing is stored. Errors are not retried: an unreachable
+server or a connection lost mid-statement raises `FleetConnectionError`, any
+other driver error `FleetError`.
 
 ## Manage sessions
 
@@ -242,11 +244,11 @@ not use it; it is for your own code.
 | | In-memory | Redis | Postgres |
 |---|---|---|---|
 | Delivered | synchronously, inside `assert_fact` / `retract` | after the write, from a listener task reading the stream | after commit, through `LISTEN` |
-| History | none | none; starts from new entries | none |
-| Gaps | — | a change can be missed before the listener's first entry | changes during a `LISTEN` reconnect are lost |
+| History | none | none; every change after `subscribe()` returns | none; every change after `subscribe()` returns |
+| Gaps | — | — | changes during a `LISTEN` reconnect are lost |
 
 On all three, a fact and its notification are written together or not at
-all, and a callback that raises is logged on the `fathom.fleet` logger and
+all, concurrent retracts of one fact count and announce it once, and a callback that raises is logged on the `fathom.fleet` logger and
 skipped: it never fails the write, ends the subscription or reaches the
 other subscribers.
 
