@@ -345,7 +345,8 @@ jobs:
             $f repl --rules "$ex" </dev/null >/dev/null
             printf -- '- name: smoke\n  facts: []\n  expected_decision: null\n' > t.yaml
             $f test "$ex" t.yaml >/dev/null 2>&1 || [ $? -eq 1 ]
-            $f convert rego "$GITHUB_WORKSPACE/tests/fixtures/rego/basic.rego" >/dev/null
+            # No OPA here: reaching the parse step proves the imports load.
+            $f convert rego "$GITHUB_WORKSPACE/tests/fixtures/rego/basic.rego" 2>err >/dev/null || grep -q "'opa' binary" err
             $f convert to-rego "$ex" >/dev/null 2>&1 || [ $? -eq 3 ]
             $f verify-artifact /dev/null --sig /dev/null >/dev/null 2>&1 || [ $? -eq 3 ]
             $f status --server http://127.0.0.1:9 2>err || [ $? -eq 1 ]

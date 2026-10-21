@@ -10,7 +10,7 @@ sources:
   - packages/fathom-studio/src/fathom_studio/studio_api.py
   - packages/fathom-studio/src/fathom_studio/scenarios.py
   - packages/fathom-studio/pyproject.toml
-last_verified: 2026-08-20
+last_verified: 2026-10-21
 ---
 
 # Running Policy Studio

@@ -333,7 +333,17 @@ class TestShrunkLogRefused:
             log.append({"i": "after-empty"})
         assert log_path.read_bytes() == b""
 
-    @pytest.mark.parametrize("damage", ["delete", "truncate"])
+    @pytest.mark.parametrize(
+        "damage",
+        [
+            # Windows refuses to delete a file another handle holds open.
+            pytest.param(
+                "delete",
+                marks=pytest.mark.skipif(sys.platform == "win32", reason="open file"),
+            ),
+            "truncate",
+        ],
+    )
     def test_log_shrunk_while_open_refused(
         self, log_path: Path, service: AttestationService, damage: str
     ) -> None:
