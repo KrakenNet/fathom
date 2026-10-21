@@ -921,6 +921,10 @@ class Engine:
                 or on YAML/validation errors.
         """
         count = 0
+        # Rules built by this call, so a failure part-way can undo them: a
+        # half-loaded policy (an allow without the deny meant to outrank it)
+        # must not stay live behind the raised error.
+        built: list[str] = []
         self._lock.acquire()
         try:
             p = Path(path)
@@ -969,6 +973,7 @@ class Engine:
                         if better is None:
                             raise
                         raise better from exc
+                    built.append(key)
                     self._rule_registry[key] = rule_defn
                     count += 1
 
@@ -980,6 +985,11 @@ class Engine:
             if loaded_bytes:
                 prior = self._ruleset_yaml_bytes or b""
                 self._ruleset_yaml_bytes = prior + b"".join(loaded_bytes)
+        except BaseException:
+            for key in built:
+                self._env.find_rule(key).undefine()
+                del self._rule_registry[key]
+            raise
         finally:
             # Recompute the cached flag used by evaluate() to short-circuit
             # snapshotting when no loaded rule emits user-declared asserts.
