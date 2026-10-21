@@ -731,6 +731,41 @@ class TestEvaluateMetadata:
         assert response.json()["metadata"] == {}
 
 
+class TestEvaluateNonFinite:
+    """A raw JSON ``NaN`` in a float slot is refused, not compared."""
+
+    def test_nan_score_is_422(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # NaN satisfies `less_than(0.3)` in CLIPS, so this allow-only rule
+        # granted a NaN score before float slots were checked for finiteness.
+        for sub, body in {
+            "templates": "templates:\n"
+            "  - name: req\n"
+            "    slots:\n"
+            "      - {name: score, type: float, required: true}\n",
+            "modules": "modules:\n  - name: m\nfocus_order: [m]\n",
+            "rules": "module: m\n"
+            "rules:\n"
+            "  - name: allow_low_risk\n"
+            "    when: [{template: req, conditions: [{slot: score, expression: less_than(0.3)}]}]\n"
+            "    then: {action: allow, reason: low risk}\n",
+        }.items():
+            (tmp_path / sub).mkdir()
+            (tmp_path / sub / f"{sub}.yaml").write_text(body, encoding="utf-8")
+        monkeypatch.setenv("FATHOM_RULESET_ROOT", str(tmp_path))
+        response = client.post(
+            "/v1/evaluate",
+            content=b'{"facts": [{"template": "req", "data": {"score": NaN}}], "ruleset": ""}',
+            headers={**auth_headers, "Content-Type": "application/json"},
+        )
+        assert response.status_code == 422, response.text
+
+
 class TestEvaluateAttestation:
     """A configured attestation service signs what ``/v1/evaluate`` returns."""
 

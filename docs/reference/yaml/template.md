@@ -58,7 +58,8 @@ types — to an allowed-values directive via `_CLIPS_ALLOWED_MAP`.
 A `float` slot accepts a Python `int` as well as a `float`; `FactManager`
 widens it before it reaches CLIPS, which types `1` as INTEGER and would
 otherwise reject it. `bool` is refused for both. An `integer` slot takes
-only `int`, or a `float` with no fractional part.
+only `int`, or a `float` with no fractional part. `NaN` and infinities
+are refused for both.
 
 Source: `src/fathom/compiler.py` lines 29–40.
 

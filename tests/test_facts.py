@@ -580,6 +580,17 @@ class TestBoolRejection:
                 },
             )
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    @pytest.mark.parametrize("slot", ["s_float", "s_integer"])
+    def test_non_finite_number_rejected(self, all_types_engine, slot, bad):
+        # NaN compares true against both `< x` and `> x` in CLIPS, so a NaN
+        # score satisfied an allow-if-low-risk rule. Inf on an integer slot
+        # crashed coercion with a raw OverflowError.
+        data = {"s_string": "x", "s_symbol": "s", "s_float": 1.0, "s_integer": 1}
+        data[slot] = bad
+        with pytest.raises(ValidationError, match="finite"):
+            all_types_engine.assert_fact("all_types", data)
+
     def test_bool_rejected_for_float_false(self, all_types_engine):
         with pytest.raises(ValidationError, match="expects float"):
             all_types_engine.assert_fact(
