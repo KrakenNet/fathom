@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import functools
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fathom.engine import Engine
+from fathom.errors import FathomError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 __all__ = ["FathomMCPServer"]
 
@@ -29,7 +34,7 @@ class FathomMCPServer:
     stdio — :meth:`run` therefore refuses the network transports.
 
     Args:
-        rules_path: Optional path to a rules directory or file.
+        rules_path: Optional path to a rules directory.
             When provided, :meth:`Engine.from_rules` is used to
             bootstrap the engine on first access.
     """
@@ -59,6 +64,7 @@ class FathomMCPServer:
             "rule_trace": result.rule_trace,
             "module_trace": result.module_trace,
             "duration_us": result.duration_us,
+            "metadata": result.metadata,
         }
 
     def assert_fact(self, template: str, data: dict[str, Any]) -> dict[str, str]:
@@ -93,6 +99,7 @@ class FathomMCPServer:
         return {
             "decision": result.decision,
             "reason": result.reason,
+            "metadata": result.metadata,
             "firings": firings,
         }
 
@@ -149,44 +156,77 @@ def _mcp_server_class() -> Any:
     )
 
 
+def _tool_error_class(server_class: Any) -> Any:
+    """Return the SDK's ``ToolError``, which sits beside the server class in both majors."""
+    package = server_class.__module__.rsplit(".", 1)[0]
+    return importlib.import_module(f"{package}.exceptions").ToolError
+
+
 def _create_mcp_app(server: FathomMCPServer) -> Any:
-    """Create the MCP app and register Fathom tools."""
-    mcp = _mcp_server_class()("fathom")
+    """Create the MCP app and register Fathom tools.
+
+    Each tool function is named after its tool (``fathom.query`` ->
+    ``fathom_query``) because the SDK titles the input schema
+    ``<function name>Arguments``, and that schema is the published contract.
+    """
+    server_class = _mcp_server_class()
+    mcp = server_class("fathom")
+    tool_error = _tool_error_class(server_class)
+
+    def anticipated(fn: Callable[..., Any]) -> Callable[..., Any]:
+        # mcp 2.x reports any exception but ToolError as a bare "Error
+        # executing tool <name>", hiding why an assert or query was refused.
+        # A FathomError is the caller's to read and correct, so pass it on.
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(*args, **kwargs)
+            except FathomError as exc:
+                raise tool_error(str(exc)) from exc
+
+        return wrapper
 
     @mcp.tool(name="fathom.evaluate", description="Run forward-chain evaluation")
-    def tool_evaluate() -> dict[str, Any]:
+    @anticipated
+    def fathom_evaluate() -> dict[str, Any]:
         return server.evaluate()
 
     @mcp.tool(name="fathom.assert_fact", description="Assert a fact into working memory")
-    def tool_assert_fact(template: str, data: dict[str, Any]) -> dict[str, str]:
+    @anticipated
+    def fathom_assert_fact(template: str, data: dict[str, Any]) -> dict[str, str]:
         return server.assert_fact(template, data)
 
     @mcp.tool(name="fathom.query", description="Query working memory")
-    def tool_query(
+    @anticipated
+    def fathom_query(
         template: str, fact_filter: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         return server.query(template, fact_filter)
 
     @mcp.tool(name="fathom.retract", description="Retract facts from working memory")
-    def tool_retract(template: str, fact_filter: dict[str, Any] | None = None) -> dict[str, int]:
+    @anticipated
+    def fathom_retract(template: str, fact_filter: dict[str, Any] | None = None) -> dict[str, int]:
         return server.retract(template, fact_filter)
 
     @mcp.tool(name="fathom.agenda", description="List the activations waiting to fire")
-    def tool_agenda() -> list[dict[str, Any]]:
+    @anticipated
+    def fathom_agenda() -> list[dict[str, Any]]:
         return server.agenda()
 
     @mcp.tool(
         name="fathom.rule_matches",
         description="Report how far a rule got toward firing: matches, partials, activations",
     )
-    def tool_rule_matches(rule: str) -> dict[str, Any]:
+    @anticipated
+    def fathom_rule_matches(rule: str) -> dict[str, Any]:
         return server.rule_matches(rule)
 
     @mcp.tool(
         name="fathom.trace",
         description="Evaluate and return the decision with every rule firing in order",
     )
-    def tool_trace() -> dict[str, Any]:
+    @anticipated
+    def fathom_trace() -> dict[str, Any]:
         return server.trace()
 
     return mcp
