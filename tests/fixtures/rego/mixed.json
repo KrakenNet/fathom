@@ -164,6 +164,37 @@
       "body": [
         {
           "index": 0,
+          "terms": [
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "equal"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "value": [
+                {
+                  "type": "var",
+                  "value": "input"
+                },
+                {
+                  "type": "string",
+                  "value": "role"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "value": "viewer"
+            }
+          ]
+        },
+        {
+          "index": 1,
           "negated": true,
           "terms": {
             "type": "ref",
@@ -174,14 +205,14 @@
               },
               {
                 "type": "string",
-                "value": "authenticated"
+                "value": "suspended"
               }
             ]
           }
         }
       ],
       "head": {
-        "name": "deny",
+        "name": "allow",
         "value": {
           "type": "boolean",
           "value": true
@@ -189,7 +220,7 @@
         "ref": [
           {
             "type": "var",
-            "value": "deny"
+            "value": "allow"
           }
         ]
       }

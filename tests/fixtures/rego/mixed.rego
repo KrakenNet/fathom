@@ -13,6 +13,7 @@ allow if {
 	input.method == "GET"
 }
 
-deny if {
-	not input.authenticated
+allow if {
+	input.role == "viewer"
+	not input.suspended
 }

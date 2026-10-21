@@ -179,11 +179,21 @@ quietly widen the policy. The whole rule is dropped and the reason says so.
 Slots that only that rule read are dropped with it, so every slot in the
 generated template is one a converted rule actually uses.
 
+### A `deny` that cannot be converted fails the conversion
+
+Dropping a rule only narrows the policy when the rule is an `allow`. Dropping
+a `deny` takes a deny condition out, and the result allows input the policy
+denies. So when any `deny` rule is refused, for any reason in the table above,
+nothing is written: the command exits 3 and lists every refusal, and
+`convert_ast` raises `CompilationError`. Rewrite the `deny` into the
+convertible subset, or convert it by hand.
+
 ## Reading the output
 
-The command exits non-zero when *nothing* converted. Use `--strict` to also
-fail when anything at all was skipped — the right setting for a pipeline that
-wants all-or-nothing, versus the default best-effort behaviour.
+The command exits non-zero when *nothing* converted, and exits 3 when a `deny`
+was refused. Use `--strict` to also fail when anything at all was skipped —
+the right setting for a pipeline that wants all-or-nothing, versus the default
+best-effort behaviour, which only ever leaves out `allow` rules.
 
 Two things are reported as notes rather than refusals:
 

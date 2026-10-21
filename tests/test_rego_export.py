@@ -24,6 +24,7 @@ from typer.testing import CliRunner
 
 from fathom.cli import app
 from fathom.engine import Engine
+from fathom.errors import CompilationError
 from fathom.rego import convert_ast, export_engine, parse_rego
 
 if TYPE_CHECKING:
@@ -276,6 +277,20 @@ class TestRefusals:
         )
         assert "nowhere to put it" in self._reason(result)
 
+    def test_a_refused_deny_refuses_the_whole_export(self, tmp_path: Path) -> None:
+        """Leaving a `deny` out of the Rego allows what the ruleset denies."""
+        with pytest.raises(CompilationError, match="denied") as raised:
+            _export(
+                tmp_path,
+                _rule("ok", [{"slot": "role", "expression": "equals(admin)"}]),
+                _rule(
+                    "locked",
+                    [{"slot": "role", "expression": "changed_within(60)"}],
+                    action="deny",
+                ),
+            )
+        assert "locked" in str(raised.value)
+
     def test_a_refused_rule_is_not_in_the_output(self, tmp_path: Path) -> None:
         """The failure that matters: a refusal that still emits something."""
         rule = _rule("dropped", [{"slot": "role", "expression": "changed_within(60)"}])
@@ -399,6 +414,23 @@ class TestCli:
         runner = CliRunner(mix_stderr=False)
         assert runner.invoke(app, ["convert", "to-rego", str(tmp_path)]).exit_code == 0
         assert runner.invoke(app, ["convert", "to-rego", str(tmp_path), "--strict"]).exit_code != 0
+
+    def test_a_refused_deny_fails_without_strict(self, tmp_path: Path) -> None:
+        _pack(
+            tmp_path,
+            _rules(
+                _rule("kept", [{"slot": "role", "expression": "equals(admin)"}]),
+                _rule(
+                    "locked",
+                    [{"slot": "role", "expression": "changed_within(60)"}],
+                    action="deny",
+                ),
+            ),
+        )
+        result = CliRunner(mix_stderr=False).invoke(app, ["convert", "to-rego", str(tmp_path)])
+        assert result.exit_code == 3
+        assert "locked" in result.stderr
+        assert "package" not in result.stdout
 
     def test_a_missing_directory_is_rejected(self, tmp_path: Path) -> None:
         result = CliRunner(mix_stderr=False).invoke(
