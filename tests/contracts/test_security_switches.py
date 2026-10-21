@@ -36,10 +36,9 @@ from fastapi.testclient import TestClient
 
 from fathom.attestation import AttestationService
 from fathom.engine import Engine
-from fathom.integrations.rest import build_app, session_store
+from fathom.integrations.rest import build_app
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
 
 DELETE_FACTS = [{"template": "input", "data": {"user": "mallory", "action": "delete"}}]
@@ -103,14 +102,6 @@ def rulesets(tmp_path: Path) -> dict[str, Path]:
         "strict": _write_ruleset(root, "strict", "deny", STRICT_REASON),
         "loose": _write_ruleset(root, "loose", "allow", LOOSE_REASON),
     }
-
-
-@pytest.fixture(autouse=True)
-def _clean_sessions() -> Iterator[None]:
-    """The session store is module state on the REST app; cells must not share it."""
-    session_store.clear()
-    yield
-    session_store.clear()
 
 
 @pytest.fixture

@@ -334,5 +334,10 @@ def validate_document(
             ModuleDefinition(**data)
         except PydanticValidationError as exc:
             errors.extend(_format_errors(exc, "module", file_path))
+    elif not unknown:
+        # Nothing here is a Fathom construct (only unknown keys, `{}`, or a
+        # `focus_order` with no `modules`). `fathom compile` and the loader
+        # refuse such a file, so validate must not pass it.
+        errors.append(f"{file_path}: no Fathom constructs found")
 
     return errors

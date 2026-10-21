@@ -40,6 +40,13 @@ one condition, say) is invalid YAML to Fathom: every loader rejects it
 instead of keeping the last value. Overriding a key merged in with `<<`
 is not a duplicate.
 
+A file with none of these keys (only unknown keys, `{}`, or a
+`focus_order` with no `modules`) holds no construct: `fathom compile`,
+`fathom validate` and `POST /v1/compile` all refuse it.
+`POST /v1/compile` compiles a document through the same function as
+`fathom compile`, so the two accept and refuse the same files, function
+files included.
+
 ## Downloads
 
 | Construct | Schema |

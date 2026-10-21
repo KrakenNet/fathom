@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from fathom.attestation import AttestationService, verify_token
-from fathom.integrations.rest import SessionStore, app, session_store
+from fathom.integrations.rest import SessionStore, app
 from fathom.integrations.sessions import SessionLimitError
 
 if TYPE_CHECKING:  # pragma: no cover - annotation-only import
@@ -22,7 +22,7 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 @pytest.fixture(autouse=True)
 def _reset_session_store() -> None:
     """Clear the module-level session store between tests."""
-    session_store._sessions.clear()
+    app.state.session_store._sessions.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -270,7 +270,7 @@ class TestStatelessEvaluate:
             },
             headers=auth_headers,
         )
-        assert len(session_store._sessions) == 0
+        assert len(app.state.session_store._sessions) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ class TestStatefulEvaluate:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        assert "sess-1" in session_store._sessions
+        assert "sess-1" in app.state.session_store._sessions
 
     def test_session_reuses_engine(self, client: TestClient, auth_headers: dict[str, str]) -> None:
         """Second request with same session_id reuses the Engine."""
@@ -427,7 +427,7 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine1 = session_store._sessions["sess-reuse"].engine
+        engine1 = app.state.session_store._sessions["sess-reuse"].engine
 
         client.post(
             "/v1/evaluate",
@@ -438,7 +438,7 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine2 = session_store._sessions["sess-reuse"].engine
+        engine2 = app.state.session_store._sessions["sess-reuse"].engine
         assert engine1 is engine2
 
     def test_facts_persist_across_requests(
@@ -505,8 +505,8 @@ class TestStatefulEvaluate:
             },
             headers=auth_headers,
         )
-        engine_a = session_store._sessions["sess-A"].engine
-        engine_b = session_store._sessions["sess-B"].engine
+        engine_a = app.state.session_store._sessions["sess-A"].engine
+        engine_b = app.state.session_store._sessions["sess-B"].engine
         assert engine_a is not engine_b
 
     def test_stateful_returns_200(self, client: TestClient, auth_headers: dict[str, str]) -> None:

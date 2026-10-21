@@ -115,8 +115,9 @@ and that default is what the converter tells you to write.
 
 Errors on these two routes use OPA's `{"code", "message"}` envelope rather
 than Fathom's `{"error", "detail"}`, so a client that parses OPA's errors
-keeps working. The one exception is `401`, which comes from the shared auth
-dependency and answers in Fathom's shape.
+keeps working. The exceptions are `401` (the shared auth dependency), `413`
+(the request body cap) and `422` (a body that is not valid JSON), which
+answer in Fathom's shape.
 
 ## What this does not give you
 

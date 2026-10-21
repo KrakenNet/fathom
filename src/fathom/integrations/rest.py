@@ -7,13 +7,15 @@ import binascii
 import json
 import logging
 import os
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 
 try:
-    from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+    from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse, Response
 except ImportError as _exc:
@@ -27,6 +29,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from starlette.datastructures import State
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
     from fathom.attestation import AttestationService
@@ -42,7 +45,7 @@ except ImportError:  # pragma: no cover
 from pydantic import ValidationError as PydanticValidationError
 
 from fathom import __version__ as _fathom_version
-from fathom.compiler import Compiler
+from fathom.compiler import Compiler, compile_file_by_kind
 from fathom.engine import Engine
 from fathom.errors import CompilationError, EvaluationError, EvaluationLimitError
 from fathom.errors import ValidationError as FathomValidationError
@@ -61,16 +64,13 @@ from fathom.models import (
     ErrorResponse,
     EvaluateRequest,
     EvaluateResponse,
-    ModuleDefinition,
     QueryFactsRequest,
     QueryFactsResponse,
     RetractFactsRequest,
     RetractFactsResponse,
-    RulesetDefinition,
-    TemplateDefinition,
 )
 from fathom.rego import flatten_input
-from fathom.yaml_utils import file_kind, safe_load, unknown_top_level_keys
+from fathom.yaml_utils import safe_load
 
 __all__ = ["app", "build_app"]
 
@@ -153,6 +153,7 @@ def _resolve_user_ruleset(user_path: str) -> str:
 
 
 def _session_engine(
+    state: State,
     session_id: str,
     rules_path: str,
     attestation_service: AttestationService | None = None,
@@ -171,7 +172,7 @@ def _session_engine(
     escaping ``POST /v1/rules/reload`` at the same time. Neither is
     acceptable, so the mounted deployment serves stateless evaluation only.
     """
-    if getattr(app.state, "engine", None) is not None:
+    if getattr(state, "engine", None) is not None:
         raise HTTPException(
             status_code=400,
             detail={
@@ -184,7 +185,8 @@ def _session_engine(
             },
         )
     try:
-        return session_store.get_or_create(session_id, rules_path, attestation_service)
+        store: SessionStore = state.session_store
+        return store.get_or_create(session_id, rules_path, attestation_service)
     except SessionRulesetMismatchError as exc:
         raise HTTPException(
             status_code=409,
@@ -197,15 +199,17 @@ def _session_engine(
         ) from exc
 
 
-def _require_session_engine(session_id: str) -> Engine:
+def _require_session_engine(state: State, session_id: str) -> Engine:
     """Return the Engine for an existing session, or raise 404."""
-    engine = session_store.get(session_id)
+    store: SessionStore = state.session_store
+    engine = store.get(session_id)
     if engine is None:
         raise HTTPException(status_code=404, detail="session not found")
     return engine
 
 
 def _data_plane_engine(
+    state: State,
     resolved: str,
     attestation_service: AttestationService | None,
 ) -> Engine:
@@ -228,7 +232,7 @@ def _data_plane_engine(
             underlying diagnostic names server-side absolute paths, so it is
             logged rather than returned.
     """
-    mounted: Engine | None = getattr(app.state, "engine", None)
+    mounted: Engine | None = getattr(state, "engine", None)
     if mounted is not None:
         # The mounted Engine is usually constructed before the attestation
         # service is injected onto app.state, so attach it here rather than
@@ -313,16 +317,9 @@ class BodySizeLimitMiddleware:
 # (intended for local development only).
 _expose_docs = os.environ.get("FATHOM_EXPOSE_DOCS") == "1"
 
-app = FastAPI(
-    title="Fathom Rules Engine",
-    version=_fathom_version,
-    description="Deterministic reasoning runtime for AI agents",
-    docs_url="/docs" if _expose_docs else None,
-    redoc_url="/redoc" if _expose_docs else None,
-    openapi_url="/openapi.json" if _expose_docs else None,
-)
-
-app.add_middleware(BodySizeLimitMiddleware)
+# Routes live on a router so every app ``build_app`` returns gets its own
+# FastAPI instance (and its own ``state``) carrying the same API.
+router = APIRouter()
 
 
 # Slug used in the ``error`` field when an HTTPException carries only a
@@ -355,6 +352,7 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: {"model": ErrorResponse, "description": "Conflict"},
     413: {"model": ErrorResponse, "description": "Request body too large"},
     422: {"model": ErrorResponse, "description": "Request body failed validation"},
+    500: {"model": ErrorResponse, "description": "Evaluation failed or server misconfigured"},
     503: {"model": ErrorResponse, "description": "Service unavailable"},
 }
 
@@ -368,7 +366,6 @@ _SESSION_HEADER = {
 }
 
 
-@app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """Render every HTTPException through the single ErrorResponse envelope.
 
@@ -391,7 +388,6 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     )
 
 
-@app.exception_handler(RequestValidationError)
 async def request_validation_error_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
@@ -415,22 +411,16 @@ async def request_validation_error_handler(
 
 _metrics_enabled = _HAS_PROMETHEUS and os.environ.get("FATHOM_METRICS") == "1"
 
-if _metrics_enabled:
-    # Instrument without exposing a public /metrics; we register an
-    # auth-gated endpoint below instead.
-    Instrumentator().instrument(app)
 
-    @app.get("/metrics", dependencies=[Depends(_require_auth)])
-    async def metrics() -> Response:
-        """Serve Prometheus exposition format metrics (auth-gated)."""
-        body = prometheus_client.generate_latest()
-        return Response(
-            content=body,
-            media_type=prometheus_client.CONTENT_TYPE_LATEST,
-        )
+async def metrics() -> Response:
+    """Serve Prometheus exposition format metrics (auth-gated)."""
+    body = prometheus_client.generate_latest()
+    return Response(
+        content=body,
+        media_type=prometheus_client.CONTENT_TYPE_LATEST,
+    )
 
 
-@app.exception_handler(FathomValidationError)
 async def fathom_validation_error_handler(
     request: Request, exc: FathomValidationError
 ) -> JSONResponse:
@@ -439,22 +429,29 @@ async def fathom_validation_error_handler(
     return JSONResponse(status_code=422, content=body.model_dump())
 
 
-@app.get("/health")
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Render an unexpected failure as the declared 500 envelope, not plain text.
+
+    The exception itself is logged by Starlette; its text may carry server
+    detail, so it is not echoed.
+    """
+    body = ErrorResponse(error="internal_error", detail="internal server error", field=None)
+    return JSONResponse(status_code=500, content=body.model_dump())
+
+
+@router.get("/health")
 async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
 
 
-session_store = SessionStore()
-
-
-@app.post(
+@router.post(
     "/v1/evaluate",
     response_model=EvaluateResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def evaluate(request: EvaluateRequest) -> EvaluateResponse:
+def evaluate(request: EvaluateRequest, http_request: Request) -> EvaluateResponse:
     """Evaluate facts against a ruleset (stateless or stateful).
 
     Request-scoped: the supplied facts are asserted, evaluated, then
@@ -482,11 +479,12 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     # construction. Without this the response's `attestation_token` was a
     # field that could never be non-null: declared in the schema, published in
     # the OpenAPI document, and unreachable.
-    attestation = getattr(app.state, "attestation", None)
+    state = http_request.app.state
+    attestation = getattr(state, "attestation", None)
     if request.session_id:
-        engine = _session_engine(request.session_id, resolved, attestation)
+        engine = _session_engine(state, request.session_id, resolved, attestation)
     else:
-        engine = _data_plane_engine(resolved, attestation)
+        engine = _data_plane_engine(state, resolved, attestation)
 
     try:
         result = engine.evaluate_once(
@@ -503,10 +501,12 @@ def evaluate(request: EvaluateRequest) -> EvaluateResponse:
         ) from exc
     except EvaluationError as exc:
         # Any other evaluation failure, a CLIPS runtime error in a rule
-        # included. No decision was produced, so none is returned.
+        # included. No decision was produced, so none is returned. The
+        # CLIPS diagnostic is server-side detail: log it, do not echo it.
+        logger.warning("evaluate: evaluation failed", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "evaluation_error", "detail": str(exc)},
+            detail={"error": "evaluation_error", "detail": "evaluation failed"},
         ) from exc
 
     return EvaluateResponse(
@@ -532,52 +532,60 @@ def _require_session_id(request: Request) -> str:
     return x_session_id
 
 
-@app.get(
+@router.get(
     "/v1/templates",
     dependencies=[Depends(_require_auth)],
     responses=_ERROR_RESPONSES,
     openapi_extra=_SESSION_HEADER,
 )
 async def list_templates(
+    request: Request,
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all registered template definitions for a session."""
-    engine = _require_session_engine(session_id)
+    engine = _require_session_engine(request.app.state, session_id)
     items = [t.model_dump() for t in engine.template_registry.values()]
     return _make_list_response(items)
 
 
-@app.get(
+@router.get(
     "/v1/rules",
     dependencies=[Depends(_require_auth)],
     responses=_ERROR_RESPONSES,
     openapi_extra=_SESSION_HEADER,
 )
 async def list_rules(
+    request: Request,
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all loaded rule definitions for a session."""
-    engine = _require_session_engine(session_id)
+    engine = _require_session_engine(request.app.state, session_id)
     items = [r.model_dump() for r in engine.rule_registry.values()]
     return _make_list_response(items)
 
 
-@app.get(
+@router.get(
     "/v1/modules",
     dependencies=[Depends(_require_auth)],
     responses=_ERROR_RESPONSES,
     openapi_extra=_SESSION_HEADER,
 )
 async def list_modules(
+    request: Request,
     session_id: str = Depends(_require_session_id),
 ) -> dict[str, object]:
     """Return all registered module definitions for a session."""
-    engine = _require_session_engine(session_id)
+    engine = _require_session_engine(request.app.state, session_id)
     items = [m.model_dump() for m in engine.module_registry.values()]
     return _make_list_response(items)
 
 
-@app.post(
+#: Kinds a compiled document returns, in build order. The focus order is a
+#: per-evaluation command, not a construct, so it is not returned.
+_COMPILE_KINDS = ("templates", "modules", "functions", "rules")
+
+
+@router.post(
     "/v1/compile",
     response_model=CompileResponse,
     responses=_ERROR_RESPONSES,
@@ -599,9 +607,6 @@ def compile_yaml(request: CompileRequest, http_request: Request) -> CompileRespo
     """
     state_engine = getattr(http_request.app.state, "engine", None)
     templates = state_engine.template_registry if state_engine is not None else None
-    compiler = Compiler()
-    errors: list[str] = []
-    constructs: list[str] = []
 
     try:
         data = safe_load(request.yaml_content)
@@ -611,56 +616,50 @@ def compile_yaml(request: CompileRequest, http_request: Request) -> CompileRespo
     if not isinstance(data, dict):
         return CompileResponse(clips="", errors=["invalid YAML: expected a mapping"])
 
-    kind = file_kind(data)
-    unknown = unknown_top_level_keys(data, kind) if kind else None
-    if unknown:
-        return CompileResponse(clips="", errors=[unknown])
-
-    try:
-        if "templates" in data:
-            for tmpl_data in data["templates"]:
-                defn = TemplateDefinition(**tmpl_data)
-                constructs.append(compiler.compile_template(defn))
-        elif "modules" in data:
-            for mod_data in data["modules"]:
-                mod_defn = ModuleDefinition(**mod_data)
-                constructs.append(compiler.compile_module(mod_defn))
-        elif "rules" in data or "ruleset" in data:
-            ruleset = RulesetDefinition(**data)
-            # Slot types decide how a literal is emitted (a STRING slot gets
-            # a quoted CLIPS string, a SYMBOL slot does not), so compile
-            # against the loaded engine's templates. Without them this
-            # endpoint returned CLIPS that the same server's engine would
-            # never build — and that CLIPS does not even accept
-            # ([CSTRNCHK1]) for a string slot holding e.g. an email address.
-            for rule_defn in ruleset.rules:
-                constructs.append(
-                    compiler.compile_rule(rule_defn, ruleset.module, templates),
+    # Compile through the same function `fathom compile` uses, so a document
+    # is classified (and refused) exactly as the CLI and loader do. It reads a
+    # file, so the content is written to a private temp dir; the file sits two
+    # levels down so the hierarchy lookup (file dir, ./hierarchies,
+    # ../hierarchies) never leaves that dir.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "inline" / "inline.yaml"
+        path.parent.mkdir()
+        path.write_text(request.yaml_content, encoding="utf-8")
+        try:
+            by_kind = compile_file_by_kind(path, Compiler(), templates)
+        except CompilationError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, PydanticValidationError):
+                # Surface the triggering message(s) but drop input values / URLs.
+                return CompileResponse(
+                    clips="",
+                    errors=[
+                        f"{'.'.join(str(p) for p in err.get('loc', ())) or 'body'}: "
+                        f"{err.get('msg', 'invalid value')}"
+                        for err in cause.errors()
+                    ],
                 )
-    except CompilationError as exc:
-        # Return the construct + message but not the raw detail/file paths.
-        errors.append(str(exc).split("\n", 1)[0])
-    except PydanticValidationError as exc:
-        # Surface the triggering message(s) but drop input values / URLs.
-        for err in exc.errors():
-            loc = ".".join(str(p) for p in err.get("loc", ())) or "body"
-            errors.append(f"{loc}: {err.get('msg', 'invalid value')}")
-    except Exception:
-        errors.append("internal compilation error")
+            # Return the construct + message but not the raw detail; the temp
+            # path is server-side detail too.
+            message = str(exc).split("\n", 1)[0].replace(str(path), "yaml_content")
+            return CompileResponse(clips="", errors=[message])
+        except Exception:
+            logger.warning("compile: internal compilation error", exc_info=True)
+            return CompileResponse(clips="", errors=["internal compilation error"])
 
-    return CompileResponse(
-        clips="\n".join(constructs),
-        errors=errors,
-    )
+    constructs = [c for kind in _COMPILE_KINDS for c in by_kind.get(kind, [])]
+    if not constructs:
+        return CompileResponse(clips="", errors=["no compilable constructs found"])
+    return CompileResponse(clips="\n".join(constructs), errors=[])
 
 
-@app.post(
+@router.post(
     "/v1/facts",
     response_model=AssertFactResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def assert_fact(request: AssertFactRequest) -> AssertFactResponse:
+def assert_fact(request: AssertFactRequest, http_request: Request) -> AssertFactResponse:
     """Assert a single fact into a session's working memory.
 
     Unlike ``/v1/evaluate``, this endpoint does **not** create sessions on
@@ -669,18 +668,18 @@ def assert_fact(request: AssertFactRequest) -> AssertFactResponse:
 
     Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine = _require_session_engine(request.session_id)
+    engine = _require_session_engine(http_request.app.state, request.session_id)
     engine.assert_fact(request.template, request.data)
     return AssertFactResponse(success=True)
 
 
-@app.post(
+@router.post(
     "/v1/query",
     response_model=QueryFactsResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def query_facts(request: QueryFactsRequest) -> QueryFactsResponse:
+def query_facts(request: QueryFactsRequest, http_request: Request) -> QueryFactsResponse:
     """Query a session's working memory for facts matching template + filter.
 
     The ``session_id`` must reference an existing session created via
@@ -688,18 +687,18 @@ def query_facts(request: QueryFactsRequest) -> QueryFactsResponse:
 
     Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine = _require_session_engine(request.session_id)
+    engine = _require_session_engine(http_request.app.state, request.session_id)
     facts = engine.query(request.template, request.filter)
     return QueryFactsResponse(facts=facts)
 
 
-@app.delete(
+@router.delete(
     "/v1/facts",
     response_model=RetractFactsResponse,
     responses=_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
-def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
+def retract_facts(request: RetractFactsRequest, http_request: Request) -> RetractFactsResponse:
     """Retract facts matching template + optional filter from working memory.
 
     The ``session_id`` must reference an existing session created via
@@ -708,7 +707,7 @@ def retract_facts(request: RetractFactsRequest) -> RetractFactsResponse:
 
     Declared ``def`` so the blocking CLIPS call runs in the threadpool.
     """
-    engine = _require_session_engine(request.session_id)
+    engine = _require_session_engine(http_request.app.state, request.session_id)
     count = engine.retract(request.template, request.filter)
     return RetractFactsResponse(retracted_count=count)
 
@@ -756,7 +755,7 @@ def _write_audit(sink: Any | None, record: dict[str, Any]) -> None:
         logger.exception("audit sink write failed; dropped record: %r", record)
 
 
-@app.post(
+@router.post(
     "/v1/rules/reload",
     dependencies=[Depends(_require_admin_auth)],
     responses={
@@ -788,31 +787,6 @@ async def reload_rules(
 
     See design C5 / AC-5.1 / AC-5.4–5.6 / AC-5.8.
     """
-    # --- body size cap (enforced on real bytes, not Content-Length) ---
-    # Stream the body in chunks and abort as soon as the running total
-    # exceeds the limit, so a hostile chunked request (which can lie in
-    # its Content-Length header) is rejected without being fully buffered.
-    limit = _max_reload_bytes()
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > limit:
-            return _make_error_response(
-                413,
-                "payload_too_large",
-                f"request body exceeds the {limit}-byte reload limit",
-            )
-        chunks.append(chunk)
-    raw_body = b"".join(chunks)
-
-    try:
-        payload = RulesetReloadRequest.model_validate_json(raw_body)
-    except PydanticValidationError as exc:
-        errs = exc.errors()
-        detail = errs[0].get("msg", "invalid request body") if errs else "invalid request body"
-        return _make_error_response(422, "validation_error", detail)
-
     state = request.app.state
     engine = getattr(state, "engine", None)
     attestation = getattr(state, "attestation", None)
@@ -848,6 +822,32 @@ async def reload_rules(
         )
         return _make_error_response(status, error, detail)
 
+    # --- body size cap (enforced on real bytes, not Content-Length) ---
+    # Stream the body in chunks and abort as soon as the running total
+    # exceeds the limit, so a hostile chunked request (which can lie in
+    # its Content-Length header) is rejected without being fully buffered.
+    limit = _max_reload_bytes()
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            return _rejected(
+                413,
+                "payload_too_large",
+                f"request body exceeds the {limit}-byte reload limit",
+                "payload_too_large",
+            )
+        chunks.append(chunk)
+    raw_body = b"".join(chunks)
+
+    try:
+        payload = RulesetReloadRequest.model_validate_json(raw_body)
+    except PydanticValidationError as exc:
+        errs = exc.errors()
+        detail = errs[0].get("msg", "invalid request body") if errs else "invalid request body"
+        return _rejected(422, "validation_error", detail, "validation_error")
+
     # --- exactly-one-of ruleset_path / ruleset_yaml ---
     has_path = payload.ruleset_path is not None
     has_yaml = payload.ruleset_yaml is not None
@@ -865,7 +865,15 @@ async def reload_rules(
         raw_yaml_bytes = payload.ruleset_yaml.encode("utf-8")
     else:
         assert payload.ruleset_path is not None
-        resolved = _resolve_user_ruleset(payload.ruleset_path)
+        try:
+            resolved = _resolve_user_ruleset(payload.ruleset_path)
+        except HTTPException as exc:
+            return _rejected(
+                exc.status_code,
+                _ERROR_SLUGS.get(exc.status_code, "error"),
+                str(exc.detail),
+                "path_rejected" if exc.status_code == 400 else "server_misconfigured",
+            )
         try:
             with open(resolved, "rb") as f:
                 raw_yaml_bytes = f.read()
@@ -975,7 +983,7 @@ async def reload_rules(
     # them: a reload already discards working memory by design (see
     # docs/how-to/hot-reload.md), so surviving with stale *policy* is the
     # worse of the two.
-    session_store.clear()
+    state.session_store.clear()
 
     timestamp = _now_iso()
     attestation_token = attestation.sign_event(
@@ -1011,7 +1019,7 @@ async def reload_rules(
     )
 
 
-@app.get("/v1/status")
+@router.get("/v1/status")
 async def status(request: Request) -> dict[str, str | None]:
     """Report engine liveness info: loaded ruleset hash, version, last-load time.
 
@@ -1074,11 +1082,14 @@ class OPAErrorResponse(BaseModel):
 
 
 #: Errors these two routes can produce, in OPA's envelope rather than
-#: Fathom's. 401 is the exception: it comes from the shared auth dependency,
-#: which answers in Fathom's shape.
+#: Fathom's. 401, 413 and 422 are the exceptions: they come from the shared
+#: auth dependency, body-size middleware and body validation, which answer in
+#: Fathom's shape.
 _OPA_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": OPAErrorResponse, "description": "Invalid request"},
     401: {"model": ErrorResponse, "description": "Missing or invalid token"},
+    413: {"model": ErrorResponse, "description": "Request body too large"},
+    422: {"model": ErrorResponse, "description": "Request body failed validation"},
     500: {"model": OPAErrorResponse, "description": "Evaluation failed"},
 }
 
@@ -1130,7 +1141,9 @@ def _opa_undefined(engine: Engine, document_name: str) -> JSONResponse:
     )
 
 
-def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONResponse:
+def _opa_evaluate(
+    state: State, path: str, document: dict[str, Any], template: str
+) -> JSONResponse:
     """Shared body of the GET and POST forms of the Data API."""
     segments = [segment for segment in path.split("/") if segment]
     if not segments:
@@ -1153,9 +1166,9 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
     except HTTPException as exc:
         return _opa_error(exc.status_code, "invalid_parameter", str(exc.detail))
 
-    attestation = getattr(app.state, "attestation", None)
+    attestation = getattr(state, "attestation", None)
     try:
-        engine = _data_plane_engine(resolved, attestation)
+        engine = _data_plane_engine(state, resolved, attestation)
     except HTTPException as exc:
         # The loader's own text names the resolved server-side absolute path
         # ("/srv/rules/x is not a directory"), which must never reach a remote
@@ -1185,8 +1198,9 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
         # is broken"). The engine's default decision is fail-closed.
         logger.debug("opa data: document does not fit template %r", template, exc_info=True)
         return _opa_undefined(engine, document_name)
-    except EvaluationError as exc:
-        return _opa_error(500, "internal_error", str(exc))
+    except EvaluationError:
+        logger.warning("opa data: evaluation failed", exc_info=True)
+        return _opa_error(500, "internal_error", "evaluation failed")
 
     if document_name:
         # Always defined, never OPA's `{}` undefined response: a Fathom engine
@@ -1208,7 +1222,7 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
     )
 
 
-@app.post(
+@router.post(
     "/v1/data/{path:path}",
     responses=_OPA_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
@@ -1216,6 +1230,7 @@ def _opa_evaluate(path: str, document: dict[str, Any], template: str) -> JSONRes
 def opa_data(
     path: str,
     request: OPADataRequest,
+    http_request: Request,
     template: str = _OPA_DEFAULT_TEMPLATE,
 ) -> JSONResponse:
     """Evaluate a ruleset through OPA's Data API.
@@ -1227,16 +1242,17 @@ def opa_data(
     Declared ``def`` for the same reason as ``/v1/evaluate``: CLIPS evaluation
     is blocking CPU work and belongs in the threadpool, not on the event loop.
     """
-    return _opa_evaluate(path, request.input, template)
+    return _opa_evaluate(http_request.app.state, path, request.input, template)
 
 
-@app.get(
+@router.get(
     "/v1/data/{path:path}",
     responses=_OPA_ERROR_RESPONSES,
     dependencies=[Depends(_require_auth)],
 )
 def opa_data_get(
     path: str,
+    request: Request,
     # Named `input` on the wire because that is what OPA's Data API calls it;
     # the Python name differs only to avoid shadowing the builtin.
     input_json: str | None = Query(default=None, alias="input"),
@@ -1256,7 +1272,42 @@ def opa_data_get(
             return _opa_error(400, "invalid_parameter", f"input is not valid JSON: {exc}")
         if not isinstance(document, dict):
             return _opa_error(400, "invalid_parameter", "input must be a JSON object")
-    return _opa_evaluate(path, document, template)
+    return _opa_evaluate(request.app.state, path, document, template)
+
+
+def _new_app() -> FastAPI:
+    """Build a FastAPI app serving the API, with its own state and sessions."""
+    new = FastAPI(
+        title="Fathom Rules Engine",
+        version=_fathom_version,
+        description="Deterministic reasoning runtime for AI agents",
+        docs_url="/docs" if _expose_docs else None,
+        redoc_url="/redoc" if _expose_docs else None,
+        openapi_url="/openapi.json" if _expose_docs else None,
+        exception_handlers={
+            StarletteHTTPException: http_exception_handler,
+            RequestValidationError: request_validation_error_handler,
+            FathomValidationError: fathom_validation_error_handler,
+            Exception: unhandled_exception_handler,
+        },
+    )
+    new.add_middleware(BodySizeLimitMiddleware)
+    if _metrics_enabled:
+        # Instrument without exposing a public /metrics; register an
+        # auth-gated endpoint instead.
+        Instrumentator().instrument(new)
+        new.add_api_route("/metrics", metrics, dependencies=[Depends(_require_auth)])
+    new.include_router(router)
+    new.state.engine = None
+    new.state.attestation = None
+    new.state.audit_sink = None
+    new.state.session_store = SessionStore()
+    return new
+
+
+#: The app ``uvicorn fathom.integrations.rest:app`` (and the Docker image)
+#: serves. ``build_app`` returns a separate app on every call.
+app = _new_app()
 
 
 _RULESET_PUBKEY_ERROR = (
@@ -1265,7 +1316,11 @@ _RULESET_PUBKEY_ERROR = (
 
 
 def build_app(*, require_signature: bool = True) -> FastAPI:
-    """Return the REST app with ruleset pubkey bootstrapped onto ``app.state``.
+    """Return a new REST app with ruleset pubkey bootstrapped onto ``app.state``.
+
+    Each call builds an independent app -- its own ``state``, Engine slot and
+    session store -- so two apps in one process never share policy or sessions.
+    The module-level ``app`` is a different instance again.
 
     Fail-closed by default: when ``require_signature=True``, the pubkey at
     ``FATHOM_RULESET_PUBKEY_PATH`` must exist and be readable. The dev escape
@@ -1279,11 +1334,9 @@ def build_app(*, require_signature: bool = True) -> FastAPI:
     pubkey_path = os.environ.get("FATHOM_RULESET_PUBKEY_PATH")
     allow_unsigned = os.environ.get("FATHOM_ALLOW_UNSIGNED_RULESETS") == "1"
 
-    # Default state slots used by POST /v1/rules/reload. Callers inject
-    # real instances after build_app() returns.
-    app.state.engine = None
-    app.state.attestation = None
-    app.state.audit_sink = None
+    # Default state slots (engine, attestation, audit sink) are seeded by
+    # _new_app(); callers inject real instances after build_app() returns.
+    app = _new_app()
     # Both halves or neither. Assigning the flag verbatim here made
     # `require_signature=False` alone switch verification off, while the env
     # var below decided only whether a pubkey was loaded -- so a single stray

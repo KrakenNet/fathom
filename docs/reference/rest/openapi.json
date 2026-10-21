@@ -230,19 +230,6 @@
         "title": "FactInput",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
       "OPADataRequest": {
         "description": "OPA's Data API request body: `{\"input\": {...}}`.",
         "properties": {
@@ -391,46 +378,6 @@
         ],
         "title": "RulesetReloadResponse",
         "type": "object"
-      },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
-        "type": "object"
       }
     }
   },
@@ -567,6 +514,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -667,15 +624,25 @@
             },
             "description": "Missing or invalid token"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
           },
           "500": {
             "content": {
@@ -769,15 +736,25 @@
             },
             "description": "Missing or invalid token"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation"
           },
           "500": {
             "content": {
@@ -896,6 +873,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1013,6 +1000,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1127,6 +1124,16 @@
               }
             },
             "description": "Request body failed validation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
           },
           "503": {
             "content": {
@@ -1245,6 +1252,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1362,6 +1379,16 @@
             },
             "description": "Request body failed validation"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1478,6 +1505,16 @@
               }
             },
             "description": "Request body failed validation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
           },
           "503": {
             "content": {
@@ -1789,6 +1826,16 @@
               }
             },
             "description": "Request body failed validation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Evaluation failed or server misconfigured"
           },
           "503": {
             "content": {

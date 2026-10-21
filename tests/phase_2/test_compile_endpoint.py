@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi.testclient import TestClient
 
-from fathom.integrations.rest import app, session_store
+from fathom.integrations.rest import app
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -35,7 +35,7 @@ def _rest_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules_root = tmp_path / "rules"
     rules_root.mkdir()
     monkeypatch.setenv("FATHOM_RULESET_ROOT", str(rules_root))
-    session_store._sessions.clear()
+    app.state.session_store._sessions.clear()
     return rules_root
 
 

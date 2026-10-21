@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from fathom.engine import Engine
 from fathom.integrations import rest
-from fathom.integrations.rest import app, session_store
+from fathom.integrations.rest import app
 from fathom.integrations.sessions import _Session
 
 if TYPE_CHECKING:
@@ -110,9 +110,9 @@ def ruleset_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture(autouse=True)
 def _reset_session_store() -> Iterator[None]:
-    session_store.clear()
+    app.state.session_store.clear()
     yield
-    session_store.clear()
+    app.state.session_store.clear()
 
 
 @pytest.fixture
@@ -177,7 +177,7 @@ class TestSessionRulesetConfusion:
                 headers=auth_headers,
             )
             assert response.status_code == 200
-        assert len(session_store) == 1
+        assert len(app.state.session_store) == 1
 
 
 class TestRequestScopedEvaluation:
@@ -231,7 +231,7 @@ class TestEvaluationBudget:
     ) -> None:
         loop = _write_nonterminating_ruleset(ruleset_root)
         engine = Engine.from_rules(str(loop), run_limit=20)
-        session_store._sessions["budget"] = _Session(engine, str(loop), time.time())
+        app.state.session_store._sessions["budget"] = _Session(engine, str(loop), time.time())
 
         response = client.post(
             "/v1/evaluate",
@@ -256,7 +256,7 @@ class TestSessionCeiling:
         auth_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(session_store, "_max_sessions", 1)
+        monkeypatch.setattr(app.state.session_store, "_max_sessions", 1)
         first = client.post(
             "/v1/evaluate",
             json={"facts": [], "ruleset": "strict", "session_id": "one"},
@@ -279,7 +279,7 @@ class TestSessionCeiling:
         auth_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(session_store, "_ttl_seconds", 0)
+        monkeypatch.setattr(app.state.session_store, "_ttl_seconds", 0)
         client.post(
             "/v1/evaluate",
             json={"facts": [], "ruleset": "strict", "session_id": "ttl"},
@@ -388,7 +388,7 @@ class TestErrorEnvelope:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The 503 used to nest the envelope inside ``detail``."""
-        monkeypatch.setattr(session_store, "_max_sessions", 0)
+        monkeypatch.setattr(app.state.session_store, "_max_sessions", 0)
         response = client.post(
             "/v1/evaluate",
             json={"facts": [], "ruleset": "strict", "session_id": "x"},
