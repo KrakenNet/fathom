@@ -778,31 +778,6 @@ async def reload_rules(
 
     See design C5 / AC-5.1 / AC-5.4–5.6 / AC-5.8.
     """
-    # --- body size cap (enforced on real bytes, not Content-Length) ---
-    # Stream the body in chunks and abort as soon as the running total
-    # exceeds the limit, so a hostile chunked request (which can lie in
-    # its Content-Length header) is rejected without being fully buffered.
-    limit = _max_reload_bytes()
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > limit:
-            return _make_error_response(
-                413,
-                "payload_too_large",
-                f"request body exceeds the {limit}-byte reload limit",
-            )
-        chunks.append(chunk)
-    raw_body = b"".join(chunks)
-
-    try:
-        payload = RulesetReloadRequest.model_validate_json(raw_body)
-    except PydanticValidationError as exc:
-        errs = exc.errors()
-        detail = errs[0].get("msg", "invalid request body") if errs else "invalid request body"
-        return _make_error_response(422, "validation_error", detail)
-
     state = request.app.state
     engine = getattr(state, "engine", None)
     attestation = getattr(state, "attestation", None)
@@ -838,6 +813,32 @@ async def reload_rules(
         )
         return _make_error_response(status, error, detail)
 
+    # --- body size cap (enforced on real bytes, not Content-Length) ---
+    # Stream the body in chunks and abort as soon as the running total
+    # exceeds the limit, so a hostile chunked request (which can lie in
+    # its Content-Length header) is rejected without being fully buffered.
+    limit = _max_reload_bytes()
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            return _rejected(
+                413,
+                "payload_too_large",
+                f"request body exceeds the {limit}-byte reload limit",
+                "payload_too_large",
+            )
+        chunks.append(chunk)
+    raw_body = b"".join(chunks)
+
+    try:
+        payload = RulesetReloadRequest.model_validate_json(raw_body)
+    except PydanticValidationError as exc:
+        errs = exc.errors()
+        detail = errs[0].get("msg", "invalid request body") if errs else "invalid request body"
+        return _rejected(422, "validation_error", detail, "validation_error")
+
     # --- exactly-one-of ruleset_path / ruleset_yaml ---
     has_path = payload.ruleset_path is not None
     has_yaml = payload.ruleset_yaml is not None
@@ -855,7 +856,15 @@ async def reload_rules(
         raw_yaml_bytes = payload.ruleset_yaml.encode("utf-8")
     else:
         assert payload.ruleset_path is not None
-        resolved = _resolve_user_ruleset(payload.ruleset_path)
+        try:
+            resolved = _resolve_user_ruleset(payload.ruleset_path)
+        except HTTPException as exc:
+            return _rejected(
+                exc.status_code,
+                _ERROR_SLUGS.get(exc.status_code, "error"),
+                str(exc.detail),
+                "path_rejected" if exc.status_code == 400 else "server_misconfigured",
+            )
         try:
             with open(resolved, "rb") as f:
                 raw_yaml_bytes = f.read()

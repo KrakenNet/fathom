@@ -576,3 +576,31 @@ def test_every_rejected_reload_is_audited(
         assert [r.get("reason") for r in new] == [reason], (reason, new)
         assert new[0]["event_type"] == "ruleset_reload_rejected"
         assert new[0]["ruleset_hash_before"].startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "status", "reason"),
+    [
+        ({"json": {"ruleset_path": "../../../../etc/passwd"}}, 400, "path_rejected"),
+        ({"json": {"ruleset_path": "/etc/passwd"}}, 400, "path_rejected"),
+        ({"json": {"ruleset_yaml": "x" * 5000}}, 413, "payload_too_large"),
+        ({"content": b"not json"}, 422, "validation_error"),
+    ],
+)
+def test_every_reload_refusal_is_audited(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    kwargs: dict[str, object],
+    status: int,
+    reason: str,
+) -> None:
+    """Path-jail, oversize and malformed-body refusals wrote no audit record."""
+    monkeypatch.setenv("FATHOM_MAX_RELOAD_BYTES", "2000")
+    records: list[dict[str, object]] = []
+    sink = type("Sink", (), {"write": lambda self, r: records.append(r)})()
+    client.app.state.audit_sink = sink  # type: ignore[attr-defined]
+    resp = client.post("/v1/rules/reload", headers=AUTH, **kwargs)  # type: ignore[arg-type]
+    assert resp.status_code == status, resp.text
+    assert [(r["event_type"], r["reason"]) for r in records] == [
+        ("ruleset_reload_rejected", reason)
+    ]
