@@ -259,7 +259,7 @@ class TestFleetEngineOverRedis:
             seed_shared_status(node_b)
 
             await fleet.assert_fact("A", "shared_status", {"status": "online"})
-            await fleet.sync_fleet_facts(node_b)
+            await fleet.sync_fleet_facts("B")
 
             assert node_b.query("shared_status") == [{"status": "online"}]
         finally:
@@ -317,7 +317,7 @@ class TestFleetEngineOverRedis:
             fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
             peer = fleet.create_session("B")
             seed_shared_status(peer)
-            await fleet.sync_fleet_facts(peer)
+            await fleet.sync_fleet_facts("B")
 
             assert peer.query("shared_status") == [{"status": "offline"}]
         finally:
@@ -356,7 +356,7 @@ class TestFleetEngineOverPostgres:
             fact_id = await fleet.assert_fact("A", "shared_status", {"status": "online"})
             assert fact_id is not None
 
-            await fleet.sync_fleet_facts(node_b)
+            await fleet.sync_fleet_facts("B")
             assert node_b.query("shared_status") == [{"status": "online"}]
         finally:
             await store.retract("shared_status")

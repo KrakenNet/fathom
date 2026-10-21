@@ -1661,8 +1661,8 @@ class Engine:
                 of the one on :meth:`assert_fact`: dropping a fleet fact on
                 one node only diverges that node from the shared FactStore,
                 which is exactly what the assert-side guard exists to
-                prevent. Fleet retraction does not propagate at all (see the
-                module docstring of :mod:`fathom.fleet`), so this fails
+                prevent. Fleet retraction does not propagate at all (see
+                :class:`~fathom.fleet.FleetEngine`), so this fails
                 loudly rather than diverging silently.
         """
         with self._lock:
@@ -1671,7 +1671,8 @@ class Engine:
                 raise ScopeError(
                     f"template '{template}' is fleet-scoped; retracting it locally "
                     "would diverge this node from the shared FactStore. Fleet "
-                    "retraction does not propagate — recreate the session instead."
+                    "retraction does not propagate — rebuild the session with "
+                    "FleetEngine.replace_session() instead."
                 )
             retracted = self._fact_manager.retract(template, fact_filter)
             self._publish_working_memory([template])
