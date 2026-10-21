@@ -9,6 +9,9 @@ on:
     paths:
       - "protos/**"
       - "packages/fathom-go/**"
+      - "src/fathom/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/go-ci.yml"
   workflow_dispatch: {}
 
@@ -45,7 +48,10 @@ jobs:
             code:
               - 'protos/**'
               - 'packages/fathom-go/**'
-              - 'src/fathom/integrations/grpc_server.py'
+              # integration runs the Go client against the live Python server.
+              - 'src/fathom/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
               - '.github/workflows/go-ci.yml'
 
   test:
