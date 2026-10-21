@@ -30,7 +30,7 @@ from fathom.yaml_utils import (
     file_kind,
     safe_load,
     safe_load_all,
-    template_names_in,
+    template_slots_in,
     unregistered_template_errors,
     validate_document,
 )
@@ -159,7 +159,7 @@ def validate(
         all_errors: list[str] = []
         files_checked = 0
         rule_docs: list[tuple[dict[str, Any], Path]] = []
-        template_names: set[str] = set()
+        template_names: dict[str, set[str]] = {}
 
         for yaml_file in yaml_files:
             try:
@@ -181,7 +181,7 @@ def validate(
                 all_errors.extend(doc_errors)
                 if "rules" in doc:
                     rule_docs.append((doc, yaml_file))
-                template_names |= template_names_in(doc)
+                template_names |= template_slots_in(doc)
 
             files_checked += 1
 
@@ -189,7 +189,7 @@ def validate(
         # a pack still has the templates of the packs it depends on.
         for template_file in _sibling_template_files(path) + _dependency_template_files(path):
             try:
-                template_names |= template_names_in(
+                template_names |= template_slots_in(
                     safe_load(template_file.read_text(encoding="utf-8"))
                 )
             except (OSError, yaml.YAMLError):

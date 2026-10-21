@@ -752,7 +752,8 @@ class TestEvaluateNonFinite:
             "rules": "module: m\n"
             "rules:\n"
             "  - name: allow_low_risk\n"
-            "    when: [{template: req, conditions: [{slot: score, expression: less_than(0.3)}]}]\n"
+            "    when: [{template: req, conditions:\n"
+            "      [{slot: score, expression: less_than(0.3)}]}]\n"
             "    then: {action: allow, reason: low risk}\n",
         }.items():
             (tmp_path / sub).mkdir()

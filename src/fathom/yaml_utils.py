@@ -189,12 +189,16 @@ def _validate_rule_file(data: dict[str, Any], file_path: Path) -> list[str]:
     return errors
 
 
-def template_names_in(data: Any) -> set[str]:
-    """Names of the templates a ``templates:`` document declares."""
+def template_slots_in(data: Any) -> dict[str, set[str]]:
+    """Slot names of each template a ``templates:`` document declares, by template name."""
     if not isinstance(data, dict) or not isinstance(data.get("templates"), list):
-        return set()
+        return {}
     return {
-        t["name"]
+        t["name"]: {
+            s["name"]
+            for s in (t["slots"] if isinstance(t.get("slots"), list) else [])
+            if isinstance(s, dict) and isinstance(s.get("name"), str)
+        }
         for t in data["templates"]
         if isinstance(t, dict) and isinstance(t.get("name"), str)
     }
@@ -202,16 +206,21 @@ def template_names_in(data: Any) -> set[str]:
 
 def unregistered_template_errors(
     data: dict[str, Any],
-    templates: set[str],
+    templates: dict[str, set[str]],
     file_path: Path,
 ) -> list[str]:
-    """Rule patterns in *data* that match a template not in *templates*.
+    """Rules in *data* that name a template or slot not in *templates*.
 
-    The loader rejects these (``Engine._unregistered_templates_error``); a
-    pattern with no slot constraint on a misspelled template would otherwise
-    build and never match. Needs the pack's templates, so ``fathom validate``
-    calls it once every file has been read.
+    *templates* maps each template name to its slot names. The loader rejects
+    these (``Engine._unregistered_templates_error``); a pattern with no slot
+    constraint on a misspelled template would otherwise build and never match.
+    ``then.assert`` targets and temporal operator arguments are checked too
+    (see :meth:`fathom.compiler.Compiler.template_references`). Needs the
+    pack's templates, so ``fathom validate`` calls it once every file has
+    been read.
     """
+    from fathom.compiler import Compiler  # imports this module
+
     errors: list[str] = []
     rules = data.get("rules")
     for rule in rules if isinstance(rules, list) else []:
@@ -224,6 +233,18 @@ def unregistered_template_errors(
                     f"{file_path}: rule '{rule.get('name')}' matches template "
                     f"'{name}', which is not registered"
                 )
+        try:
+            refs = Compiler.template_references(RuleDefinition(**rule))
+        except (PydanticValidationError, TypeError):
+            continue  # validate_document reports the malformed rule
+        for template, slot, where in refs:
+            if template not in templates:
+                problem = f"template '{template}', which is not registered"
+            elif slot is not None and slot not in templates[template]:
+                problem = f"slot '{slot}' of template '{template}', which it does not declare"
+            else:
+                continue
+            errors.append(f"{file_path}: rule '{rule.get('name')}' names {problem} (in {where})")
     return errors
 
 

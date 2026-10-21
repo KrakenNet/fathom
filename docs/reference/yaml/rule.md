@@ -247,6 +247,26 @@ rule asserts during the run are not seen by a test that has already run.
 temporal rule each step), so in a stream a temporal test runs when the
 pattern it sits on first matches.
 
+Temporal operator signatures. *template* and the slot arguments are bare
+names; *value* is a literal or a `$alias.field` reference to a slot of the
+condition's own pattern; numeric arguments must be finite numbers.
+
+| Operator                   | Arguments                                                     | True when                                                          |
+|----------------------------|---------------------------------------------------------------|--------------------------------------------------------------------|
+| `changed_within`           | `(window)`                                                    | the condition's slot (a timestamp) is less than *window* seconds old |
+| `count_exceeds`            | `(template, slot, value, threshold)`                          | more than *threshold* `template` facts have `slot` = *value*       |
+| `rate_exceeds`             | `(template, slot, value, threshold, window[, ts_slot])`       | as `count_exceeds`, counting only facts whose `ts_slot` (default `ts`) is within *window* seconds |
+| `last_n`                   | `(template, slot, value, n)`                                  | at least *n* `template` facts have `slot` = *value*                |
+| `schema_frequency_exceeds` | `(template, slot, value, tau)`                                | same predicate as `last_n`                                         |
+| `distinct_count`           | `(template, group_slot, count_slot, threshold)`               | some `group_slot` value has more than *threshold* distinct `count_slot` values |
+| `sequence_detected`        | `(events, window)`                                            | the events occurred in order, the first less than *window* seconds ago. *events* is a JSON list of `{"template", "slot", "value"[, "slot_ts"]}` objects (`slot_ts` defaults to `ts`) |
+
+All of these are checked when the rule loads, and by `fathom validate`, so a
+mistake is a `CompilationError` rather than an evaluation that raises: the
+argument count is exact (`rate_exceeds` takes 5 or 6), a numeric argument
+that is not a finite number is refused, the *events* list must parse, and
+every template and slot an operator names must be registered.
+
 Any other operator raises `CompilationError` from `_compile_condition`.
 For worked examples of each operator see
 [Writing rules](../../how-to/writing-rules.md).
@@ -262,7 +282,7 @@ For worked examples of each operator see
 | `attestation` | `bool`                    | `False`             | Emitted as `TRUE`/`FALSE` on the decision fact's `attestation` slot. **Not** a signing switch — see [Audit & Attestation](../../concepts/audit-attestation.md). |
 | `metadata`    | `dict[str, str]`          | `{}`                | JSON-serialized (sorted keys) and emitted as a quoted string when non-empty; otherwise an empty quoted string.              |
 | `scope`       | `str \| None`             | `None`              | Accepted for authoring but not emitted by `_compile_action` (reserved).                                                    |
-| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. Targeting a `scope: fleet` template is a `CompilationError` at load: a rule's assert never reaches the fleet store. |
+| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. Targeting a `scope: fleet` template is a `CompilationError` at load: a rule's assert never reaches the fleet store. So is a template, or a slot, that is not registered; `fathom validate` reports both. |
 
 ### `ThenBlock` validator
 

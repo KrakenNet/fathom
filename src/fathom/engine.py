@@ -498,7 +498,7 @@ class Engine:
             )
         )
         if not unique:
-            return None
+            return self._unknown_reference_error(defn, file, registry, env)
         names = ", ".join(f"'{name}'" for name in unique)
         noun = "template" if len(unique) == 1 else "templates"
         verb = "is" if len(unique) == 1 else "are"
@@ -510,6 +510,50 @@ class Engine:
             file=str(file) if file is not None else None,
             construct=f"rule:{defn.name}",
         )
+
+    def _unknown_reference_error(
+        self,
+        defn: RuleDefinition,
+        file: Path | None,
+        registry: dict[str, TemplateDefinition] | None,
+        env: clips.Environment | None,
+    ) -> CompilationError | None:
+        """Reject a ``then.assert`` or temporal argument naming an unknown template or slot.
+
+        A bare assert into an unknown template made CLIPS invent it, and a
+        temporal operator resolves its template and slots only at evaluation
+        time, so either kind of typo used to load and then fail open or raise
+        on every evaluation. See :meth:`Compiler.template_references`.
+        """
+        for template, slot, where in Compiler.template_references(defn):
+            if not self._template_is_known(template, registry, env):
+                problem = f"template '{template}', which is not registered"
+            elif slot is not None and slot not in self._template_slot_names(
+                template, registry, env
+            ):
+                problem = f"slot '{slot}' of template '{template}', which it does not declare"
+            else:
+                continue
+            return CompilationError(
+                f"[fathom.engine] load rules failed: rule '{defn.name}' names {problem} "
+                f"(in {where})",
+                file=str(file) if file is not None else None,
+                construct=f"rule:{defn.name}",
+            )
+        return None
+
+    def _template_slot_names(
+        self,
+        name: str,
+        registry: dict[str, TemplateDefinition] | None,
+        env: clips.Environment | None,
+    ) -> set[str]:
+        """Slot names of a template :meth:`_template_is_known` accepted."""
+        registry = self._template_registry if registry is None else registry
+        if name in registry:
+            return {slot.name for slot in registry[name].slots}
+        template = (self._env if env is None else env).find_template(name)
+        return {slot.name for slot in template.slots}
 
     def _diagnose_rule_build(
         self,
