@@ -1,0 +1,458 @@
+[
+  {
+    "version": "0.14.0",
+    "date": "2026-10-21",
+    "added": [
+      "**`fathom mcp <rules>`** starts the MCP tool server over stdio. The pack is",
+      "**`fathom status --json`.**",
+      "**`fathom.integrations.grpc_server.serve()` takes `attestation`,",
+      "**gRPC `ChangeType` values `CHANGE_TYPE_ASSERT` / `CHANGE_TYPE_RETRACT`**;",
+      "**`FleetEngine.replace_session(session_id)` and",
+      "**Fleet docs:** reference pages for `fathom.fleet_redis.RedisFactStore`",
+      "**`fathom.rego.flatten_input(..., declared=...)`** keeps only the named",
+      "**`Engine.hierarchy(name)`** returns a loaded classification hierarchy and",
+      "**`Activation`, `RuleMatches` and `RulesetSignatureError` are exported from",
+      "**`Compiler.parse_function_bundle(path)`** returns a function file's",
+      "**How to cut 1.0.0** is in CONTRIBUTING.md, and VERSIONING.md has a \"From"
+    ],
+    "changed": [
+      "**An evaluation during which a rule errors now raises `EvaluationError`.**",
+      "**An unknown classification level now stops the evaluation.** A level",
+      "**A classification operator with a `$alias.field` argument is a",
+      "**`contains($alias.field)` joins on the referenced value** instead of",
+      "**A temporal operator called wrongly fails to load.** Too many arguments, a",
+      "**`then.scope` is no longer accepted**; it was never emitted. Delete it, and",
+      "**A `matches` pattern that is not a valid Python regex no longer loads.** It",
+      "**gRPC `AssertFact`, `Query`, `Retract` and `SubscribeChanges` need a",
+      "**A session id longer than 128 characters is refused** (REST 422 in a body,",
+      "**REST request bodies refuse keys they do not declare** with 422",
+      "**REST `build_app()` returns a new app** with its own state and session",
+      "**A gRPC `filter_json` of `null` on `Query` and `Retract` is",
+      "**MCP tool input-schema titles are `fathom_<tool>Arguments`** instead of",
+      "**`null` is no longer a value for a required slot.** It is refused as a",
+      "**A query, count or retract filter naming an undeclared slot raises",
+      "**A rule naming an unregistered template is a `CompilationError` at",
+      "**Template, module, function and rule files reject unknown top-level",
+      "**A `focus_order` naming a module the engine does not have raises",
+      "**A repeated mapping key is invalid YAML.** Every YAML Fathom parses goes",
+      "**A `NaN` or infinite value in a `float` or `integer` slot is refused with",
+      "**`Engine.assert_facts` and `Engine.step(facts=)` raise `ScopeError` for a",
+      "**A rule whose `then.assert` targets a `scope: fleet` template is a",
+      "**`FleetEngine.assert_fact` stores the validated fact** (defaults applied,",
+      "**Breaking: `FleetEngine.create_session` raises `FleetError` when the",
+      "**Breaking: `FleetEngine.sync_fleet_facts` takes the session id instead of",
+      "**`PostgresFactStore` no longer dispatches a change to subscribers in the",
+      "**`RedisFactStore` retries only connection errors and timeouts**; other",
+      "**`Engine.template_registry`, `module_registry` and `rule_registry` return",
+      "**Breaking: `Engine(...)` raises `ValueError` for a negative `run_limit`**",
+      "**Breaking: `fathom.rego.convert_file` is renamed to",
+      "**`fathom convert rego` and `fathom convert to-rego` exit 3 and write",
+      "**A missing CLI dependency exits 3 with a one-line install hint**:",
+      "**Pack-loading CLI commands exit 2 on an empty directory or a file",
+      "**`fathom bench` refuses `-n` below 1 and `-w` below 0** as a usage error",
+      "**Breaking: `verify_token` checks the token kind.** Evaluation",
+      "**Breaking: `AttestationService.sign_event` merges `iss`, `iat` and `typ`",
+      "**Breaking: `verify_chain` refuses a chained-log line that is not the",
+      "**Breaking: `AttestationService(private_key, public_key)` raises",
+      "**Shipped packs refuse the spellings that slipped past their deny rules.**",
+      "**The TypeScript SDK versions separately from the engine.** It is its own",
+      "**VERSIONING.md covers more surfaces:** the rule-pack format (the"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "**`RedisFactStore.subscribe` delivers every change made after it",
+      "**A filtered `PostgresFactStore.retract` announces only the rows it",
+      "**`PostgresFactStore` splits connection errors from other errors.** A",
+      "**`pip install fathom-rules[cli]` installs a CLI whose every command",
+      "**An unsigned `Engine.reload_rules` works on a core-only install.** It",
+      "**Temporal operators give the same decision in any assertion order.**",
+      "**A failed `load_rules` leaves no rule behind.** Rules built before the",
+      "**A `bind:` on a cross-referenced slot plus a `not_equals`,",
+      "**The undocumented `dominates` operator is removed**; it loaded and then",
+      "**`CompilationError` from a YAML parse names the rejected field and",
+      "**`FunctionDefinition.params` is optional**; neither function type reads",
+      "**CLIPS diagnostics no longer reach stderr.** CLIPS error blocks and",
+      "**An evaluation error no longer echoes the raw CLIPS diagnostic, with its",
+      "**gRPC answers `INVALID_ARGUMENT` for a fact, filter or JSON the engine",
+      "**A session-scoped gRPC `Evaluate` that names no ruleset opens the",
+      "**MCP `fathom.evaluate` and `fathom.trace` return the deciding rule's",
+      "**`hierarchies:` in a function file is loaded**, as the reference",
+      "**A second `ChainedAttestationLog` writer continues from the real head.**",
+      "**`ChainedAttestationLog` refuses to append when its log shrank under it**",
+      "**`ChainedAttestationLog.close()` is serialised with appends**, so a",
+      "**`verify_chain`, `records()` and `fathom verify-chain` report a deeply",
+      "**`verify_chain` accepts a PEM string as the public key** instead of",
+      "**`verify_token` raises `AttestationError`, not `jwt.InvalidKeyError`**,",
+      "**`chained_log.load_or_create_key` hands every concurrent creator the key",
+      "**`fathom verify-artifact` checks the trusted comment's global",
+      "**`RulesetSignatureError` is a `FathomError`**, defined in `fathom.errors`;",
+      "**Importing `fathom.attestation`, `fathom.chained_log` or",
+      "**A misspelled `fathom.<name>` is a type error again** under mypy and",
+      "**`RedisFactStore.assert_fact` writes the fact and its stream entry in one",
+      "**A raising subscriber callback is logged and skipped on every fleet",
+      "**`PostgresFactStore` accepts fleet template names longer than 48",
+      "**`FleetEngine` stores CLIPS implicit slot defaults** (`\"\"` for a string",
+      "**The Docker image sets `FATHOM_RULESET_ROOT=/rules`**, so the REST sidecar",
+      "**The OpenAPI spec matches what the server sends.** It declares every",
+      "**REST reload refusals from the path jail, the body-size cap and a",
+      "**CLI messages keep bracketed text**; rich dropped the `[fathom.cli]`",
+      "**An unexpected error while loading a pack is a one-line CLI error with",
+      "**The CLI exit codes are documented**: 0 success, 1 check failed",
+      "**The README's rule-pack names load.** It listed `fathom-owasp-agentic` and",
+      "**The Python example in \"Embed the SDK\" runs.** It asserted an `access`",
+      "**The TypeScript SDK publish uses one secret.** `npm-publish.yml` checked",
+      "**The docs say where a missing ruleset pubkey stops startup.**",
+      "**CONTRIBUTING describes the changelog promotion.** Following it alongside",
+      "**The reference docs match the code.** The REST reference states the"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.13.0",
+    "date": "2026-09-09",
+    "added": [
+      "**`Engine.reload_rules(..., preserve_facts=True)`** carries working memory",
+      "**`Engine.step(facts)`**, an incremental evaluation primitive for streams.",
+      "**`Engine.agenda()`** returns the activations waiting to fire \u2014 rule, module,",
+      "**`Engine.rule_matches(rule)`** reports how far a rule got toward firing:",
+      "**`Engine.trace()`**, a context manager that records each rule firing as CLIPS",
+      "**Three MCP tools**: `fathom.agenda`, `fathom.rule_matches`, and"
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.12.1",
+    "date": "2026-09-09",
+    "added": [],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "**The MCP server works on `mcp` 2.x as well as 1.x.** The `mcp` extra allows"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.12.0",
+    "date": "2026-08-28",
+    "added": [],
+    "changed": [
+      "**`Engine.evaluate_once` retracts the facts rules asserted during the call**,",
+      "**A rule is no longer fire-once per engine.** Every rule starts each",
+      "**Classification deffunctions are emitted under the hierarchy's name** rather",
+      "**A classification operator naming a level no loaded hierarchy defines is a",
+      "**The owasp-agentic pack's `tool_call` template is renamed `tool_request`**,",
+      "**Sessions are refused rather than silently reinvented.** `POST /v1/evaluate`",
+      "**The CrewAI and OpenAI Agents SDK adapters take the framework's own context",
+      "**`FathomAsyncCallbackHandler.on_tool_start` is no longer a coroutine.** Code",
+      "**`fathom convert rego` emits slot defaults and per-rule presence guards**, and"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "**Standing denials hold on every entry point**, not just the framework",
+      "**Every rule that fires is traced**, not only the ones that render a decision.",
+      "**The shipped rule packs work through the surfaces that drive them**, and two",
+      "**A hot reload is safe for the request it lands on**, leaves a trace when it is",
+      "**The chained log refuses a second writer** instead of forging a broken chain,",
+      "**`fathom compile` output is loadable**, `fathom info` lists functions, and",
+      "**An int widens to a float on a float slot**, as the docs already promised.",
+      "**The fleet LISTEN connection is replaced when its backend goes away**, a store"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.11.0",
+    "date": "2026-08-26",
+    "added": [
+      "**`fathom convert to-rego` \u2014 Fathom to Rego export.** Writes the stateless",
+      "**OPA-compatible Data API on the REST server.** `POST /v1/data/<path>` (and",
+      "**`fathom convert rego` \u2014 Rego to Fathom conversion.** Translates the",
+      "`Engine(match_evidence=True)` records which facts, with which slot values,",
+      "**`schema_frequency_exceeds` temporal operator and the `schema-denoising`",
+      "**A `$alias.field` value argument on the counting temporal operators**",
+      "**`conflict-detection` rule pack.** Reports contradictions between claims as",
+      "**`Engine.load_pack_dir(path)` \u2014 load a rule pack from a directory.**"
+    ],
+    "changed": [
+      "**`PolicyViolation` is now one class**, defined in `fathom.integrations` and"
+    ],
+    "deprecated": [],
+    "removed": [
+      "**The generated Postman collection** (`docs/reference/rest/fathom.postman_collection.json`)",
+      "**The `fathom-editor` scaffold** (`packages/fathom-editor/`). Six React",
+      "**`MetricsCollector.inc_sessions_active` / `.dec_sessions_active`**, and"
+    ],
+    "fixed": [
+      "**Loading a second rule pack no longer unfocuses the first.**",
+      "**`not_equals`, `in` and `not_in` now quote their literals for a slot",
+      "**Cross-fact references (`equals($alias.field)`) now compile to a real",
+      "**`bind:` plus a predicate operator now produces a rule CLIPS will load.**"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.10.0",
+    "date": "2026-08-20",
+    "added": [
+      "A declared public surface. `VERSIONING.md` names what this project",
+      "`docs/reference/configuration.md`: all thirteen `FATHOM_*` variables with",
+      "A how-to for Policy Studio: how to run it from a checkout (it is not on",
+      "`metadata` on the evaluate response, everywhere. A firing rule's"
+    ],
+    "changed": [
+      "The audit record carries its own signature. `docs/concepts/audit-attestation.md`",
+      "The threat model now separates what the token covers (decision,",
+      "The PyPI classifier moves from Alpha to Beta. Not to Production/Stable:",
+      "The doc-source freshness gate blocks the branch that caused the drift.",
+      "The benchmark gate's slack factor is measured rather than guessed. Five",
+      "Release automation: pre-1.0 breaking changes take a minor bump rather than"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "A pack that declared modules but no `focus_order:` fired nothing at all.",
+      "`attestation_token` was structurally always null on `/v1/evaluate`. The",
+      "gRPC could not tell \"no rule decided\" from a decision of `\"\"`: proto3",
+      "Eight reference pages described validators, YAML forms, and a call",
+      "The release gate could not pass, on any release. It waited for every check",
+      "Merging pull requests back to back cancelled the test matrix on the commits"
+    ],
+    "security": [
+      "`SECURITY.md` has a policy instead of three lines. It named 0.7.x as the"
+    ]
+  },
+  {
+    "version": "0.9.0",
+    "date": "2026-08-20",
+    "added": [],
+    "changed": [
+      "`focus_order` runs modules in the order it lists. The list was pushed onto",
+      "CI enforces the published performance targets (`bench`, with a documented",
+      "A determinism test asserts the engine's core claim directly: the same facts",
+      "The release-signing guide scopes its guarantee to 0.5.0 and later; the five"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "The Docker image builds again \u2014 `mkdir -p /rules` ran after the switch to a",
+      "The TypeScript SDK no longer sits beside a second, stale API spec. The"
+    ],
+    "security": [
+      "Publishing is gated on green required checks and runs from tag pushes only.",
+      "Dependabot no longer auto-merges `github_actions` bumps: those PRs rewrite",
+      "Every user-installable requirement carries an upper version bound, so a"
+    ]
+  },
+  {
+    "version": "0.8.0",
+    "date": "2026-08-19",
+    "added": [],
+    "changed": [
+      "Agent adapters block every decision that is not `allow`. A ruleset that",
+      "`AttestationService.sign(...)` raises `AttestationError` when `input_facts`",
+      "Ruleset validation is strict: unknown keys, duplicate rule names, duplicate",
+      "`POST /v1/reload` returns `ruleset failed to compile` or `unable to read"
+    ],
+    "deprecated": [],
+    "removed": [
+      "`fathom.studio` \u2014 the Policy Studio moved to its own `fathom-studio`",
+      "`Engine.__init__(experimental_backward_chaining=...)` \u2014 a permanent no-op"
+    ],
+    "fixed": [
+      "Attestation tokens are bound to the facts they were computed over, and",
+      "Transport requests are bounded, and REST and gRPC share one session store.",
+      "Rule-pack salience ordering is correct and pack loading reports what it",
+      "Dependency advisories cleared across the Python lock and the Go module."
+    ],
+    "security": []
+  },
+  {
+    "version": "0.7.4",
+    "date": "2026-07-20",
+    "added": [],
+    "changed": [
+      "Documentation only: SSVC listed among the shipped rule packs, stale CLI"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.7.3",
+    "date": "2026-06-24",
+    "added": [],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "CI: foreign documentation generators fail loudly instead of silently"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.7.2",
+    "date": "2026-06-24",
+    "added": [],
+    "changed": [
+      "Documentation only: Getting Started and CONTRIBUTING made accurate and"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.7.1",
+    "date": "2026-06-24",
+    "added": [],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "Dependabot configuration: `cooldown.default-days` replaces the"
+    ],
+    "security": []
+  },
+  {
+    "version": "0.7.0",
+    "date": "2026-06-06",
+    "added": [
+      "Go SDK gRPC client wrapper that handles `SubscribeChanges` reloads.",
+      "Admin token and request-body cap for ruleset reload over REST and gRPC.",
+      "SSVC supplier, deployer and CISA decision trees, built from pinned",
+      "Policy Studio scaffold: panels, seed scenarios and guardrails."
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.6.0",
+    "date": "2026-06-05",
+    "added": [
+      "gRPC `SubscribeChanges` streams are cancelled on ruleset reload, so a client"
+    ],
+    "changed": [
+      "`experimental_backward_chaining` documented as a reserved no-op rather than"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.5.0",
+    "date": "2026-06-05",
+    "added": [
+      "Hash-chained JWS attestation log and the `fathom verify-chain` command."
+    ],
+    "changed": [
+      "Re-released the 0.4.0 tree under a `v*.*.*` tag, the pattern"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.4.0",
+    "date": "2026-06-05",
+    "added": [
+      "`Engine.reload_rules()` atomic swap and the `Engine.ruleset_hash` property.",
+      "REST `GET /v1/status` and `POST /v1/rules/reload`; gRPC `Reload` RPC.",
+      "Ruleset signature verification, with the public key bootstrapped from the",
+      "`fathom status` and `fathom verify-artifact` commands, and",
+      "SSVC rule pack \u2014 templates, rules and modules \u2014 with the CISA source",
+      "minisign release signing: `scripts/sign_release.sh`, the committed public",
+      "Go SDK gRPC stubs committed at `packages/fathom-go/proto/`."
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.3.3",
+    "date": "2026-05-14",
+    "added": [
+      "gRPC `SubscribeChanges` RPC now emits real fact-change events. `Engine`"
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [
+      "`FunctionDefinition.type = \"temporal\"` \u2014 vestigial. Temporal operators"
+    ],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.3.2",
+    "date": "2026-04-27",
+    "added": [],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "CI and documentation-generation fixes made between 0.3.1 and 0.3.3."
+    ],
+    "security": []
+  },
+  {
+    "version": "0.3.1",
+    "date": "2026-04-17",
+    "added": [
+      "PyPI publishing workflow."
+    ],
+    "changed": [
+      "Supported Python baseline moved from 3.14 back to 3.13."
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [
+      "Pydantic import failures in the published wheel."
+    ],
+    "security": []
+  },
+  {
+    "version": "0.3.0",
+    "date": "2026-04-14",
+    "added": [
+      "`ConditionEntry.test` field: raw-CLIPS escape hatch on the LHS. When set,",
+      "`ConditionEntry.slot` is now optional (defaults to `\"\"`) when `test` is"
+    ],
+    "changed": [],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  },
+  {
+    "version": "0.2.0",
+    "date": "2026-04-14",
+    "added": [
+      "`then.assert` action block in the YAML rule DSL: rules may now emit one or more",
+      "`ConditionEntry.bind` field: LHS patterns can bind slot values to variables",
+      "`Engine.register_function(name, fn)`: public API for registering Python"
+    ],
+    "changed": [
+      "`AuditRecord.asserted_facts` is now populated with the list of user facts",
+      "**0.3.2** is on PyPI with no matching git tag; it was published from an",
+      "**0.3.3** and **0.4.0** are tagged and have GitHub releases but never reached",
+      "Release artifacts are minisign-signed from **0.5.0** onward. The five earlier"
+    ],
+    "deprecated": [],
+    "removed": [],
+    "fixed": [],
+    "security": []
+  }
+]

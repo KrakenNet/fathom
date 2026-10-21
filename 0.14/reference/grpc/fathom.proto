@@ -1,0 +1,184 @@
+// Fathom gRPC service definition.
+//
+// Provides remote access to the Fathom deterministic reasoning engine
+// for evaluating policy rules, managing working memory, and streaming
+// fact changes.
+
+syntax = "proto3";
+
+package fathom.v1;
+
+option java_package = "com.fathom.v1";
+option go_package = "github.com/KrakenNet/fathom-go/proto;fathomv1";
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+service FathomService {
+  // Evaluate asserted facts against loaded rules and return a decision.
+  rpc Evaluate (EvaluateRequest) returns (EvaluateResponse);
+
+  // Assert one or more facts into working memory.
+  rpc AssertFact (AssertFactRequest) returns (AssertFactResponse);
+
+  // Query working memory for facts matching a template and optional filter.
+  rpc Query (QueryRequest) returns (QueryResponse);
+
+  // Retract facts matching a template and optional filter.
+  rpc Retract (RetractRequest) returns (RetractResponse);
+
+  // Stream working-memory changes as they occur during evaluation.
+  rpc SubscribeChanges (SubscribeRequest) returns (stream FactChange);
+
+  // Hot-reload the ruleset from a path or inline YAML.
+  rpc Reload (ReloadRequest) returns (ReloadResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Evaluate
+// ---------------------------------------------------------------------------
+
+message FactInput {
+  string template = 1;
+  // JSON-encoded slot data, a JSON object (e.g. {"tool_name": "bash",
+  // "agent_id": "a1"}). Anything else is INVALID_ARGUMENT.
+  string data_json = 2;
+}
+
+message EvaluateRequest {
+  // Optional. Empty: a stateless evaluation against the server's engine.
+  // Set: the session's working memory is used, and Evaluate is the call that
+  // opens it -- an unknown id is created, bound to `ruleset` (empty if none
+  // is named). A known id is joined; naming a different ruleset than the
+  // session was opened with is FAILED_PRECONDITION. A server that mounts an
+  // engine refuses sessions with FAILED_PRECONDITION.
+  string session_id = 1;
+  // Ruleset path relative to FATHOM_RULESET_ROOT.
+  string ruleset = 2;
+  repeated FactInput facts = 3;
+}
+
+message EvaluateResponse {
+  // Optional so that "no rule produced a decision" is distinguishable from
+  // a rule that decided the empty string. proto3 has no other way to say it:
+  // an unset non-optional string arrives as "" at every client.
+  optional string decision = 1;
+  optional string reason = 2;
+  repeated string rule_trace = 3;
+  repeated string module_trace = 4;
+  int64 duration_us = 5;
+  // The `then.metadata` of the rule that wrote the decision. Carried here so
+  // a gRPC caller sees the same result shape a REST caller does; control ids
+  // and other rule-authored context live in it.
+  map<string, string> metadata = 6;
+  // Ed25519 JWT over this evaluation, present only when the server was built
+  // with an attestation service.
+  optional string attestation_token = 7;
+}
+
+// ---------------------------------------------------------------------------
+// AssertFact
+// ---------------------------------------------------------------------------
+
+message AssertFactRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+  // refused with INVALID_ARGUMENT.
+  string session_id = 1;
+  string template = 2;
+  // JSON-encoded slot data, a JSON object; anything else is INVALID_ARGUMENT.
+  string data_json = 3;
+}
+
+message AssertFactResponse {
+  bool success = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------
+
+message QueryRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+  // refused with INVALID_ARGUMENT.
+  string session_id = 1;
+  string template = 2;
+  // Optional JSON-object filter (e.g. {"agent_id": "a1"}). Empty matches
+  // every fact of the template; any non-object JSON, `null` included, is
+  // INVALID_ARGUMENT.
+  string filter_json = 3;
+}
+
+message QueryResponse {
+  // Each entry is a JSON-encoded dict representing one fact.
+  repeated string facts_json = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Retract
+// ---------------------------------------------------------------------------
+
+message RetractRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+  // refused with INVALID_ARGUMENT.
+  string session_id = 1;
+  string template = 2;
+  // Optional JSON-object filter. Empty retracts every fact of the template;
+  // any non-object JSON, `null` included, is INVALID_ARGUMENT.
+  string filter_json = 3;
+}
+
+message RetractResponse {
+  int32 retracted_count = 1;
+}
+
+// ---------------------------------------------------------------------------
+// SubscribeChanges
+// ---------------------------------------------------------------------------
+
+message SubscribeRequest {
+  // Required. Working memory is per session; create the session with
+  // Evaluate first; an unknown one is NOT_FOUND. An empty session_id is
+  // refused with INVALID_ARGUMENT.
+  string session_id = 1;
+}
+
+enum ChangeType {
+  // The prefixed names are canonical (they are what the JSON mapping emits).
+  // The bare ASSERT / RETRACT are aliases kept so existing generated code
+  // still compiles; they are deprecated and will be removed in 2.0.
+  option allow_alias = true;
+  CHANGE_TYPE_UNSPECIFIED = 0;
+  CHANGE_TYPE_ASSERT = 1;
+  CHANGE_TYPE_RETRACT = 2;
+  ASSERT = 1 [deprecated = true];
+  RETRACT = 2 [deprecated = true];
+}
+
+message FactChange {
+  ChangeType change_type = 1;
+  string template = 2;
+  // JSON-encoded slot data of the changed fact.
+  string data_json = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Reload
+// ---------------------------------------------------------------------------
+
+message ReloadRequest {
+  oneof source {
+    string ruleset_path = 1;
+    string ruleset_yaml = 2;
+  }
+  bytes signature = 3;
+}
+
+message ReloadResponse {
+  string ruleset_hash_before = 1;
+  string ruleset_hash_after = 2;
+  string attestation_token = 3;
+}

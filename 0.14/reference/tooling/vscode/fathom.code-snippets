@@ -1,0 +1,64 @@
+{
+  "Fathom template": {
+    "scope": "yaml",
+    "prefix": "fathom-template",
+    "body": [
+      "templates:",
+      "  - name: ${1:agent}",
+      "    description: \"${2:An AI agent}\"",
+      "    slots:",
+      "      - name: ${3:id}",
+      "        type: ${4|string,symbol,float|}",
+      "        required: true"
+    ],
+    "description": "Fathom template skeleton"
+  },
+  "Fathom rule": {
+    "scope": "yaml",
+    "prefix": "fathom-rule",
+    "body": [
+      "rules:",
+      "  - name: ${1:rule-name}",
+      "    salience: ${2:100}",
+      "    when:",
+      "      - template: ${3:agent}",
+      "        conditions:",
+      "          - slot: ${4:id}",
+      "            expression: \"${5:eq(alice)}\"",
+      "    then:",
+      "      action: ${6|allow,deny,escalate|}",
+      "      reason: \"${7:reason}\""
+    ],
+    "description": "Fathom rule skeleton"
+  },
+  "Fathom module": {
+    "scope": "yaml",
+    "prefix": "fathom-module",
+    "body": [
+      "modules:",
+      "  - name: ${1:governance}",
+      "    description: \"${2:Policy module}\"",
+      "    priority: ${3:1}"
+    ],
+    "description": "Fathom module skeleton"
+  },
+  "Fathom function": {
+    "scope": "yaml",
+    "prefix": "fathom-function",
+    "body": [
+      "functions:",
+      "  - name: ${1:fn-name}",
+      "    params: [${2:x}]",
+      "    body: \"${3:(+ ?x 1)}\""
+    ],
+    "description": "Fathom function skeleton"
+  },
+  "Fathom schema header": {
+    "scope": "yaml",
+    "prefix": "fathom-schema",
+    "body": [
+      "# yaml-language-server: $schema=https://fathom-rules.dev/reference/yaml/schemas/${1|rule,template,module,function|}.schema.json"
+    ],
+    "description": "Associate this file with a Fathom JSON Schema"
+  }
+}
