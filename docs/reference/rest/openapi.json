@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "AssertFactRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for POST /v1/facts.",
         "properties": {
           "data": {
@@ -39,6 +40,7 @@
         "type": "object"
       },
       "CompileRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for the compile endpoint.",
         "properties": {
           "yaml_content": {
@@ -105,6 +107,7 @@
         "type": "object"
       },
       "EvaluateRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for the evaluate endpoint.",
         "properties": {
           "facts": {
@@ -211,6 +214,7 @@
         "type": "object"
       },
       "FactInput": {
+        "additionalProperties": false,
         "description": "REST API input for a single fact assertion.",
         "properties": {
           "data": {
@@ -262,6 +266,7 @@
         "type": "object"
       },
       "QueryFactsRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for POST /v1/query.",
         "properties": {
           "filter": {
@@ -311,6 +316,7 @@
         "type": "object"
       },
       "RetractFactsRequest": {
+        "additionalProperties": false,
         "description": "REST API request body for DELETE /v1/facts.",
         "properties": {
           "filter": {
@@ -1556,6 +1562,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "description": "Request body for ``POST /v1/rules/reload``.\n\nExactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.\n``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.",
                 "properties": {
                   "ruleset_path": {

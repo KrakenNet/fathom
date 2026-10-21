@@ -23,7 +23,7 @@ except ImportError as _exc:
         "fastapi is required for the REST server. "
         "Install it with: pip install fathom-rules[server]"
     ) from _exc
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 if TYPE_CHECKING:
@@ -718,6 +718,8 @@ class RulesetReloadRequest(BaseModel):
     Exactly one of ``ruleset_path`` / ``ruleset_yaml`` must be supplied.
     ``signature`` is base64-encoded raw 64-byte Ed25519 over the YAML bytes.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     ruleset_path: str | None = None
     ruleset_yaml: str | None = None

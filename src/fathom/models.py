@@ -665,10 +665,14 @@ class AuditRecord(BaseModel):
 
 
 # --- REST Models (Phase 2) ---
+# Request models forbid unknown keys: a misspelled ``sesion_id`` would
+# otherwise be dropped and the call answered statelessly with a 200.
 
 
 class FactInput(BaseModel):
     """REST API input for a single fact assertion."""
+
+    model_config = ConfigDict(extra="forbid")
 
     template: str
     data: dict[str, Any]
@@ -676,6 +680,8 @@ class FactInput(BaseModel):
 
 class EvaluateRequest(BaseModel):
     """REST API request body for the evaluate endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
 
     #: The CLIPS join is quadratic in the number of facts, so the byte cap on
     #: the request body (``FATHOM_MAX_REQUEST_BYTES``) does not bound the CPU
@@ -723,6 +729,8 @@ class EvaluateResponse(BaseModel):
 class AssertFactRequest(BaseModel):
     """REST API request body for POST /v1/facts."""
 
+    model_config = ConfigDict(extra="forbid")
+
     session_id: str
     template: str
     data: dict[str, Any]
@@ -737,6 +745,8 @@ class AssertFactResponse(BaseModel):
 class QueryFactsRequest(BaseModel):
     """REST API request body for POST /v1/query."""
 
+    model_config = ConfigDict(extra="forbid")
+
     session_id: str
     template: str
     filter: dict[str, Any] | None = None
@@ -750,6 +760,8 @@ class QueryFactsResponse(BaseModel):
 
 class RetractFactsRequest(BaseModel):
     """REST API request body for DELETE /v1/facts."""
+
+    model_config = ConfigDict(extra="forbid")
 
     session_id: str
     template: str
@@ -772,6 +784,8 @@ class ErrorResponse(BaseModel):
 
 class CompileRequest(BaseModel):
     """REST API request body for the compile endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
 
     yaml_content: str = Field(max_length=1_000_000)
 

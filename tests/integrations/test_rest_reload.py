@@ -604,3 +604,10 @@ def test_every_reload_refusal_is_audited(
     assert [(r["event_type"], r["reason"]) for r in records] == [
         ("ruleset_reload_rejected", reason)
     ]
+
+
+def test_unknown_key_is_refused(client: TestClient) -> None:
+    """A misspelled field is a 422, not a reload that ignores it."""
+    body = {"ruleset_yaml": _ruleset_yaml("rule-x", "x"), "signatur": "AAAA"}
+    resp = client.post("/v1/rules/reload", json=body, headers=AUTH)
+    assert resp.status_code == 422, resp.text
