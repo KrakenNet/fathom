@@ -24,7 +24,7 @@ from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, Va
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
 from fathom.metrics import MetricsCollector
-from fathom.models import Activation, HierarchyDefinition, RuleMatches
+from fathom.models import ActionType, Activation, HierarchyDefinition, RuleMatches
 from fathom.yaml_utils import safe_load, unknown_top_level_keys
 
 if TYPE_CHECKING:
@@ -247,9 +247,10 @@ class Engine:
         """Initialise a new Engine instance.
 
         Args:
-            default_decision: Decision returned when no rule fires.
-                Defaults to ``"deny"`` (fail-closed). Set to ``None``
-                to leave the decision unset.
+            default_decision: Decision returned when no rule fires: one of
+                the rule actions (``allow``, ``deny``, ``escalate``,
+                ``scope``, ``route``). Defaults to ``"deny"`` (fail-closed).
+                Set to ``None`` to leave the decision unset.
             audit_sink: Pluggable sink for audit records. Defaults to
                 :class:`NullSink` (no-op).
             session_id: Optional session identifier. A random UUID is
@@ -264,12 +265,16 @@ class Engine:
                 fire before :meth:`evaluate` gives up and raises
                 :class:`~fathom.errors.EvaluationLimitError`. ``None``
                 runs to quiescence with no budget. Defaults to
-                ``100_000``.
+                ``100_000``. Must not be negative.
             match_evidence: Record which facts, with which slot values,
                 fired each rule (:attr:`EvaluationResult.match_evidence`).
                 Off by default: it makes the compiler bind a pattern
                 address to every condition and assert an extra fact per
                 firing, so leaving it off costs nothing at all.
+
+        Raises:
+            ValueError: If *default_decision* is not a rule action or
+                *run_limit* is negative.
 
         Note:
             Engine is thread-safe: every public method serialises on an
@@ -278,6 +283,14 @@ class Engine:
             serialise — CLIPS has one environment and one agenda, so that
             is correctness rather than a regression.
         """
+        decisions = [action.value for action in ActionType]
+        if default_decision is not None and default_decision not in decisions:
+            raise ValueError(
+                f"default_decision must be one of {decisions} or None, got {default_decision!r}"
+            )
+        # A negative budget made CLIPS run unbounded while 0 refused any firing.
+        if run_limit is not None and run_limit < 0:
+            raise ValueError(f"run_limit must be >= 0 or None, got {run_limit}")
         # Re-entrant: public methods call one another (evaluate_once ->
         # evaluate, load_modules -> set_focus), so a plain Lock would
         # self-deadlock on the nested call.
@@ -942,8 +955,10 @@ class Engine:
             # integrations/ruleset_sig.py (raw bytes, sorted by path).
             loaded_bytes: list[bytes] = []
             for file in files:
-                file_bytes = file.read_bytes()
+                # Parse first: it raises CompilationError on a missing file,
+                # as every sibling loader does, where read_bytes would not.
                 ruleset = self._compiler.parse_rule_file(file)
+                file_bytes = file.read_bytes()
 
                 # Validate that the referenced module is registered
                 if ruleset.module not in self._module_registry:
