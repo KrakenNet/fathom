@@ -16,7 +16,7 @@ last_verified: 2026-04-15
  Start an interactive REPL session.                                             
                                                                                 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --rules  -r      PATH  Path to a rule pack directory to load.                │
-│ --help                 Show this message and exit.                           │
+│ --rules  -r      DIRECTORY  Path to a rule pack directory to load.           │
+│ --help                      Show this message and exit.                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```

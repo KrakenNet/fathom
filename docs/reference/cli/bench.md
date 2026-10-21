@@ -16,14 +16,14 @@ last_verified: 2026-04-15
  Benchmark rule evaluation latency.                                             
                                                                                 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
-│ *    rules_path      PATH  Path to a rule pack directory. [required]         │
+│ *    rules_path      DIRECTORY  Path to a rule pack directory. [required]    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --iterations  -n      INTEGER  Number of evaluation iterations.              │
-│                                [default: 1000]                               │
-│ --warmup      -w      INTEGER  Number of warmup iterations (excluded from    │
-│                                results).                                     │
-│                                [default: 100]                                │
-│ --help                         Show this message and exit.                   │
+│ --iterations  -n      INTEGER RANGE [x>=1]  Number of evaluation iterations. │
+│                                             [default: 1000]                  │
+│ --warmup      -w      INTEGER RANGE [x>=0]  Number of warmup iterations      │
+│                                             (excluded from results).         │
+│                                             [default: 100]                   │
+│ --help                                      Show this message and exit.      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```

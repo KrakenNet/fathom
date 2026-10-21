@@ -169,6 +169,24 @@ Two options tune the run:
 fathom bench examples/04-temporal-anomaly -n 5000 -w 500
 ```
 
+`-n` must be at least 1 and `-w` at least 0; anything lower is a usage
+error (exit 2).
+
+## verify-artifact
+
+Verify a release artifact's detached minisign signature. By default the
+signature is `<artifact>.minisig` and the key is the release public key
+bundled with Fathom; `--sig` and `--pubkey` override either.
+
+```shell
+fathom verify-artifact fathom_rules-1.0.0-py3-none-any.whl
+```
+
+It prints `ok: signature valid` and exits 0, exits 1 when the signature
+does not match, 2 when the artifact, signature or key is missing, and 3
+when the signature or key is malformed. See
+[release signing](release-signing.md) for producing the signature.
+
 ## verify-chain
 
 Offline-verify a hash-chained attestation log: every line's JWS
@@ -204,11 +222,28 @@ the log or key file cannot be read — a file that is not a parseable PEM
 counts as a key that cannot be read, and reports that rather than raising.
 It exits 3 when the key is a valid PEM but not an Ed25519 key.
 
+## status
+
+Ask a running Fathom server which ruleset it has loaded, through
+`GET /v1/status`.
+
+```shell
+fathom status --server http://127.0.0.1:8080 --token "$FATHOM_TOKEN"
+```
+
+It prints `ruleset_hash`, `version` and `loaded_at`; `--json` prints the
+response body as JSON instead. `--token` defaults to the `FATHOM_TOKEN`
+environment variable. It exits 1 when the server cannot be reached,
+answers anything but 200, or answers with something other than a JSON
+object.
+
 ## mcp
 
 Serve the Fathom MCP tools over stdio, backed by one rule pack. Needs the
-`mcp` extra. The pack is compiled first, so a broken pack exits 1 before
-the server starts; after that, stdout belongs to the MCP protocol.
+`mcp` extra; without it the command exits 3 and names the extra. The
+argument is a pack directory. The pack is compiled first, so a broken pack
+exits 1 and an empty directory exits 2 before the server starts; after
+that, stdout belongs to the MCP protocol.
 
 ```shell
 fathom mcp examples/01-hello-allow-deny

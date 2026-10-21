@@ -16,8 +16,8 @@ last_verified: 2026-04-15
  Serve the Fathom MCP tools over stdio (requires the `mcp` extra).              
                                                                                 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
-│ *    rules      PATH  Path to a rule pack directory or file to serve.        │
-│                       [required]                                             │
+│ *    rules      DIRECTORY  Path to a rule pack directory to serve.           │
+│                            [required]                                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --help          Show this message and exit.                                  │

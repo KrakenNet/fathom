@@ -17,15 +17,12 @@ from importlib.metadata import entry_points
 from pathlib import Path  # noqa: TC003 - used at runtime by Typer
 from typing import TYPE_CHECKING, Any
 
-import httpx
 import yaml
 
 from fathom.compiler import Compiler
 from fathom.engine import _PREAMBLE, Engine
-from fathom.errors import CompilationError, ValidationError
+from fathom.errors import CompilationError
 from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
-from fathom.release_sig import ReleaseSigError
-from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import (
     file_kind,
     safe_load,
@@ -38,13 +35,24 @@ from fathom.yaml_utils import (
 if TYPE_CHECKING:
     from fathom.models import TemplateDefinition
 
+# Every third-party module the `cli` extra provides, imported before anything
+# else can fail: the `fathom` script is installed with every extra, and a
+# missing one used to surface as a ModuleNotFoundError traceback.
 try:
+    import httpx
     import typer
-except ImportError:
-    _TYPER_MISSING_MSG = (
-        "Typer is required for the Fathom CLI. Install it with: pip install fathom-rules[cli]"
+
+    from fathom.release_sig import ReleaseSigError
+    from fathom.release_sig import verify_artifact as _verify_artifact
+except ImportError as _exc:
+    import sys
+
+    print(
+        f"Error: the Fathom CLI needs the `cli` extra ({_exc}). "
+        "Install it with: pip install 'fathom-rules[cli]'",
+        file=sys.stderr,
     )
-    raise SystemExit(_TYPER_MISSING_MSG)  # noqa: B904
+    raise SystemExit(3) from None
 
 try:
     from rich.console import Console as RichConsole
@@ -63,6 +71,7 @@ _EXIT_SUCCESS = 0
 _EXIT_ERROR = 1
 _EXIT_NOT_FOUND = 2
 _EXIT_MALFORMED = 3
+_EXIT_MISSING_DEPENDENCY = 3  # an optional extra or the `opa` binary
 
 app = typer.Typer(name="fathom", help="Fathom reasoning runtime CLI.")
 
@@ -100,6 +109,31 @@ def _compilation_error_text(exc: CompilationError) -> str:
     if exc.detail:
         return f"{exc}\n  {exc.detail}"
     return str(exc)
+
+
+def _load_engine(path: Path, command: str) -> Engine:
+    """Load the rule pack at *path* the same way for every command.
+
+    Each command used to map load failures itself, so the same broken pack
+    exited 1 from one command and 3 from another, an empty directory served
+    an empty engine from `info`, `bench` and `mcp` while `validate` refused
+    it, and an error outside the expected types escaped as a traceback.
+    """
+    if not _collect_yaml_files(path):
+        _print_error(f"[fathom.cli] {command} failed: no YAML files found under {path}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND)
+    try:
+        return Engine.from_rules(str(path))
+    except CompilationError as exc:
+        msg = f"compilation error loading rules from {path}: {_compilation_error_text(exc)}"
+        _print_error(f"[fathom.cli] {command} failed: {msg}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
+    except OSError as exc:
+        _print_error(f"[fathom.cli] {command} failed: cannot read rule pack at {path}: {exc}")
+        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+    except Exception as exc:
+        _print_error(f"[fathom.cli] {command} failed: error loading rules from {path}: {exc}")
+        raise typer.Exit(code=_EXIT_ERROR) from exc
 
 
 def _version_callback(value: bool) -> None:
@@ -526,21 +560,11 @@ def info(
         ...,
         help="Path to a rule pack directory to inspect.",
         exists=True,
+        file_okay=False,
     ),
 ) -> None:
     """Load a rule pack and display loaded constructs."""
-    try:
-        engine = Engine.from_rules(str(path))
-    except CompilationError as exc:
-        msg = f"compilation error loading rules from {path}: {_compilation_error_text(exc)}"
-        _print_error(f"[fathom.cli] info failed: {msg}")
-        raise typer.Exit(code=_EXIT_ERROR) from exc
-    except OSError as exc:
-        _print_error(f"[fathom.cli] info failed: cannot read rule pack at {path}: {exc}")
-        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
-    except Exception as exc:
-        _print_error(f"[fathom.cli] info failed: error loading rules from {path}: {exc}")
-        raise typer.Exit(code=_EXIT_ERROR) from exc
+    engine = _load_engine(path, "info")
 
     # Templates
     templates = engine.template_registry
@@ -587,6 +611,7 @@ def test(
         ...,
         help="Path to a rule pack directory.",
         exists=True,
+        file_okay=False,
     ),
     test_path: Path = typer.Argument(  # noqa: B008
         ...,
@@ -596,19 +621,7 @@ def test(
 ) -> None:
     """Run YAML test cases against a rule pack."""
     try:
-        # Load engine from rules path
-        try:
-            engine = Engine.from_rules(str(rules_path))
-        except CompilationError as exc:
-            msg = (
-                f"compilation error loading rules from {rules_path}: "
-                f"{_compilation_error_text(exc)}"
-            )
-            _print_error(f"[fathom.cli] test failed: {msg}")
-            raise typer.Exit(code=_EXIT_ERROR) from exc
-        except OSError as exc:
-            _print_error(f"[fathom.cli] test failed: cannot read rule pack at {rules_path}: {exc}")
-            raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+        engine = _load_engine(rules_path, "test")
 
         # Collect test files
         test_files = _collect_yaml_files(test_path)
@@ -693,36 +706,26 @@ def bench(
         ...,
         help="Path to a rule pack directory.",
         exists=True,
+        file_okay=False,
     ),
     iterations: int = typer.Option(  # noqa: B008
         1000,
         "--iterations",
         "-n",
+        min=1,
         help="Number of evaluation iterations.",
     ),
     warmup: int = typer.Option(  # noqa: B008
         100,
         "--warmup",
         "-w",
+        min=0,
         help="Number of warmup iterations (excluded from results).",
     ),
 ) -> None:
     """Benchmark rule evaluation latency."""
     try:
-        # Load engine from rules path
-        try:
-            engine = Engine.from_rules(str(rules_path))
-        except CompilationError as exc:
-            msg = (
-                f"compilation error loading rules from {rules_path}: "
-                f"{_compilation_error_text(exc)}"
-            )
-            _print_error(f"[fathom.cli] bench failed: {msg}")
-            raise typer.Exit(code=_EXIT_ERROR) from exc
-        except OSError as exc:
-            msg = f"cannot read rule pack at {rules_path}: {exc}"
-            _print_error(f"[fathom.cli] bench failed: {msg}")
-            raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+        engine = _load_engine(rules_path, "bench")
 
         # Warmup
         typer.echo(f"Warming up ({warmup} iterations)...")
@@ -930,6 +933,11 @@ def status(
         envvar="FATHOM_TOKEN",
         help="Optional bearer token (defaults to FATHOM_TOKEN env var).",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Print the status response as JSON.",
+    ),
 ) -> None:
     """Query a Fathom server's GET /v1/status endpoint."""
     url = f"{server.rstrip('/')}/v1/status"
@@ -954,7 +962,13 @@ def status(
     except ValueError as exc:
         _print_error(f"[fathom.cli] status failed: invalid JSON response: {exc}")
         raise typer.Exit(code=_EXIT_ERROR) from exc
+    if not isinstance(data, dict):
+        _print_error(f"[fathom.cli] status failed: response is not a JSON object: {data!r}")
+        raise typer.Exit(code=_EXIT_ERROR)
 
+    if json_output:
+        typer.echo(json.dumps(data, indent=2))
+        return
     typer.echo(f"ruleset_hash: {data.get('ruleset_hash')}")
     typer.echo(f"version:      {data.get('version')}")
     typer.echo(f"loaded_at:    {data.get('loaded_at')}")
@@ -1068,23 +1082,14 @@ def repl(
         "-r",
         help="Path to a rule pack directory to load.",
         exists=True,
+        file_okay=False,
     ),
 ) -> None:
     """Start an interactive REPL session."""
     try:
         if rules:
-            try:
-                engine = Engine.from_rules(str(rules))
-                _print_success(f"Loaded rules from {rules}")
-            except CompilationError as exc:
-                msg = (
-                    f"compilation error loading rules from {rules}: {_compilation_error_text(exc)}"
-                )
-                _print_error(f"[fathom.cli] repl failed: {msg}")
-                raise typer.Exit(code=_EXIT_ERROR) from exc
-            except OSError as exc:
-                _print_error(f"[fathom.cli] repl failed: cannot read rule pack at {rules}: {exc}")
-                raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+            engine = _load_engine(rules, "repl")
+            _print_success(f"Loaded rules from {rules}")
         else:
             engine = Engine()
 
@@ -1100,8 +1105,9 @@ def repl(
 def mcp(
     rules: Path = typer.Argument(  # noqa: B008
         ...,
-        help="Path to a rule pack directory or file to serve.",
+        help="Path to a rule pack directory to serve.",
         exists=True,
+        file_okay=False,
     ),
 ) -> None:
     """Serve the Fathom MCP tools over stdio (requires the `mcp` extra)."""
@@ -1109,19 +1115,14 @@ def mcp(
         from fathom.integrations.mcp_server import FathomMCPServer
 
         server = FathomMCPServer(str(rules))
-        # Load the pack now, so a broken one fails here with an exit code
-        # instead of on the client's first tool call.
-        server._get_engine()
     except ImportError as exc:
-        _print_error(f"[fathom.cli] mcp failed: {exc}")
-        raise typer.Exit(code=_EXIT_ERROR) from exc
-    except CompilationError as exc:
-        msg = f"compilation error loading rules from {rules}: {_compilation_error_text(exc)}"
-        _print_error(f"[fathom.cli] mcp failed: {msg}")
-        raise typer.Exit(code=_EXIT_ERROR) from exc
-    except OSError as exc:
-        _print_error(f"[fathom.cli] mcp failed: cannot read rule pack at {rules}: {exc}")
-        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+        _print_error(
+            f"[fathom.cli] mcp failed: {exc}. Install it with: pip install 'fathom-rules[mcp]'"
+        )
+        raise typer.Exit(code=_EXIT_MISSING_DEPENDENCY) from exc
+    # Load the pack now, so a broken one fails here with an exit code instead
+    # of on the client's first tool call.
+    server._engine = _load_engine(rules, "mcp")
     # stdout is the MCP channel from here on: print nothing else to it.
     server.run()
 
@@ -1221,14 +1222,7 @@ def convert_to_rego(
     of Fathom that Rego has no counterpart for, and writing them out as
     something Rego accepts would mean writing a different policy.
     """
-    try:
-        engine = Engine.from_rules(str(ruleset))
-    except CompilationError as exc:
-        _print_error(f"[fathom.cli] export failed: {_compilation_error_text(exc)}")
-        raise typer.Exit(code=_EXIT_MALFORMED) from exc
-    except (OSError, ValidationError) as exc:
-        _print_error(f"[fathom.cli] export failed: cannot load {ruleset}: {exc}")
-        raise typer.Exit(code=_EXIT_NOT_FOUND) from exc
+    engine = _load_engine(ruleset, "export")
 
     try:
         result = export_engine(engine, package=package)

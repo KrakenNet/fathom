@@ -22,6 +22,7 @@ last_verified: 2026-04-15
 │    --token         TEXT  Optional bearer token (defaults to FATHOM_TOKEN env │
 │                          var).                                               │
 │                          [env var: FATHOM_TOKEN]                             │
+│    --json                Print the status response as JSON.                  │
 │    --help                Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
