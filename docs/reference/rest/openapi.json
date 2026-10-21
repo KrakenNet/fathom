@@ -11,6 +11,7 @@
             "type": "object"
           },
           "session_id": {
+            "maxLength": 128,
             "title": "Session Id",
             "type": "string"
           },
@@ -125,6 +126,7 @@
           "session_id": {
             "anyOf": [
               {
+                "maxLength": 128,
                 "type": "string"
               },
               {
@@ -282,6 +284,7 @@
             "title": "Filter"
           },
           "session_id": {
+            "maxLength": 128,
             "title": "Session Id",
             "type": "string"
           },
@@ -332,6 +335,7 @@
             "title": "Filter"
           },
           "session_id": {
+            "maxLength": 128,
             "title": "Session Id",
             "type": "string"
           },
@@ -1097,6 +1101,7 @@
             "name": "X-Session-Id",
             "required": true,
             "schema": {
+              "maxLength": 128,
               "type": "string"
             }
           }
@@ -1327,6 +1332,7 @@
             "name": "X-Session-Id",
             "required": true,
             "schema": {
+              "maxLength": 128,
               "type": "string"
             }
           }
@@ -1625,6 +1631,7 @@
             "name": "X-Session-Id",
             "required": true,
             "schema": {
+              "maxLength": 128,
               "type": "string"
             }
           }

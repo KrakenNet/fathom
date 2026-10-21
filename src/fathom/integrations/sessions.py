@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 # session_id per request leaks until the process is OOM-killed.
 DEFAULT_TTL_SECONDS = 1800
 DEFAULT_MAX_SESSIONS = 1000
+# A session id is a dict key held for the session's lifetime; without a cap
+# a caller pins a body-sized id in memory once per session.
+MAX_SESSION_ID_LENGTH = 128
 
 
 class SessionError(Exception):

@@ -53,6 +53,7 @@ from fathom.errors import ValidationError as FathomValidationError
 from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.integrations.sessions import (
+    MAX_SESSION_ID_LENGTH,
     SessionLimitError,
     SessionRulesetMismatchError,
     SessionStore,
@@ -364,7 +365,12 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 # session contract instead of FastAPI's 422. Declare it here instead.
 _SESSION_HEADER = {
     "parameters": [
-        {"name": "X-Session-Id", "in": "header", "required": True, "schema": {"type": "string"}}
+        {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": True,
+            "schema": {"type": "string", "maxLength": MAX_SESSION_ID_LENGTH},
+        }
     ]
 }
 
@@ -532,6 +538,11 @@ def _require_session_id(request: Request) -> str:
     x_session_id = request.headers.get("X-Session-Id")
     if not x_session_id:
         raise HTTPException(status_code=400, detail="X-Session-Id header required")
+    if len(x_session_id) > MAX_SESSION_ID_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"X-Session-Id longer than {MAX_SESSION_ID_LENGTH} characters",
+        )
     return x_session_id
 
 

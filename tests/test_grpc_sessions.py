@@ -15,7 +15,7 @@ import grpc
 import pytest
 
 from fathom.integrations.grpc_server import FathomServicer
-from fathom.integrations.sessions import SessionStore
+from fathom.integrations.sessions import MAX_SESSION_ID_LENGTH, SessionStore
 
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples" / "01-hello-allow-deny"
 
@@ -96,6 +96,15 @@ class TestGrpcSessionBounds:
             _evaluate(svc, ctx, "strict", "s2")
         assert ctx.aborted is not None
         assert ctx.aborted[0] is grpc.StatusCode.RESOURCE_EXHAUSTED
+
+    def test_overlong_session_id_aborts_invalid_argument(self, ruleset_root: Path) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+        with pytest.raises(RuntimeError, match="aborted"):
+            _evaluate(svc, ctx, "strict", "s" * (MAX_SESSION_ID_LENGTH + 1))
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+        assert svc._session_store.get("s" * (MAX_SESSION_ID_LENGTH + 1)) is None
 
     def test_expired_sessions_are_reclaimed(self, ruleset_root: Path) -> None:
         svc = FathomServicer()

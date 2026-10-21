@@ -38,6 +38,7 @@ from fathom.errors import (
 from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.integrations.sessions import (
+    MAX_SESSION_ID_LENGTH,
     SessionError,
     SessionLimitError,
     SessionNotFoundError,
@@ -172,6 +173,14 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
                 grpc.StatusCode.INVALID_ARGUMENT,
                 "session_id required: working memory is per session; "
                 "create one with Evaluate first",
+            )
+            raise  # unreachable; abort raises
+        if len(session_id) > MAX_SESSION_ID_LENGTH:
+            if context is None:
+                raise SessionError("session_id too long")
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"session_id longer than {MAX_SESSION_ID_LENGTH} characters",
             )
             raise  # unreachable; abort raises
         if self._mounts_engine:
