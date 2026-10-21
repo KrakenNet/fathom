@@ -52,6 +52,9 @@ updates:
       - "/packages/fathom-ts"
     schedule:
       interval: "weekly"
+    # Security updates only: 0 turns off routine version bumps for this
+    # dev-only toolchain but leaves Dependabot security PRs on.
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
     cooldown:

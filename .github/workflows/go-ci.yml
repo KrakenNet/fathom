@@ -1,9 +1,7 @@
 name: go-ci
 
-# No path filter on pull_request: go-test/integration are required status
-# checks for branch protection (dependabot auto-merge waits on them). A
-# path-filtered required check never reports on non-matching PRs, which
-# would block merging forever.
+# Pull requests that do not touch this SDK skip its jobs (see `changes`).
+
 on:
   pull_request:
   push:
@@ -11,6 +9,9 @@ on:
     paths:
       - "protos/**"
       - "packages/fathom-go/**"
+      - "src/fathom/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/go-ci.yml"
   workflow_dispatch: {}
 
@@ -42,17 +43,16 @@ jobs:
         id: filter
         with:
           filters: |
-            # True when the PR changes anything that isn't pure documentation.
-            # Negation-only failure mode is safe: if dorny ignored the ``!`` patterns,
-            # ``**`` matches everything → ``code`` stays true → jobs run anyway. They
-            # only skip when every changed file is docs/markdown. ``docs`` (docs.yml)
-            # is intentionally NOT gated — it must run on docs-only PRs.
+            # Required checks still report when skipped (a skipped job
+            # counts as passing), so filtering here never blocks a merge.
             code:
-              - '**'
-              - '!**/*.md'
-              - '!docs/**'
-              - '!mkdocs.yml'
-              - '!LICENSE'
+              - 'protos/**'
+              - 'packages/fathom-go/**'
+              # integration runs the Go client against the live Python server.
+              - 'src/fathom/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/go-ci.yml'
 
   test:
     name: go-test
