@@ -69,6 +69,7 @@ RuleDefinition`):
 | `fathom.attestation` | Ed25519 signing and token verification |
 | `fathom.chained_log` | The hash-chained attestation log and its verifier |
 | `fathom.packs` | `RulePackLoader`, which `Engine.load_pack` and `Engine.load_pack_dir` use |
+| `fathom.compiler` | `Compiler`, the YAML parsers (`parse_*_file`, `parse_function_bundle`) and `compile_*` methods the engine loads with; the CLIPS text they return is not covered (see below) |
 | `fathom.rego` | The Rego converter and exporter behind `fathom convert rego` and `fathom export rego` |
 | `fathom.fleet_redis` | `RedisFactStore` (needs the `fleet` extra) |
 | `fathom.fleet_pg` | `PostgresFactStore` (needs the `fleet-pg` extra) |
