@@ -207,8 +207,9 @@ class Compiler:
             A CLIPS defrule string.
 
         Raises:
-            CompilationError: If rule name is empty, has no conditions, or
-                a condition expression uses an unsupported operator.
+            CompilationError: If rule name is empty, has no conditions,
+                a condition expression uses an unsupported operator, or an
+                ``assert`` targets a fleet-scoped template in *templates*.
         """
         if not defn.name:
             raise CompilationError(
@@ -571,6 +572,18 @@ class Compiler:
             slot_types: dict[str, SlotType] = {}
             if templates is not None:
                 tmpl_def = templates.get(spec.template)
+                if tmpl_def is not None and tmpl_def.scope == "fleet":
+                    # A rule's assert lands in the one session that fired it
+                    # and never reaches the shared FactStore, so the node
+                    # would silently diverge from its peers.
+                    raise CompilationError(
+                        "[fathom.compiler] compile rule failed: "
+                        f"rule {rule_name!r} asserts into fleet-scoped template "
+                        f"'{spec.template}'; a rule's assert stays in the one session "
+                        "that fired it and never reaches the shared FactStore. Assert "
+                        "a session-scoped fact and publish it with FleetEngine.assert_fact.",
+                        construct=f"rule:{rule_name}",
+                    )
                 if tmpl_def is not None:
                     slot_types = {slot.name: slot.type for slot in tmpl_def.slots}
             slot_parts = [

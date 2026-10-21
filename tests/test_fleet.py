@@ -542,6 +542,45 @@ class TestFleetEngineValidateBeforeWrite:
         assert len(await store.query("shared_status")) == 1
 
 
+class TestFleetStoreHoldsTheValidatedFact:
+    """The store row must equal the fact the engine accepted."""
+
+    @pytest.mark.asyncio
+    async def test_defaults_and_coercion_reach_the_store(self, tmp_path: Path) -> None:
+        """The raw caller dict was written, so `query(filter)` disagreed with rules.
+
+        A defaulted slot was missing from the store row, and a value the
+        engine coerced (int 123 -> "123" for a STRING slot) kept its original
+        type there, so peers synced, and queries filtered, on different
+        values than this node's rules saw.
+        """
+        from fathom.models import SlotDefinition, SlotType, TemplateDefinition
+
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        store = InMemoryFactStore()
+        fleet = FleetEngine(fact_store=store, rules_path=str(rules_dir))
+        engine = fleet.create_session("A")
+        engine._template_registry["beat"] = TemplateDefinition(
+            name="beat",
+            scope="fleet",
+            slots=[
+                SlotDefinition(name="agent", type=SlotType.STRING, required=True),
+                SlotDefinition(name="n", type=SlotType.INTEGER, default=0),
+            ],
+        )
+        engine._safe_build(
+            "(deftemplate beat (slot agent (type STRING)) (slot n (type INTEGER)))",
+            context="beat",
+        )
+
+        await fleet.assert_fact("A", "beat", {"agent": 123})
+
+        assert engine.query("beat") == [{"agent": "123", "n": 0}]
+        assert len(await fleet.query("beat", {"agent": "123", "n": 0})) == 1
+        assert await fleet.query("beat", {"agent": 123}) == []
+
+
 class TestFleetScopeGuardIsSymmetric:
     """`retract` must refuse a fleet template just as `assert_fact` does."""
 
@@ -560,6 +599,35 @@ class TestFleetScopeGuardIsSymmetric:
 
         # Refused, not partially applied.
         assert engine.query("shared_status") == [{"status": "online"}]
+
+    @pytest.mark.parametrize("entry", ["assert_facts", "step"])
+    def test_batch_assert_of_a_fleet_fact_is_refused(self, entry: str) -> None:
+        """`assert_facts` and `step(facts=)` must guard like `assert_fact`.
+
+        They did not: the fleet fact landed in this node's working memory
+        only, never reached the store, and the node silently diverged from
+        its peers. The guard covers the whole batch before anything is
+        asserted, so a session-scoped fact earlier in the list is not left
+        behind either.
+        """
+        from fathom.engine import Engine
+        from fathom.errors import ScopeError
+        from fathom.models import TemplateDefinition
+
+        engine = Engine()
+        _seed_shared_status(engine)
+        engine._template_registry["note"] = TemplateDefinition(name="note", slots=[])
+        engine._safe_build("(deftemplate note)", context="note")
+        batch: list[tuple[str, dict[str, Any]]] = [
+            ("note", {}),
+            ("shared_status", {"status": "online"}),
+        ]
+
+        with pytest.raises(ScopeError, match="fleet-scoped"):
+            getattr(engine, entry)(batch)
+
+        assert engine.query("shared_status") == []
+        assert engine.query("note") == []
 
 
 class TestSyncFleetFactsResilience:
