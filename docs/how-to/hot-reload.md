@@ -157,11 +157,12 @@ Content-Type: application/json
 
 Request body — supply **exactly one** of `ruleset_path` or
 `ruleset_yaml`; `signature` is required in production (fail-closed
-default):
+default). `ruleset_path` is relative to `FATHOM_RULESET_ROOT`; an absolute
+path or one that escapes the root is refused with 400:
 
 ```json
 {
-  "ruleset_path": "/etc/fathom/rulesets/prod-2026-04-22.yaml",
+  "ruleset_path": "prod/rules/access.yaml",
   "signature":    "<base64 Ed25519 over the raw YAML bytes>"
 }
 ```
@@ -171,7 +172,7 @@ on the Fathom host:
 
 ```json
 {
-  "ruleset_yaml": "rules:\n  - id: ...\n",
+  "ruleset_yaml": "ruleset: prod\nmodule: gov\nrules:\n  - name: ...\n",
   "signature":    "<base64 Ed25519 over the ruleset_yaml bytes>"
 }
 ```
@@ -189,19 +190,23 @@ Response (200):
 Error codes:
 
 - `400 invalid_request` — both or neither of `ruleset_path` /
-  `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
-  not valid base64; ruleset failed to compile. Each emits
-  `ruleset_reload_rejected` to the audit sink.
+  `ruleset_yaml` supplied; `ruleset_path` outside the root or
+  unreadable; `signature` is not valid base64.
+- `400 invalid_ruleset` — the ruleset failed to compile.
 - `400 unsigned_ruleset` — `require_signature=true` (the default) and
   either `signature` is missing or Ed25519 verification failed. Also
   emits `ruleset_reload_rejected` to the audit sink.
 - `413 payload_too_large` — the request body exceeds the reload size
   cap (see below). Enforced before any YAML parsing.
+- `422 validation_error` — the body is not a valid request object.
 - `500 server_misconfigured` — `require_signature=true` but the
   pubkey never loaded (should have failed at boot; treated as
   defence-in-depth).
 - `503 not_ready` — engine or attestation service not yet configured
-  on `app.state`.
+  on `app.state`. Checked first, and the only refusal that is not
+  audited (there is no engine to report a hash for).
+
+Every other refusal emits `ruleset_reload_rejected` to the audit sink.
 
 ## Admin token, body size cap, and rate limiting
 
@@ -407,8 +412,9 @@ configured audit sink. Successful reloads emit:
 Every rejected reload emits `event_type: ruleset_reload_rejected` with a
 `reason` field and the *unchanged* `ruleset_hash_before`. The reasons are
 `missing_signature`, the verification failure text, `compile_failed`,
-`unreadable_ruleset_path`, `malformed_signature`, `invalid_request` (both or
-neither source named), and `server_misconfigured`. Both transports emit them;
+`unreadable_ruleset_path`, `path_rejected`, `malformed_signature`,
+`invalid_request` (both or neither source named), `payload_too_large`,
+`validation_error`, and `server_misconfigured`. Both transports emit them;
 neither returns the compiler's diagnostic or the resolved server-side path to
 the caller, so the audit sink is where an operator reads what happened.
 
