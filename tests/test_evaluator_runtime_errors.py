@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from fathom.engine import Engine
-from fathom.errors import EvaluationError
+from fathom.errors import CompilationError, EvaluationError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -138,8 +138,6 @@ def test_a_reported_error_is_not_reported_again(tmp_path: Path) -> None:
 
 
 def test_an_invalid_regex_fails_at_load(tmp_path: Path) -> None:
-    from fathom.errors import CompilationError
-
     bad = _OVERSIZED_INPUT.replace("matches(^evil)", "matches([)")
     with pytest.raises(CompilationError, match="invalid regex"):
         _engine(tmp_path, bad)

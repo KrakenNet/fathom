@@ -113,16 +113,29 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         self._require_signature = require_signature
 
     def _engine_for(self, session_id: str, ruleset: str = "", context: Any = None) -> Engine:
-        """Resolve engine: session-scoped or default.
+        """Resolve the session's engine.
 
-        Session-store rejections are mapped onto gRPC status: addressing a
+        Every RPC but a session-less Evaluate needs a session. AssertFact,
+        Query, Retract and SubscribeChanges read or change working memory,
+        and without a session they used to reach the default engine -- the
+        mounted, served policy -- so one caller's AssertFact or Retract
+        changed every later caller's Evaluate. An empty ``session_id`` is
+        ``INVALID_ARGUMENT``, as REST answers 400 ``X-Session-Id header
+        required``. Session-store rejections are mapped onto gRPC status: addressing a
         live session with a different ruleset is ``FAILED_PRECONDITION``
         (answering it out of the bound Engine would evaluate the request
         under the wrong policy), and the session ceiling is
         ``RESOURCE_EXHAUSTED``.
         """
         if not session_id:
-            return self._default_engine
+            if context is None:
+                raise SessionError("session_id required")
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "session_id required: working memory is per session; "
+                "create one with Evaluate first",
+            )
+            raise  # unreachable; abort raises
         if self._mounts_engine:
             # A session needs its own working memory -- AssertFact accumulates
             # into it -- so it cannot be the mounted engine without every
@@ -178,23 +191,6 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, f"session_limit_exceeded: {exc}")
             raise  # unreachable; abort raises
 
-    def _session_engine(self, session_id: str, context: Any) -> Engine:
-        """Resolve the engine for a working-memory RPC, which needs a session.
-
-        AssertFact, Query, Retract and SubscribeChanges read or change working
-        memory. Without a session they reached the default engine -- the
-        mounted, served policy -- so one caller's AssertFact or Retract changed
-        every later caller's Evaluate. REST refuses the same calls with 400
-        ``X-Session-Id header required``.
-        """
-        if not session_id:
-            context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT,
-                "session_id required: working memory is per session; "
-                "create one with Evaluate first",
-            )
-        return self._engine_for(session_id, context=context)
-
     def _check_auth(self, context: Any) -> None:
         """Abort the RPC if the caller did not present a valid data-plane token."""
         md = dict(context.invocation_metadata())
@@ -248,7 +244,13 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             getattr(request, "ruleset", ""),
             context,
         )
-        engine = self._engine_for(request.session_id, ruleset, context)
+        # Session-less Evaluate is request-scoped (evaluate_once), so it may
+        # use the default engine; nothing it asserts outlives the call.
+        engine = (
+            self._engine_for(request.session_id, ruleset, context)
+            if request.session_id
+            else self._default_engine
+        )
 
         facts: list[tuple[str, dict[str, Any]]] = [
             (fact.template, json.loads(fact.data_json)) for fact in request.facts
@@ -291,7 +293,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.AssertFactResponse:
         """Assert a single fact into working memory."""
         self._check_auth(context)
-        engine = self._session_engine(request.session_id, context)
+        engine = self._engine_for(request.session_id, context=context)
         data = json.loads(request.data_json)
         engine.assert_fact(request.template, data)
         return fathom_pb2.AssertFactResponse(success=True)
@@ -303,7 +305,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.QueryResponse:
         """Query working memory for matching facts."""
         self._check_auth(context)
-        engine = self._session_engine(request.session_id, context)
+        engine = self._engine_for(request.session_id, context=context)
 
         fact_filter: dict[str, Any] | None = None
         if request.filter_json:
@@ -319,7 +321,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
     ) -> fathom_pb2.RetractResponse:
         """Retract facts matching template and optional filter."""
         self._check_auth(context)
-        engine = self._session_engine(request.session_id, context)
+        engine = self._engine_for(request.session_id, context=context)
 
         fact_filter: dict[str, Any] | None = None
         if request.filter_json:
@@ -358,7 +360,7 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         will not appear here -- :class:`Engine` is in-process state.
         """
         self._check_auth(context)
-        engine = self._session_engine(request.session_id, context)
+        engine = self._engine_for(request.session_id, context=context)
 
         # 1024 events ~= a few hundred KB of buffer. Generous for
         # interactive subscribers; truncates rather than OOMs the

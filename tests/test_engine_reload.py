@@ -9,6 +9,7 @@ their responses and in the signed audit attestation.
 
 from __future__ import annotations
 
+import sys
 import threading
 from typing import TYPE_CHECKING
 
@@ -454,8 +455,6 @@ def test_unsigned_reload_does_not_need_cryptography(
     ``cryptography`` ships with the ``attestation`` and ``cli`` extras, not the
     core package. Only a signed reload needs it.
     """
-    import sys
-
     monkeypatch.setitem(sys.modules, "cryptography", None)
     monkeypatch.delitem(sys.modules, "fathom.integrations.ruleset_sig", raising=False)
     _write_pack(tmp_path)

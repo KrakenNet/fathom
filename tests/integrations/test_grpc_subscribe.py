@@ -44,7 +44,30 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+_RELOAD_RULESET = (
+    b"ruleset: rs-reloaded\n"
+    b"module: gov\n"
+    b"rules:\n"
+    b"  - name: allow-boot\n"
+    b"    when:\n"
+    b"      - template: event\n"
+    b"        conditions:\n"
+    b"          - slot: kind\n"
+    b'            expression: equals("boot")\n'
+    b"    then:\n"
+    b"      action: allow\n"
+    b"      reason: boot ok\n"
+)
+
 _SESSION = "s1"
+
+
+def _open_session(stub: fathom_pb2_grpc.FathomServiceStub, session_id: str) -> None:
+    stub.Evaluate(
+        fathom_pb2.EvaluateRequest(session_id=session_id, ruleset="rs"),
+        metadata=_AUTH_META,
+        timeout=5.0,
+    )
 
 
 def _write_ruleset(root: Path) -> None:
@@ -84,11 +107,7 @@ def grpc_server(
     target = f"127.0.0.1:{port}"
     try:
         with grpc.insecure_channel(target) as channel:
-            fathom_pb2_grpc.FathomServiceStub(channel).Evaluate(
-                fathom_pb2.EvaluateRequest(session_id=_SESSION, ruleset="rs"),
-                metadata=_AUTH_META,
-                timeout=5.0,
-            )
+            _open_session(fathom_pb2_grpc.FathomServiceStub(channel), _SESSION)
         yield target, servicer
     finally:
         server.stop(grace=None).wait(timeout=2.0)
@@ -117,7 +136,7 @@ def _collect_one(stream, *, timeout: float = 3.0) -> fathom_pb2.FactChange:
     return holder[0]
 
 
-def test_subscribe_receives_assert(grpc_server: str) -> None:
+def test_subscribe_receives_assert(grpc_server: tuple[str, FathomServicer]) -> None:
     target, _ = grpc_server
     with grpc.insecure_channel(target) as channel:
         stub = fathom_pb2_grpc.FathomServiceStub(channel)
@@ -151,7 +170,7 @@ def test_subscribe_receives_assert(grpc_server: str) -> None:
     assert json.loads(msg.data_json) == {"kind": "boot"}
 
 
-def test_subscribe_receives_retract(grpc_server: str) -> None:
+def test_subscribe_receives_retract(grpc_server: tuple[str, FathomServicer]) -> None:
     target, _ = grpc_server
     with grpc.insecure_channel(target) as channel:
         stub = fathom_pb2_grpc.FathomServiceStub(channel)
@@ -191,16 +210,12 @@ def test_subscribe_receives_retract(grpc_server: str) -> None:
     assert json.loads(msg.data_json) == {"kind": "doomed"}
 
 
-def test_subscribe_isolated_per_session(grpc_server: str) -> None:
+def test_subscribe_isolated_per_session(grpc_server: tuple[str, FathomServicer]) -> None:
     """Subscriber on session A must not receive events on session B."""
     target, _ = grpc_server
     with grpc.insecure_channel(target) as channel:
         stub = fathom_pb2_grpc.FathomServiceStub(channel)
-        stub.Evaluate(
-            fathom_pb2.EvaluateRequest(session_id="session-A", ruleset="rs"),
-            metadata=_AUTH_META,
-            timeout=5.0,
-        )
+        _open_session(stub, "session-A")
         sub_stream = stub.SubscribeChanges(
             fathom_pb2.SubscribeRequest(session_id="session-A"),
             metadata=_AUTH_META,
@@ -240,22 +255,6 @@ def test_subscribe_isolated_per_session(grpc_server: str) -> None:
 
 
 # --- ADR-0002 option (a): cancel-on-swap ---
-
-
-_RELOAD_RULESET = (
-    b"ruleset: rs-reloaded\n"
-    b"module: gov\n"
-    b"rules:\n"
-    b"  - name: allow-boot\n"
-    b"    when:\n"
-    b"      - template: event\n"
-    b"        conditions:\n"
-    b"          - slot: kind\n"
-    b'            expression: equals("boot")\n'
-    b"    then:\n"
-    b"      action: allow\n"
-    b"      reason: boot ok\n"
-)
 
 
 def test_subscribe_cancelled_on_reload(grpc_server: tuple[str, FathomServicer]) -> None:

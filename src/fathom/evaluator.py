@@ -132,7 +132,9 @@ class Evaluator:
         ``stderr`` until it is read, and reading it clears it, so a reported
         error is not reported again.
         """
-        router = next(r for r in env.routers() if r.name == "python-error-router")
+        router = next((r for r in env.routers() if r.name == "python-error-router"), None)
+        if router is None:
+            raise EvaluationError("clipspy's python-error-router is not installed")
         message = router.last_message.strip()
         if message:
             raise EvaluationError(f"CLIPS runtime error: {message.splitlines()[0]}")
