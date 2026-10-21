@@ -25,6 +25,8 @@ from fathom.models import (
     ThenBlock,
 )
 
+__all__ = ["Compiler"]
+
 #: Classification operators whose CLIPS function is per-hierarchy. The rest of
 #: `_CLASSIFICATION_OPS` map to `fathom-*` externals, which take no hierarchy.
 _HIERARCHY_SCOPED_OPS = frozenset({"below", "meets_or_exceeds", "within_scope"})

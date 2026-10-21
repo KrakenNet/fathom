@@ -15,6 +15,7 @@ These names are importable from the `fathom` package and are the covered
 Python surface:
 
 <!-- BEGIN COVERED SYMBOLS -->
+- `Activation`
 - `AssertSpec`
 - `AssertedFact`
 - `AttestationError`
@@ -36,6 +37,8 @@ Python surface:
 - `FleetError`
 - `InMemoryFactStore`
 - `NullSink`
+- `RuleMatches`
+- `RulesetSignatureError`
 - `ScopeError`
 - `ValidationError`
 - `__version__`

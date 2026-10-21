@@ -123,6 +123,10 @@ Nothing else about the swap changes: the new environment is still built and
 compiled outside the lock, and a failed compile still leaves the old one
 serving.
 
+In-process, pass `signature=` and `pubkey_pem=` to verify the payload first. A
+failed check raises `fathom.RulesetSignatureError`, a `FathomError`, before any
+compile work, and the old ruleset keeps serving.
+
 What it costs is the property the default has. The swap stops being a pointer
 assignment and becomes a copy proportional to working memory, taken with the
 engine lock held, so concurrent `evaluate()` and `assert_fact()` calls wait on

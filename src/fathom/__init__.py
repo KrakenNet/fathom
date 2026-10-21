@@ -21,11 +21,19 @@ from fathom.errors import (
     FathomError,
     FleetConnectionError,
     FleetError,
+    RulesetSignatureError,
     ScopeError,
     ValidationError,
 )
 from fathom.fleet import FactStore, FleetEngine, InMemoryFactStore
-from fathom.models import AssertedFact, AssertSpec, AuditRecord, EvaluationResult
+from fathom.models import (
+    Activation,
+    AssertedFact,
+    AssertSpec,
+    AuditRecord,
+    EvaluationResult,
+    RuleMatches,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import-time typing only
     from fathom.attestation import AttestationService, verify_token
@@ -45,6 +53,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 }
 
 __all__ = [
+    "Activation",
     "AssertSpec",
     "AssertedFact",
     "AttestationError",
@@ -66,6 +75,8 @@ __all__ = [
     "FleetError",
     "InMemoryFactStore",
     "NullSink",
+    "RuleMatches",
+    "RulesetSignatureError",
     "ScopeError",
     "ValidationError",
     "__version__",

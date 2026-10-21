@@ -17,6 +17,7 @@ import fathom
 from fathom import attestation, audit, chained_log, engine, errors, fleet, models
 
 VERSIONING = Path(__file__).resolve().parents[1] / "VERSIONING.md"
+_EXAMPLE_BLP = Path(__file__).resolve().parents[1] / "examples" / "03-classification-blp"
 
 _COVERED_BLOCK = re.compile(
     r"<!-- BEGIN COVERED SYMBOLS -->\n(.*?)\n<!-- END COVERED SYMBOLS -->",
@@ -68,3 +69,23 @@ def test_top_level_exports_come_from_a_module_that_declares_them() -> None:
     surfaces = {n for m in DOCUMENTED_MODULES for n in getattr(m, "__all__", ())}
     unbacked = [n for n in fathom.__all__ if not n.startswith("__") and n not in surfaces]
     assert not unbacked, f"exported from fathom but not from their own module: {unbacked}"
+
+
+def test_types_covered_methods_return_or_raise_are_exported() -> None:
+    """Engine.agenda/rule_matches return these, reload_rules raises the last."""
+    for name in ("Activation", "RuleMatches", "RulesetSignatureError"):
+        assert name in fathom.__all__, name
+
+
+def test_ruleset_signature_error_is_a_fathom_error() -> None:
+    from fathom.integrations.ruleset_sig import RulesetSignatureError
+
+    assert RulesetSignatureError is fathom.RulesetSignatureError
+    assert issubclass(RulesetSignatureError, fathom.FathomError)
+
+
+def test_compiler_declares_its_surface() -> None:
+    from fathom import compiler
+
+    assert compiler.__all__ == ["Compiler"]
+

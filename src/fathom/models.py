@@ -134,6 +134,7 @@ def _validate_expression(expr: str) -> str:
 
 __all__ = [
     "ActionType",
+    "Activation",
     "AssertFactRequest",
     "AssertFactResponse",
     "AssertSpec",
@@ -159,6 +160,7 @@ __all__ = [
     "RetractFactsRequest",
     "RetractFactsResponse",
     "RuleDefinition",
+    "RuleMatches",
     "RulesetDefinition",
     "SlotDefinition",
     "SlotType",
