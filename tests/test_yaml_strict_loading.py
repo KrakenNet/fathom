@@ -8,16 +8,17 @@ keeps the last value, and a ``hierarchies:`` block that was never read.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from fathom.cli import app
 from fathom.compiler import Compiler
 from fathom.engine import Engine
 from fathom.errors import CompilationError
-from fathom.yaml_utils import validate_document
+from fathom.yaml_utils import safe_load, safe_load_all, validate_document
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -251,3 +252,12 @@ def test_invalid_bundle_hierarchy_is_rejected(tmp_path: Path) -> None:
     path.write_text(BUNDLE.replace("levels:", "levelz:"))
     with pytest.raises(CompilationError, match="invalid hierarchy"):
         Engine().load_functions(str(path))
+
+
+@pytest.mark.parametrize("load", [safe_load, safe_load_all])
+def test_strict_loader_is_still_safe(load: Any) -> None:
+    # CodeQL flags yaml.load(Loader=_StrictLoader) as unsafe because it cannot
+    # see that the loader is a SafeLoader subclass. Pin that it refuses Python
+    # object tags the way yaml.safe_load does.
+    with pytest.raises(yaml.constructor.ConstructorError):
+        load("!!python/object/apply:os.system ['true']")
