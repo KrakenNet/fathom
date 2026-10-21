@@ -308,3 +308,38 @@ class TestHIPAARuleMetadata:
 
     def test_pack_has_at_least_three_rules(self, hipaa_ruleset) -> None:
         assert len(hipaa_ruleset.rules) >= 3
+
+
+@pytest.mark.parametrize("data_type", ["phi", "PHI", "ePHI", "phi_record"])
+def test_every_phi_spelling_is_denied_unencrypted(data_type: str) -> None:
+    """The deny keyed on exactly `phi`; ePHI went through unencrypted."""
+    engine = Engine(default_decision="allow")
+    engine.load_pack("hipaa")
+    result = engine.evaluate_once(
+        [
+            (
+                "data_transfer",
+                {
+                    "source": "ehr",
+                    "destination": "x",
+                    "data_type": data_type,
+                    "encrypted": "false",
+                },
+            )
+        ]
+    )
+    assert result.decision == "deny"
+
+
+def test_graphics_is_not_phi() -> None:
+    engine = Engine(default_decision="allow")
+    engine.load_pack("hipaa")
+    result = engine.evaluate_once(
+        [
+            (
+                "data_transfer",
+                {"source": "a", "destination": "b", "data_type": "graphics", "encrypted": "false"},
+            )
+        ]
+    )
+    assert result.decision == "allow"

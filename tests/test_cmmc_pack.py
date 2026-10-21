@@ -474,3 +474,41 @@ class TestCMMCRuleMetadata:
 
     def test_pack_has_at_least_six_rules(self, cmmc_ruleset) -> None:
         assert len(cmmc_ruleset.rules) >= 6
+
+
+@pytest.mark.parametrize(
+    "action", ["read", "write", "execute", "delete", "export", "admin", "escalate", "override"]
+)
+def test_every_action_needs_a_justification(action: str) -> None:
+    """The deny listed some actions; execute and export with no justification
+    were allowed although the template accepts them."""
+    engine = Engine(default_decision="allow")
+    engine.load_pack("cmmc")
+    fact = {"subject": "bob", "resource": "doc", "action": action, "justification": "", "ts": 1.0}
+    assert engine.evaluate_once([("cui_policy", fact)]).decision == "deny"
+
+
+@pytest.mark.parametrize(
+    "classification", ["cui_basic", "cui_specified", "confidential", "secret", "top_secret"]
+)
+def test_every_controlled_classification_is_kept_internal(classification: str) -> None:
+    engine = Engine(default_decision="allow")
+    engine.load_pack("cmmc")
+    fact = {"source": "a", "destination": "external", "classification": classification}
+    assert engine.evaluate_once([("data_transfer", fact)]).decision == "deny"
+
+
+@pytest.mark.parametrize(
+    "event_type", ["access", "modify", "delete", "export", "escalate", "override"]
+)
+def test_every_cui_action_needs_a_subject(event_type: str) -> None:
+    engine = Engine(default_decision="allow")
+    engine.load_pack("cmmc")
+    fact = {
+        "event_type": event_type,
+        "subject": "",
+        "resource": "doc",
+        "outcome": "success",
+        "ts": 1.0,
+    }
+    assert "cmmc::au-l2-traceability" in engine.evaluate_once([("audit_event", fact)]).rule_trace

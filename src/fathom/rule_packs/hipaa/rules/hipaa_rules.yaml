@@ -29,8 +29,9 @@ rules:
     when:
       - template: data_transfer
         conditions:
+          # Word-boundary, case-insensitive: phi, ePHI, phi_record; not graphics.
           - slot: data_type
-            expression: "matches((?i)^phi$)"
+            expression: "matches((?i)(^|[^a-z])e?phi([^a-z]|$))"
           # Deny unless the transfer is explicitly encrypted: any other value
           # is treated as unencrypted. A set, not a lookahead regex: the pack
           # must also export to Rego, and OPA's RE2 has no lookahead.
