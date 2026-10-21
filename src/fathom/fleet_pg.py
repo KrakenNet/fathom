@@ -2,8 +2,10 @@
 
 Stores facts in a ``fleet_facts`` table with a JSONB ``data`` column.
 Uses PostgreSQL LISTEN/NOTIFY on per-template channels
-(``fathom_changes_{template}``) to propagate change notifications to
-subscribers.
+(``fathom_changes_{template}``, or ``fathom_changes_{sha256 prefix}`` when
+that name exceeds Postgres' 63-byte limit) to propagate change notifications
+to subscribers. A NOTIFY payload is limited to 8000 bytes by Postgres, so a
+fact whose JSON is larger fails ``assert_fact`` and nothing is stored.
 
 Requires ``asyncpg``.  Install with::
 
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import uuid
 from collections import defaultdict
@@ -70,6 +73,9 @@ _COUNT_SQL = """\
 SELECT COUNT(*) FROM fleet_facts
 WHERE template = $1;
 """
+
+#: Postgres identifier limit (NAMEDATALEN - 1) for LISTEN/NOTIFY channels.
+_MAX_CHANNEL_BYTES = 63
 
 #: Backoff for re-establishing the LISTEN connection after the backend dies.
 _RECONNECT_BASE_DELAY = 0.5
@@ -164,7 +170,14 @@ class PostgresFactStore:
         """Return the LISTEN/NOTIFY channel name for *template*."""
         # Sanitise: replace non-alphanumeric chars with underscores
         safe = "".join(c if c.isalnum() else "_" for c in template)
-        return f"fathom_changes_{safe}"
+        channel = f"fathom_changes_{safe}"
+        # Postgres refuses (NOTIFY) or truncates (LISTEN) a channel name over
+        # 63 bytes. Past that, name the channel by a digest of the template:
+        # every node derives the same name, and names that fit keep theirs.
+        if len(channel.encode()) > _MAX_CHANNEL_BYTES:
+            digest = hashlib.sha256(template.encode()).hexdigest()[:32]
+            channel = f"fathom_changes_{digest}"
+        return channel
 
     @staticmethod
     def _matches(data: dict[str, Any], fact_filter: dict[str, Any] | None) -> bool:
