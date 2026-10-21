@@ -1,0 +1,3 @@
+# `fathom.Activation`
+
+::: fathom.Activation

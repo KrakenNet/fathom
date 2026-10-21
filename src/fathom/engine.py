@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -26,7 +27,7 @@ from fathom.metrics import MetricsCollector
 from fathom.models import Activation, HierarchyDefinition, RuleMatches
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
     from fathom.attestation import AttestationService
     from fathom.models import (
@@ -333,19 +334,19 @@ class Engine:
     # --- Public property accessors ---
 
     @property
-    def template_registry(self) -> dict[str, TemplateDefinition]:
+    def template_registry(self) -> Mapping[str, TemplateDefinition]:
         """Read-only view of registered template definitions."""
-        return self._template_registry
+        return MappingProxyType(self._template_registry)
 
     @property
-    def module_registry(self) -> dict[str, ModuleDefinition]:
+    def module_registry(self) -> Mapping[str, ModuleDefinition]:
         """Read-only view of registered module definitions."""
-        return self._module_registry
+        return MappingProxyType(self._module_registry)
 
     @property
-    def rule_registry(self) -> dict[str, RuleDefinition]:
+    def rule_registry(self) -> Mapping[str, RuleDefinition]:
         """Read-only view of loaded rule definitions, keyed by rule name."""
-        return self._rule_registry
+        return MappingProxyType(self._rule_registry)
 
     @property
     def focus_order(self) -> list[str]:
@@ -1680,6 +1681,27 @@ class Engine:
                 partial_matches=partial_matches,
                 activations=activations,
             )
+
+    def hierarchy(self, name: str) -> HierarchyDefinition:
+        """Return the loaded classification hierarchy called *name*.
+
+        Hierarchies are registered by ``load_functions`` (and so by
+        ``load_pack_dir``/``from_rules``) when a classification function
+        references one.
+
+        Args:
+            name: Hierarchy name, e.g. ``clearance``.
+
+        Returns:
+            The :class:`~fathom.models.HierarchyDefinition`, levels lowest first.
+
+        Raises:
+            ValidationError: No hierarchy by that name is loaded.
+        """
+        definition = self._hierarchy_registry.get(name)
+        if definition is None:
+            raise ValidationError(f"no loaded hierarchy named '{name}'")
+        return definition
 
     def _find_rule(self, env: clips.Environment, rule: str) -> tuple[Any, str]:
         """Resolve *rule* to a clipspy rule and its module-qualified name.

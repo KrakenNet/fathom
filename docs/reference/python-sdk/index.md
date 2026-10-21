@@ -4,6 +4,7 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 
 ## Public symbols
 
+- [`Activation`](activation.md)
 - [`AssertSpec`](assertspec.md)
 - [`AssertedFact`](assertedfact.md)
 - [`AttestationError`](attestationerror.md)
@@ -25,6 +26,8 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 - [`FleetError`](fleeterror.md)
 - [`InMemoryFactStore`](inmemoryfactstore.md)
 - [`NullSink`](nullsink.md)
+- [`RuleMatches`](rulematches.md)
+- [`RulesetSignatureError`](rulesetsignatureerror.md)
 - [`ScopeError`](scopeerror.md)
 - [`ValidationError`](validationerror.md)
 - [`verify_chain`](verify_chain.md)
