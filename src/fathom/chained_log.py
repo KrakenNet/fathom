@@ -258,7 +258,9 @@ def _scan(
                 return _fail(f"malformed line {lineno}: missing newline (torn write)", lineno)
             try:
                 obj = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):
+                # A deeply nested line overflows the parser's recursion limit;
+                # it is hostile log content, reported like any other bad line.
                 return _fail(f"malformed line {lineno}: invalid JSON (torn write?)", lineno)
             if not isinstance(obj, dict) or set(obj) != _LINE_FIELDS:
                 return _fail(
@@ -647,7 +649,7 @@ class ChainedAttestationLog:
             for lineno, raw in enumerate(fh, start=1):
                 try:
                     result.append(_parse_line(raw.rstrip(b"\n")))
-                except (ValueError, KeyError) as exc:
+                except (ValueError, KeyError, TypeError, RecursionError) as exc:
                     raise AttestationError(
                         f"malformed line {lineno} in {self._path}", operation="records"
                     ) from exc
@@ -665,12 +667,16 @@ class ChainedAttestationLog:
         return verify_chain(self._path, self._service.public_key)
 
     def close(self) -> None:
-        if self._fh is not None:
-            self._fh.close()
-            self._fh = None
-        if self._lock_fd is not None:
-            os.close(self._lock_fd)
-            self._lock_fd = None
+        # Under the append lock: closing the handle mid-append leaked a raw
+        # "write to closed file", and closing the lock fd twice could release
+        # a descriptor number another open had reused.
+        with self._write_lock:
+            if self._fh is not None:
+                self._fh.close()
+                self._fh = None
+            if self._lock_fd is not None:
+                os.close(self._lock_fd)
+                self._lock_fd = None
 
     def __enter__(self) -> ChainedAttestationLog:
         return self

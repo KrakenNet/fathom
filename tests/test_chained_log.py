@@ -240,6 +240,61 @@ class TestFailClosed:
             reopened.append({"event": "nope"})
 
 
+class TestHostileContent:
+    def test_deeply_nested_line_reported_not_raised(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        log = _make_log(log_path, service, n=1)
+        log.close()
+        with open(log_path, "ab") as fh:
+            fh.write(b"[" * 100_000 + b"\n")
+        result = verify_chain(log_path, service.public_key)
+        assert not result.ok
+        assert result.error_line == 3
+        with pytest.raises(AttestationError, match="refusing append"):
+            log.append({"i": "after"})
+        with pytest.raises(AttestationError, match="malformed line 3"):
+            log.records()
+        cli = runner.invoke(
+            app, ["verify-chain", str(log_path), "--pubkey", str(log.public_key_path)]
+        )
+        assert cli.exit_code == 1
+        assert "malformed line 3" in cli.output
+
+    def test_close_concurrent_with_appends_never_leaks_io_errors(
+        self, log_path: Path, service: AttestationService
+    ) -> None:
+        import threading
+
+        log = ChainedAttestationLog(log_path, service)
+        errors: list[BaseException] = []
+        stop = threading.Event()
+
+        def writer() -> None:
+            for i in range(100):
+                try:
+                    log.append({"i": i})
+                except BaseException as exc:  # noqa: BLE001 - collected for the assert
+                    errors.append(exc)
+
+        def closer() -> None:
+            while not stop.is_set():
+                log.close()
+
+        threads = [threading.Thread(target=writer) for _ in range(4)]
+        closing = threading.Thread(target=closer)
+        closing.start()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        stop.set()
+        closing.join()
+        log.close()
+        assert errors == []
+        assert verify_chain(log_path, service.public_key).count == 400
+
+
 class TestShrunkLogRefused:
     """A log that shrank under a writer must be refused, never silently re-chained."""
 
