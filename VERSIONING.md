@@ -5,7 +5,10 @@ number change means for them, and how long a released version is supported. It
 is enforced where it can be: `tests/test_public_surface.py` fails if the symbol
 list below stops matching `fathom.__all__`.
 
-Fathom is pre-1.0. Read [Pre-1.0 semantics](#pre-10-semantics) before you pin.
+Fathom is pre-1.0. Read [Pre-1.0 semantics](#pre-10-semantics) before you pin;
+[From 1.0](#from-10) says what changes when 1.0.0 ships. Where a section has
+two halves, the pre-1.0 half applies to every `0.x` release and the 1.0 half
+to every release from `1.0.0` on.
 
 ## Covered surfaces
 
@@ -115,10 +118,25 @@ this project does within it:
   with what to do instead. `CHANGELOG.md` is hand-written for exactly this
   reason.
 
-Pin accordingly: `fathom-rules>=0.10,<0.11` is the pre-1.0 equivalent of a
-caret range. `fathom-rules~=0.10.0` has the same effect.
+Pin accordingly: `fathom-rules>=0.13,<0.14` (substitute the minor you tested
+against) is the pre-1.0 equivalent of a caret range. `fathom-rules~=0.13.0`
+has the same effect.
 
-After 1.0 this becomes ordinary semver: breaking changes only in a major.
+## From 1.0
+
+From `1.0.0` the covered surfaces follow ordinary semver:
+
+- **A major bump (`1.x` → `2.0.0`) is the only release that may break a
+  covered surface.**
+- **A minor bump (`1.4.0` → `1.5.0`) adds**: new covered names, options,
+  endpoints and fields, and deprecations. It never breaks a covered surface.
+- **A patch bump (`1.4.0` → `1.4.1`) fixes** bugs and adds nothing to the
+  covered surface.
+- **Every break is in the changelog**, under `### Changed` or `### Removed`,
+  with what to do instead.
+
+Pin accordingly: `fathom-rules>=1,<2`. A lower bound inside 1.x
+(`>=1.4,<2`) is fine when you need a feature that minor added.
 
 ## Deprecation
 
@@ -127,9 +145,14 @@ A covered name is never removed without a deprecation period first:
 1. The name keeps working and starts emitting `DeprecationWarning`, naming its
    replacement.
 2. The changelog entry for that release records the deprecation.
-3. Removal comes no earlier than the **second** minor release after the
-   warning first shipped — so a name deprecated in `0.10.0` may not be removed
-   before `0.12.0`.
+3. Removal:
+   - **Pre-1.0:** no earlier than the **second** minor release after the
+     warning first shipped — so a name deprecated in `0.10.0` may not be
+     removed before `0.12.0`.
+   - **From 1.0:** only in the next major release, and only after the warning
+     has shipped in at least one minor release first — so a name deprecated
+     in `1.4.0` keeps working through every `1.x` and may be removed in
+     `2.0.0`.
 
 A name that never worked (it raised on every call, or was documented but not
 implemented) can be removed without this period; the changelog says so.
@@ -137,9 +160,12 @@ implemented) can be removed without this period; the changelog says so.
 ## Supported versions
 
 The latest released minor is supported. Fixes — including security fixes — are
-released as a new patch of that minor, not backported to earlier ones. Pre-1.0
-that is the whole support window; upgrading to the current minor is the
-supported response to a fix.
+released as a new patch of that minor, not backported to earlier ones.
+
+- **Pre-1.0:** that is the whole support window; upgrading to the current
+  minor is the supported response to a fix.
+- **From 1.0:** upgrading within the major is never breaking, so the same
+  holds: take the latest `1.x`.
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability and what
 happens after you do.

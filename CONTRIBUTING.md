@@ -130,6 +130,32 @@ Then regenerate the docs copy with `uv run python scripts/changelog_to_json.py`.
 The generated notes on the GitHub release carry the full commit list; the
 changelog entry is the curated summary of what it means for a user.
 
+### Cutting 1.0.0
+
+`bump-minor-pre-major` sends a breaking change to the next `0.x` minor, so
+release-please never proposes 1.0.0 by itself. To cut it, land one PR on
+`main` that:
+
+1. Deletes the "Pre-1.0 semantics" section of `VERSIONING.md` and the pre-1.0
+   halves of "Deprecation" and "Supported versions" (each says which half
+   applies from 1.0), and drops "Fathom is pre-1.0" from its intro.
+2. Replaces "Fathom is pre-1.0" in the README `## Stability` section.
+3. Changes the `pyproject.toml` classifier to
+   `Development Status :: 5 - Production/Stable`.
+4. Carries this footer in its squash-merge commit message — GitHub builds that
+   message from the PR, so check the footer is still there before you click
+   merge:
+
+   ```
+   Release-As: 1.0.0
+   ```
+
+The footer must sit on a commit that changes only engine files. Do not use an
+empty commit: release-please hands a commit with no files to every component,
+and the TypeScript SDK would be released as 1.0.0 with it. release-please then
+opens a 1.0.0 release PR; write the `## [1.0.0]` CHANGELOG entry there as for
+any release. `bump-minor-pre-major` has no effect from 1.0 on and can stay.
+
 ## Project Structure
 
 ```
