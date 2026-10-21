@@ -29,5 +29,5 @@ templates:
         type: symbol
         default: phi
       - name: encrypted
-        type: symbol
+        type: string
         default: "FALSE"

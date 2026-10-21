@@ -13,7 +13,7 @@ rules:
           - slot: access_level
             expression: "in([read, write, admin])"
           - slot: justification
-            expression: "equals()"
+            expression: "matches(^\\s*$)"
     then:
       action: deny
       reason: "PHI access denied: minimum necessary justification required (164.502(b))"
@@ -30,9 +30,11 @@ rules:
       - template: data_transfer
         conditions:
           - slot: data_type
-            expression: "equals(phi)"
+            expression: "matches((?i)^phi$)"
+          # Deny unless the transfer is explicitly encrypted: any other value,
+          # in any spelling, is treated as unencrypted.
           - slot: encrypted
-            expression: "equals(FALSE)"
+            expression: "matches((?i)^(?!true$))"
     then:
       action: deny
       reason: "PHI transfer blocked: transmission must be encrypted (164.312(e)(1))"
