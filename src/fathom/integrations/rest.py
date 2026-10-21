@@ -15,9 +15,10 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 try:
-    from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
+    from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Security
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse, Response
+    from fastapi.security import HTTPBearer
 except ImportError as _exc:
     raise ImportError(
         "fastapi is required for the REST server. "
@@ -94,24 +95,26 @@ def _make_error_response(
     )
 
 
-def _require_auth(
-    authorization: str | None = Header(default=None),
-) -> None:
+# Declares the bearer scheme in the OpenAPI document. It never refuses on
+# its own (auto_error=False); the raw header is checked by verify_token, the
+# same function the gRPC server uses.
+_bearer = HTTPBearer(auto_error=False)
+
+
+def _require_auth(request: Request, _: object = Security(_bearer)) -> None:
     """FastAPI dependency enforcing data-plane bearer-token auth."""
-    if not verify_token(authorization):
+    if not verify_token(request.headers.get("Authorization")):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
-def _require_admin_auth(
-    authorization: str | None = Header(default=None),
-) -> None:
+def _require_admin_auth(request: Request, _: object = Security(_bearer)) -> None:
     """FastAPI dependency enforcing the scoped reload admin token.
 
     When ``FATHOM_ADMIN_TOKEN`` is set, only that token is accepted (the
     data-plane ``FATHOM_API_TOKEN`` is rejected). When it is unset, this
     falls back to the data-plane token — backward compatible.
     """
-    if not verify_admin_token(authorization):
+    if not verify_admin_token(request.headers.get("Authorization")):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
