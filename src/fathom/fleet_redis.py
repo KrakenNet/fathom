@@ -87,10 +87,9 @@ class RedisFactStore:
 
     :meth:`subscribe` starts a listener task that reads the stream, so a
     callback runs after the write commits, also in the writing process. A
-    listener starts from ``$``: it sees no history, only entries added after
-    it starts reading. Until it has received its first entry it re-reads
-    from ``$`` after each idle second, so a change landing in that gap is
-    missed. Each stream is capped at about 10000 entries (``MAXLEN ~``).
+    subscription sees no history: it delivers every change made after
+    :meth:`subscribe` returns, and none from before. Each stream is capped
+    at about 10000 entries (``MAXLEN ~``).
 
     Connection errors and timeouts are retried up to 3 attempts (0.1s, then
     0.3s apart) and then raise :class:`~fathom.errors.FleetConnectionError`.
@@ -310,9 +309,16 @@ class RedisFactStore:
         """
         stream_key = self._stream_key(template)
         stop_event = asyncio.Event()
+        # Read on from the stream's last entry as of now, not from "$": "$"
+        # means "after whatever is last when XREAD runs", so a change landing
+        # before the listener's first read, or between two idle reads, was lost.
+        last: Any = await self._retry(
+            "subscribe", lambda: self._client.xrevrange(stream_key, count=1)
+        )
+        start_id = last[0][0] if last else "0-0"
 
         async def _listener() -> None:
-            last_id = "$"
+            last_id = start_id
             while not stop_event.is_set():
                 try:
                     entries: Any = await self._client.xread(

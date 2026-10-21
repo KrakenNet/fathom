@@ -252,3 +252,37 @@ class TestRedisAtomicWrite:
 
         # MAXLEN ~ trims whole macro-nodes (100 entries by default).
         assert await store._client.xlen(store._stream_key("agent")) < 300
+
+
+class TestRedisSubscribeStart:
+    """A change made after subscribe() returns is delivered, however late the listener reads."""
+
+    @pytest.mark.asyncio
+    async def test_change_before_first_read_is_delivered(
+        self, store: RedisFactStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await store.assert_fact("agent", {"id": "old"})  # history the listener must skip
+        real_xread = store._client.xread
+
+        async def slow_xread(*args: Any, **kwargs: Any) -> Any:
+            # The listener's read lands after the write, as it can between
+            # two idle blocks.
+            await asyncio.sleep(0.3)
+            return await real_xread(*args, **kwargs)
+
+        monkeypatch.setattr(store._client, "xread", slow_xread)
+        seen: list[str] = []
+
+        async def on_change(notification: FactChangeNotification) -> None:
+            seen.append(notification.data["id"] if notification.data else "")
+
+        unsubscribe = await store.subscribe("agent", on_change)
+        try:
+            await store.assert_fact("agent", {"id": "new"})
+            for _ in range(30):
+                if seen:
+                    break
+                await asyncio.sleep(0.1)
+            assert seen == ["new"]
+        finally:
+            unsubscribe()
