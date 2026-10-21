@@ -24,6 +24,7 @@ from fathom.evaluator import Evaluator
 from fathom.facts import FactManager
 from fathom.metrics import MetricsCollector
 from fathom.models import Activation, HierarchyDefinition, RuleMatches
+from fathom.yaml_utils import safe_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -1125,7 +1126,7 @@ class Engine:
             if candidate.exists():
                 try:
                     with open(candidate) as f:
-                        data = yaml.safe_load(f)
+                        data = safe_load(f)
                 except (yaml.YAMLError, OSError) as exc:
                     raise CompilationError(
                         f"[fathom.engine] resolve hierarchy failed: cannot read file {candidate}",
@@ -1281,7 +1282,7 @@ class Engine:
         # CompilationError so the caller sees a single exception type for
         # any pre-swap compile failure.
         try:
-            data = yaml.safe_load(ruleset_yaml)
+            data = safe_load(ruleset_yaml)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.engine] reload_rules: invalid YAML: {exc}",

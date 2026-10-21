@@ -35,6 +35,11 @@ from `POST /v1/compile`:
 | Function | `functions` |
 | Rule | `ruleset`, `version`, `module`, `rules` |
 
+A mapping key given twice anywhere in a file (two `expression:` keys in
+one condition, say) is invalid YAML to Fathom: every loader rejects it
+instead of keeping the last value. Overriding a key merged in with `<<`
+is not a duplicate.
+
 ## Downloads
 
 | Construct | Schema |

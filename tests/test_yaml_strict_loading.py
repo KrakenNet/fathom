@@ -155,3 +155,44 @@ def test_reload_rules_rejects_unknown_top_level_key(tmp_path: Path) -> None:
     engine = Engine.from_rules(str(_pack(tmp_path)))
     with pytest.raises(CompilationError, match="'rulez'"):
         engine.reload_rules((RULES + "rulez: []\n").encode())
+
+
+# --- 3. duplicate mapping keys ---------------------------------------------
+
+
+def test_duplicate_key_is_rejected_at_load(tmp_path: Path) -> None:
+    with pytest.raises(CompilationError) as info:
+        Engine.from_rules(str(_pack(tmp_path, DUP_KEY_RULES)))
+    assert "duplicate key 'expression'" in (info.value.detail or "")
+
+
+def test_duplicate_key_is_rejected_by_reload(tmp_path: Path) -> None:
+    engine = Engine.from_rules(str(_pack(tmp_path)))
+    with pytest.raises(CompilationError, match="duplicate key 'expression'"):
+        engine.reload_rules(DUP_KEY_RULES.encode())
+
+
+def test_duplicate_key_is_rejected_by_validate(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["validate", str(_pack(tmp_path, DUP_KEY_RULES))])
+    assert result.exit_code != 0
+    assert "duplicate key 'expression'" in result.output
+
+
+def test_duplicate_key_is_rejected_by_test_runner(tmp_path: Path) -> None:
+    pack = _pack(tmp_path / "pack")
+    cases = tmp_path / "t.yaml"
+    cases.write_text(
+        "- name: c\n  expected_decision: allow\n  expected_decision: deny\n  facts: []\n"
+    )
+    result = CliRunner().invoke(app, ["test", str(pack), str(cases)])
+    assert result.exit_code != 0
+    assert "duplicate key 'expected_decision'" in result.output
+
+
+def test_yaml_merge_key_override_is_not_a_duplicate(tmp_path: Path) -> None:
+    rules = RULES.replace(
+        "    then: {action: allow}",
+        "    then:\n      <<: {action: deny}\n      action: allow",
+    )
+    engine = Engine.from_rules(str(_pack(tmp_path, rules)))
+    assert engine.evaluate_once([("req", {"role": "admin"})]).decision == "allow"

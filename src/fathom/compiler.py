@@ -24,6 +24,7 @@ from fathom.models import (
     TemplateDefinition,
     ThenBlock,
 )
+from fathom.yaml_utils import safe_load
 
 #: Classification operators whose CLIPS function is per-hierarchy. The rest of
 #: `_CLASSIFICATION_OPS` map to `fathom-*` externals, which take no hierarchy.
@@ -818,7 +819,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse template failed: invalid YAML in {file_str}",
@@ -916,7 +917,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse rules failed: invalid YAML in {file_str}",
@@ -1007,7 +1008,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse module failed: invalid YAML in {file_str}",
@@ -1102,7 +1103,7 @@ class Compiler:
         file_str = str(path)
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = safe_load(f)
         except yaml.YAMLError as exc:
             raise CompilationError(
                 f"[fathom.compiler] parse function failed: invalid YAML in {file_str}",

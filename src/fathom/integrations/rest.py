@@ -63,6 +63,7 @@ from fathom.models import (
     TemplateDefinition,
 )
 from fathom.rego import flatten_input
+from fathom.yaml_utils import safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -571,7 +572,7 @@ def compile_yaml(request: CompileRequest, http_request: Request) -> CompileRespo
     constructs: list[str] = []
 
     try:
-        data = yaml.safe_load(request.yaml_content)
+        data = safe_load(request.yaml_content)
     except yaml.YAMLError:
         return CompileResponse(clips="", errors=["invalid YAML"])
 

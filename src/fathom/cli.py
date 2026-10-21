@@ -27,6 +27,8 @@ from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
 from fathom.release_sig import verify_artifact as _verify_artifact
 from fathom.yaml_utils import (
+    safe_load,
+    safe_load_all,
     template_names_in,
     unregistered_template_errors,
     validate_document,
@@ -165,7 +167,7 @@ def validate(
                 continue
 
             try:
-                docs = list(yaml.safe_load_all(content))
+                docs = safe_load_all(content)
             except yaml.YAMLError as exc:
                 all_errors.append(f"{yaml_file}: YAML parse error: {exc}")
                 continue
@@ -186,7 +188,7 @@ def validate(
         for template_file in _sibling_template_files(path) + _dependency_template_files(path):
             try:
                 template_names |= template_names_in(
-                    yaml.safe_load(template_file.read_text(encoding="utf-8"))
+                    safe_load(template_file.read_text(encoding="utf-8"))
                 )
             except (OSError, yaml.YAMLError):
                 continue
@@ -239,7 +241,7 @@ def _collect_template_registry(
     registry: dict[str, TemplateDefinition] = {}
     for yaml_file in yaml_files:
         try:
-            data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+            data = safe_load(yaml_file.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(data, dict) or "templates" not in data:
@@ -328,7 +330,7 @@ def _compile_yaml_file(
     constructs: dict[str, list[str]] = {}
 
     content = file_path.read_text(encoding="utf-8")
-    data = yaml.safe_load(content)
+    data = safe_load(content)
     if not isinstance(data, dict):
         return constructs
 
@@ -635,7 +637,7 @@ def test(
                 failures.append(f"{test_file}: read error")
                 continue
 
-            data = yaml.safe_load(content)
+            data = safe_load(content)
             if not isinstance(data, list):
                 _print_error(f"[fathom.cli] test failed: {test_file} is not a list of test cases")
                 failed += 1
