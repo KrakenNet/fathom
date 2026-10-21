@@ -1,9 +1,15 @@
 name: CI
 
+# Pull requests run only the fast, deterministic checks: lint and the Linux
+# test suite in parallel. Everything slow or network-bound -- Windows/macOS,
+# the foreign-toolchain tests, Redis/Postgres, Docker, benchmarks -- runs on
+# every push to main instead, where a failure opens an issue (main-health.yml)
+# rather than blocking an unrelated pull request.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch: {}
 
 concurrency:
   # Pull requests supersede: a new push to the branch cancels the run
@@ -47,18 +53,52 @@ jobs:
 
   test:
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os }}
+    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.12", "3.13"]
-        include:
-          - os: windows-latest
-            python-version: "3.13"
-          - os: macos-latest
-            python-version: "3.13"
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      # No network, no foreign toolchains: `integration` (Redis/Postgres in
+      # Docker) and the Go/TS doc-generator tests, which install modules at
+      # test time, run in test-full on main.
+      - name: Run tests with coverage
+        run: >-
+          uv run pytest -n auto -m "not integration"
+          --ignore=tests/test_scripts/test_go_sdk_docs.py
+          --ignore=tests/test_scripts/test_ts_sdk_docs.py
+          --cov=fathom --cov-report=xml -q
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  # The whole suite on every OS, with the toolchain installed. Main only.
+  test-full:
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.13"]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -189,7 +229,7 @@ jobs:
           version: 9
 
       - name: Run tests with coverage
-        run: uv run pytest --cov=fathom --cov-report=xml --cov-report=term-missing -q
+        run: uv run pytest -n auto -q
 
       # Regression guard (issue #16): on Linux the toolchain above is present,
       # so the previously-skipped tests must run, not skip. Re-run just those
@@ -214,17 +254,9 @@ jobs:
             exit 1
           fi
 
-      - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
-        uses: codecov/codecov-action@v7
-        with:
-          files: coverage.xml
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
   lint:
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -256,8 +288,7 @@ jobs:
   # noticed, because nothing in CI had ever built it. Build it here, and
   # exercise the three things the docs promise about it.
   docker:
-    needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -316,6 +347,9 @@ jobs:
           # Advisory-only for licences: this repo is MIT, and a copyleft tool
           # in a dev group is a judgement call, not a build break.
           license-check: false
+          # Report, never block: a vulnerable transitive dependency is
+          # Dependabot's to fix, not the pull request author's.
+          warn-only: true
 
   # README publishes four performance targets. Until now nothing measured
   # them, so they were true only by luck -- and one ("YAML compilation
@@ -331,8 +365,7 @@ jobs:
   # two slowest of those runs walked straight through. A red bench is meant to
   # mean "something got materially slower", never "the runner was busy".
   bench:
-    needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

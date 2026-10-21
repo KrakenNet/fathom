@@ -1,6 +1,7 @@
 {
   "name": "@fathom-rules/sdk",
   "version": "0.13.0",
+  "packageManager": "pnpm@9.15.9",
   "description": "TypeScript SDK for the Fathom policy engine REST API",
   "license": "MIT",
   "main": "dist/index.js",

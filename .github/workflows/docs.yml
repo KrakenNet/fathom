@@ -4,16 +4,13 @@ name: docs
 #
 #   docs          REQUIRED (branch protection). Deterministic and fast:
 #                 version-sync + strict mkdocs build + docstring/SDK
-#                 coverage + tutorial snippets, plus source drift for the
-#                 sources THIS pull request touched. It does NOT regenerate
-#                 artifacts or hit the network — nondeterministic across the
-#                 squash-merge boundary or dependent on an exact toolchain,
-#                 and so must never gate a merge. The drift check is scoped
-#                 to the branch's own edits for the same reason: a source
-#                 edit ages every page citing it, and a whole-repo gate would
-#                 fail the next unrelated pull request instead of the one
-#                 that caused the drift. That whole-repo sweep is advisory,
-#                 in docs-quality.
+#                 coverage + tutorial snippets. It does NOT regenerate
+#                 artifacts, hit the network, or ask the author to edit a
+#                 changelog or `last_verified` stamp: a gate that every pull
+#                 request has to feed by hand is busywork, not a check. Run
+#                 scripts/check_doc_sources.py and
+#                 scripts/check_changelog_entry.py by hand before a release;
+#                 the drift sweep also runs advisory in docs-quality.
 #
 #   docs-quality  ADVISORY (not a required check; every step is
 #                 continue-on-error). Regenerates artifacts and runs the
@@ -40,11 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # full history: the scoped drift check diffs against the PR base and
-      # reads each cited source's last meaningful commit.
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -63,27 +56,6 @@ jobs:
       # what "the docs build" means.
       - name: Build (strict)
         run: uv run mkdocs build --strict
-
-      # Every page citing a source this branch edited must have been
-      # re-verified in this branch. Pages citing sources the branch did not
-      # touch are somebody else's drift and are left to the advisory sweep.
-      - name: Source drift (sources this branch touched)
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: uv run python scripts/check_doc_sources.py --changed-vs "$BASE_SHA"
-
-      # A branch whose commits release something must say what, while its
-      # author still knows. Without this the omission surfaced only on the
-      # release PR days later, as version skew naming a file nobody on the
-      # releasing branch had touched -- and every release PR to date shipped
-      # with that check red.
-      - name: Changelog entry for releasable commits
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: uv run python scripts/check_changelog_entry.py "$BASE_SHA" "$PR_TITLE"
 
       - name: Docstring coverage
         run: uv run python scripts/check_docstrings.py

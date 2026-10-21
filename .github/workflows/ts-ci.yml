@@ -1,9 +1,7 @@
 name: ts-ci
 
-# No path filter on pull_request: ts-test is a required status check for
-# branch protection (dependabot auto-merge waits on it). A path-filtered
-# required check never reports on non-matching PRs, which would block
-# merging forever.
+# Pull requests that do not touch this SDK skip its jobs (see `changes`).
+
 on:
   pull_request:
   push:
@@ -41,17 +39,11 @@ jobs:
         id: filter
         with:
           filters: |
-            # True when the PR changes anything that isn't pure documentation.
-            # Negation-only failure mode is safe: if dorny ignored the ``!`` patterns,
-            # ``**`` matches everything → ``code`` stays true → jobs run anyway. They
-            # only skip when every changed file is docs/markdown. ``docs`` (docs.yml)
-            # is intentionally NOT gated — it must run on docs-only PRs.
+            # Required checks still report when skipped (a skipped job
+            # counts as passing), so filtering here never blocks a merge.
             code:
-              - '**'
-              - '!**/*.md'
-              - '!docs/**'
-              - '!mkdocs.yml'
-              - '!LICENSE'
+              - 'packages/fathom-ts/**'
+              - '.github/workflows/ts-ci.yml'
 
   test:
     name: ts-test
