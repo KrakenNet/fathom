@@ -175,6 +175,50 @@ class TestVerify:
         with pytest.raises(AttestationError):
             verify_token("", svc.public_key)
 
+    def test_evaluation_token_carries_its_kind(
+        self, svc: AttestationService, sample_result: EvaluationResult
+    ) -> None:
+        token = svc.sign(sample_result, "session-1", input_facts=[])
+        assert verify_token(token, svc.public_key)["typ"] == "fathom.evaluation"
+
+    def test_chain_line_is_not_an_evaluation_attestation(
+        self, svc: AttestationService, tmp_path: Any
+    ) -> None:
+        from fathom.chained_log import ChainedAttestationLog
+
+        line = ChainedAttestationLog(tmp_path / "c.jsonl", svc).append({"decision": "deny"})
+        with pytest.raises(AttestationError, match="typ"):
+            verify_token(line.jws, svc.public_key)
+        assert verify_token(line.jws, svc.public_key, typ=None)["iss"] == "fathom-chain"
+
+    @pytest.mark.parametrize("key", [None, "not a key", "rsa"])
+    def test_wrong_key_type_raises_attestation_error(
+        self, svc: AttestationService, sample_result: EvaluationResult, key: Any
+    ) -> None:
+        if key == "rsa":
+            from cryptography.hazmat.primitives.asymmetric import rsa
+
+            key = rsa.generate_private_key(65537, 2048).public_key()
+        token = svc.sign(sample_result, "session-1", input_facts=[])
+        with pytest.raises(AttestationError):
+            verify_token(token, key)
+
+
+class TestKeypairMismatch:
+    def test_mismatched_pair_refused(self) -> None:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        with pytest.raises(AttestationError, match="does not match"):
+            AttestationService(
+                Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate().public_key()
+            )
+
+    def test_matching_pair_accepted(self) -> None:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        k = Ed25519PrivateKey.generate()
+        AttestationService(k, k.public_key())
+
 
 # ---------------------------------------------------------------------------
 # JWT payload fields

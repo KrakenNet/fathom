@@ -412,8 +412,9 @@ the caller, so the audit sink is where an operator reads what happened.
 
 The `attestation_token` returned from a successful reload is a JWT
 signed by the server's `AttestationService.sign_event()` (C6); you can
-verify it offline with the service's pubkey and replay it in your
-audit trail as a non-repudiation proof.
+verify it offline with the service's pubkey —
+`verify_token(token, public_key, typ="fathom.event")` — and replay it in
+your audit trail as a non-repudiation proof.
 
 ## Rotating the runtime pubkey
 

@@ -622,7 +622,7 @@ def _verify_token(token: str) -> tuple[dict[str, Any] | None, str | None]:
         return None, "Attestation needs 'pyjwt[crypto]' + 'cryptography' installed."
     try:
         service = _attestation_service()
-        claims = verify_token(token, service.public_key)
+        claims = verify_token(token, service.public_key, typ="fathom.event")
     except AttestationError as exc:
         return None, f"Verification failed: {exc}"
     return claims, None

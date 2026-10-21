@@ -10,8 +10,9 @@ Each line is a compact JSON object (format version 1)::
   ``{iss, iat, seq, prev_sha256, record_sha256, log_id, v}`` so every line
   binds its position, predecessor, record content, owning log, and format
   version under the signing key. The JWS protected header carries
-  ``kid`` -- the SHA-256 (hex) of the raw 32-byte Ed25519 public key --
-  so multi-key verification (rotation) can resolve the right key.
+  ``kid`` -- the SHA-256 (hex) of the raw 32-byte Ed25519 public key.
+  A log is signed by one key for its whole life: the genesis pins it and
+  the writer refuses any other, so rotating keys means starting a new log.
 - Line 1 is always a **genesis record**
   ``{"type": "fathom.genesis", "log_id": ..., "key_fingerprint": ...}``
   written automatically when a log is created. ``log_id`` (uuid4 hex) is
@@ -39,6 +40,9 @@ Operational guarantees:
   appends; :func:`verify_chain` reports the offending line instead of
   raising.
 - Reopened logs resume the chain from the existing tail (scan on open).
+  A writer whose log shrank under it -- tail truncated, file emptied,
+  replaced or deleted -- refuses further appends rather than chaining onto
+  what is left.
 """
 
 from __future__ import annotations
@@ -152,7 +156,9 @@ __all__ = [
 
 
 def _canonical(obj: Any) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+    # allow_nan=False: NaN/Infinity are not JSON, so other verifiers could
+    # not parse a line carrying them.
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -261,13 +267,24 @@ def _scan(
                 return _fail(f"malformed line {lineno}: missing newline (torn write)", lineno)
             try:
                 obj = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):
+                # A deeply nested line overflows the parser's recursion limit;
+                # it is hostile log content, reported like any other bad line.
                 return _fail(f"malformed line {lineno}: invalid JSON (torn write?)", lineno)
             if not isinstance(obj, dict) or set(obj) != _LINE_FIELDS:
                 return _fail(
                     f"malformed line {lineno}: line fields must be exactly {sorted(_LINE_FIELDS)}",
                     lineno,
                 )
+            # Only the writer's exact bytes are a valid line. A re-encoding with
+            # the same meaning (whitespace, a duplicate key, seq 2.0) would
+            # verify yet change the head hash an out-of-band mirror pinned.
+            try:
+                canonical = _canonical(obj) == line
+            except ValueError:
+                canonical = False
+            if not canonical or type(obj["seq"]) is not int or type(obj["iat"]) is not int:
+                return _fail(f"malformed line {lineno}: not canonical format v1 JSON", lineno)
             if obj["v"] != FORMAT_VERSION:
                 return _fail(
                     f"unsupported format version {obj['v']!r} at line {lineno} "
@@ -300,7 +317,7 @@ def _scan(
                     return _fail("genesis key fingerprint does not match the public key", 1)
             if verify_key is not None:
                 try:
-                    claims = verify_token(obj["jws"], verify_key)
+                    claims = verify_token(obj["jws"], verify_key, typ=None)
                 except AttestationError as exc:
                     return _fail(f"invalid signature at line {lineno}: {exc}", lineno)
                 kid = jwt.get_unverified_header(obj["jws"]).get("kid")
@@ -572,7 +589,25 @@ class ChainedAttestationLog:
 
     def _append_locked(self, record: dict[str, Any]) -> ChainedRecord:
         self._refuse_if_corrupt()
+        try:
+            record_sha256 = _sha256_hex(_canonical(record))
+        except ValueError as exc:
+            raise AttestationError(
+                f"record is not canonical JSON: {exc}", operation="append"
+            ) from exc
         fh = self._fh if self._fh is not None else self._open_for_append()
+        # The open handle bypasses the rescan, so a log deleted or truncated
+        # under it would take lines that chain onto a head no longer on disk
+        # (an unlinked inode swallows them outright). Check the file is still
+        # linked and still exactly as long as this writer left it.
+        st = os.fstat(fh.fileno())
+        if st.st_nlink == 0 or st.st_size != fh.tell():
+            self._corruption = (
+                f"log on disk changed under the open writer (size {st.st_size}, "
+                f"expected {fh.tell()}, links {st.st_nlink}); it was truncated, "
+                "emptied, replaced or deleted"
+            )
+            self._refuse_if_corrupt()
         iat = int(time.time())
         seq = self._next_seq
         prev = self._head_sha256
@@ -581,7 +616,7 @@ class ChainedAttestationLog:
             "iat": iat,
             "seq": seq,
             "prev_sha256": prev,
-            "record_sha256": _sha256_hex(_canonical(record)),
+            "record_sha256": record_sha256,
             "log_id": self._log_id,
             "v": FORMAT_VERSION,
         }
@@ -629,6 +664,15 @@ class ChainedAttestationLog:
                     f"log_id {state.log_id} on disk is not this log's {self._log_id}; "
                     "the file was replaced"
                 )
+            elif state.count < self._next_seq:
+                # This writer already wrote seq `_next_seq - 1`. Fewer lines
+                # on disk means the tail was cut, or the whole log deleted or
+                # emptied; chaining onto what is left would hide the loss
+                # (a cut tail re-verifies ok) or write a log with no genesis.
+                self._corruption = (
+                    f"log has {state.count} lines on disk but this writer's head is "
+                    f"seq {self._next_seq - 1}; it was truncated, emptied or deleted"
+                )
             self._refuse_if_corrupt()
             fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         except BaseException:
@@ -652,7 +696,7 @@ class ChainedAttestationLog:
             for lineno, raw in enumerate(fh, start=1):
                 try:
                     result.append(_parse_line(raw.rstrip(b"\n")))
-                except (ValueError, KeyError) as exc:
+                except (ValueError, KeyError, TypeError, RecursionError) as exc:
                     raise AttestationError(
                         f"malformed line {lineno} in {self._path}", operation="records"
                     ) from exc
@@ -670,12 +714,16 @@ class ChainedAttestationLog:
         return verify_chain(self._path, self._service.public_key)
 
     def close(self) -> None:
-        if self._fh is not None:
-            self._fh.close()
-            self._fh = None
-        if self._lock_fd is not None:
-            os.close(self._lock_fd)
-            self._lock_fd = None
+        # Under the append lock: closing the handle mid-append leaked a raw
+        # "write to closed file", and closing the lock fd twice could release
+        # a descriptor number another open had reused.
+        with self._write_lock:
+            if self._fh is not None:
+                self._fh.close()
+                self._fh = None
+            if self._lock_fd is not None:
+                os.close(self._lock_fd)
+                self._lock_fd = None
 
     def __enter__(self) -> ChainedAttestationLog:
         return self
@@ -687,7 +735,12 @@ class ChainedAttestationLog:
 def _load_public_key(public_key: Ed25519PublicKey | bytes | str | Path) -> Ed25519PublicKey:
     if isinstance(public_key, Ed25519PublicKey):
         return public_key
-    pem = Path(public_key).read_bytes() if isinstance(public_key, str | Path) else public_key
+    if isinstance(public_key, str) and public_key.lstrip().startswith("-----BEGIN"):
+        pem = public_key.encode()
+    elif isinstance(public_key, str | Path):
+        pem = Path(public_key).read_bytes()
+    else:
+        pem = public_key
     key = load_pem_public_key(pem)
     if not isinstance(key, Ed25519PublicKey):
         raise AttestationError("Public key is not Ed25519", operation="verify")
@@ -705,7 +758,8 @@ def verify_chain(
 
     Args:
         path: Chained JSONL log file.
-        public_key: Ed25519 public key (object, PEM bytes, or PEM path).
+        public_key: Ed25519 public key (object, PEM bytes or str, or a
+            path to a PEM file; a str starting with ``-----BEGIN`` is PEM).
         expected_head: Out-of-band mirrored line hash. Verification fails
             (``anchor_ok=False``) if it is not one of the log's line
             hashes — i.e. the tail containing it was truncated.
@@ -753,7 +807,7 @@ def verify_chain(
     anchor_error: str | None = None
     if anchor_token is not None:
         try:
-            verify_token(anchor_token, key)
+            verify_token(anchor_token, key, typ=None)
         except AttestationError as exc:
             anchor_error = f"anchor token verification failed: {exc}"
         else:

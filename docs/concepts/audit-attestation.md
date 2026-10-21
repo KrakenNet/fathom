@@ -177,12 +177,20 @@ Three implementations ship with Fathom:
   and the head is re-read from the file once it is held, so a writer opened
   while another was still running -- a rolling restart -- continues from the
   real head once the other has closed. A writer whose file was replaced by
-  another log is refused.
+  another log is refused, and so is a writer whose log shrank under it --
+  tail truncated, file emptied or deleted, whether it held the file open or
+  reopens it after `close()` -- rather than chaining onto what is left.
   The lock is OS-level and lives on a `<log>.lock` file beside the log, never
   on the log itself — Windows locks are mandatory, so locking the log would
   make it unreadable to `verify()` and `fathom verify-chain` while a writer
   held it. Readers are unaffected; network filesystems do not honour the lock
   reliably.
+
+  **Lines are canonical JSON.** Each line is exactly the bytes the writer
+  produced: sorted keys, no whitespace, integer `seq` and `iat`. The verifier
+  refuses any other encoding of the same content, and `append` refuses a
+  record holding NaN or Infinity, which are not JSON. A log is signed by one
+  key for its whole life; rotating keys means starting a new log.
 
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
@@ -340,6 +348,7 @@ The payload is deliberately narrow:
 {
     "iss":        "fathom",
     "iat":        int(time.time()),
+    "typ":        "fathom.evaluation",
     "decision":   result.decision,
     "rule_trace": result.rule_trace,
     # input_facts is the pre-inference working-memory snapshot: a list of
@@ -368,7 +377,16 @@ payload = verify_token(jwt_string, service.public_key)
 
 `verify_token` re-decodes the JWT with `algorithms=["EdDSA"]` and the
 supplied public key, returning the payload dict. Any failure — bad
-signature, malformed token, wrong algorithm — raises `AttestationError`.
+signature, malformed token, wrong algorithm, a key that is not an Ed25519
+public key — raises `AttestationError`.
+
+Every token names its kind in a `typ` claim, and `verify_token` accepts only
+the kind asked for: `"fathom.evaluation"` by default, `typ="fathom.event"`
+for the hot-reload and other event tokens `sign_event` mints. A chained-log
+line, or an event token, signed by the same key is therefore not accepted as
+an evaluation attestation. `sign_event` merges `iss`, `iat` and `typ` after
+the caller's payload, so a payload cannot override them. `typ=None` skips
+the kind check (tokens issued before the claim existed carry no `typ`).
 
 The public key can be serialised for distribution:
 

@@ -271,7 +271,7 @@ def test_signed_reload_audit_emission(
     assert data["ruleset_hash_before"] != data["ruleset_hash_after"]
 
     # Attestation token: EdDSA JWT signed by the runtime key — decode with its pubkey.
-    claims = verify_token(data["attestation_token"], attestation.public_key)
+    claims = verify_token(data["attestation_token"], attestation.public_key, typ="fathom.event")
     assert claims["iss"] == "fathom"
     assert isinstance(claims["iat"], int)
     assert claims["ruleset_hash_before"] == data["ruleset_hash_before"]
