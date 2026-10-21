@@ -108,6 +108,44 @@ def _validate_rule_file(data: dict[str, Any], file_path: Path) -> list[str]:
     return errors
 
 
+def template_names_in(data: Any) -> set[str]:
+    """Names of the templates a ``templates:`` document declares."""
+    if not isinstance(data, dict) or not isinstance(data.get("templates"), list):
+        return set()
+    return {
+        t["name"]
+        for t in data["templates"]
+        if isinstance(t, dict) and isinstance(t.get("name"), str)
+    }
+
+
+def unregistered_template_errors(
+    data: dict[str, Any],
+    templates: set[str],
+    file_path: Path,
+) -> list[str]:
+    """Rule patterns in *data* that match a template not in *templates*.
+
+    The loader rejects these (``Engine._unregistered_templates_error``); a
+    pattern with no slot constraint on a misspelled template would otherwise
+    build and never match. Needs the pack's templates, so ``fathom validate``
+    calls it once every file has been read.
+    """
+    errors: list[str] = []
+    rules = data.get("rules")
+    for rule in rules if isinstance(rules, list) else []:
+        if not isinstance(rule, dict) or not isinstance(rule.get("when"), list):
+            continue
+        for pattern in rule["when"]:
+            name = pattern.get("template") if isinstance(pattern, dict) else None
+            if isinstance(name, str) and name not in templates:
+                errors.append(
+                    f"{file_path}: rule '{rule.get('name')}' matches template "
+                    f"'{name}', which is not registered"
+                )
+    return errors
+
+
 def validate_document(
     data: dict[str, Any],
     file_path: Path,

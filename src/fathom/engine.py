@@ -437,61 +437,81 @@ class Engine:
     #: author is staring at.
     _MISSING_FUNCTION_RE = re.compile(r"Missing function declaration for '([^']+)'")
 
-    def _template_is_known(self, name: str) -> bool:
+    def _template_is_known(
+        self,
+        name: str,
+        registry: dict[str, TemplateDefinition] | None = None,
+        env: clips.Environment | None = None,
+    ) -> bool:
         """Whether *name* is a deftemplate this engine can match on.
 
         Checks the CLIPS environment as well as the YAML registry: a template
         can also arrive through a raw build, and a check that only consulted
         the registry would blame a load order that was in fact correct.
+        *registry* and *env* default to the live ones; ``reload_rules`` passes
+        the pair it is building.
         """
-        if name in self._template_registry:
+        if name in (self._template_registry if registry is None else registry):
             return True
         try:
-            self._env.find_template(name)
+            (self._env if env is None else env).find_template(name)
         except Exception:
             return False
         return True
+
+    def _unregistered_templates_error(
+        self,
+        defn: RuleDefinition,
+        file: Path | None = None,
+        registry: dict[str, TemplateDefinition] | None = None,
+        env: clips.Environment | None = None,
+    ) -> CompilationError | None:
+        """Reject a rule that matches a template nobody registered.
+
+        Must run BEFORE the build. CLIPS creates an implied deftemplate for
+        any pattern it has not seen, so a pattern with no slot constraint on
+        a misspelled template builds cleanly and can never match: a deny rule
+        written that way is dead. Only a constrained pattern used to fail,
+        so whether a typo was caught depended on how the pattern was written.
+        """
+        unique = list(
+            dict.fromkeys(
+                pattern.template
+                for pattern in defn.when
+                if not self._template_is_known(pattern.template, registry, env)
+            )
+        )
+        if not unique:
+            return None
+        names = ", ".join(f"'{name}'" for name in unique)
+        noun = "template" if len(unique) == 1 else "templates"
+        verb = "is" if len(unique) == 1 else "are"
+        return CompilationError(
+            "[fathom.engine] load rules failed: rule "
+            f"'{defn.name}' matches {noun} {names}, which {verb} not "
+            "registered. Load templates first with load_templates(), or "
+            "load the whole pack with load_pack_dir().",
+            file=str(file) if file is not None else None,
+            construct=f"rule:{defn.name}",
+        )
 
     def _diagnose_rule_build(
         self,
         exc: CompilationError,
         defn: RuleDefinition,
         file: Path,
-        unknown_templates: list[str],
     ) -> CompilationError | None:
         """Re-describe a rule build failure that is really a load-order mistake.
 
         CLIPS reports the generated construct, not the mistake: a rule
-        compiled before its templates fails with "Check appropriate syntax
-        for defrule", and one compiled before its functions fails with
-        EXPRNPSR3 naming a function the author never wrote. Both read as a
-        broken rule. ``load_rules`` already names this failure for modules;
-        these are the other two.
-
-        *unknown_templates* must be collected BEFORE the build: CLIPS creates
-        an implied deftemplate for each pattern it parses before it hits the
-        error, so asking afterwards reports the first pattern as known and
-        blames the wrong one.
+        compiled before its functions fails with EXPRNPSR3 naming a function
+        the author never wrote, which reads as a broken rule. ``load_rules``
+        names the module and template cases before the build.
 
         Returns None when the failure is something else, so the original
         CLIPS diagnostic is what the caller sees.
         """
         raw = exc.detail or str(exc)
-
-        if unknown_templates:
-            unique = list(dict.fromkeys(unknown_templates))
-            names = ", ".join(f"'{name}'" for name in unique)
-            noun = "template" if len(unique) == 1 else "templates"
-            verb = "is" if len(unique) == 1 else "are"
-            return CompilationError(
-                "[fathom.engine] load rules failed: rule "
-                f"'{defn.name}' matches {noun} {names}, which {verb} not "
-                "registered. Load templates first with load_templates(), or "
-                "load the whole pack with load_pack_dir().",
-                file=str(file),
-                construct=f"rule:{defn.name}",
-                detail=raw,
-            )
 
         missing = self._MISSING_FUNCTION_RE.search(raw)
         if missing:
@@ -932,18 +952,13 @@ class Engine:
                     clips_str = self._compiler.compile_rule(
                         rule_defn, ruleset.module, self._template_registry
                     )
-                    # Collected before the build: a failed build leaves
-                    # implied deftemplates behind for the patterns CLIPS got
-                    # through, which would mask the real answer.
-                    unknown_templates = [
-                        pattern.template
-                        for pattern in rule_defn.when
-                        if not self._template_is_known(pattern.template)
-                    ]
+                    unregistered = self._unregistered_templates_error(rule_defn, file)
+                    if unregistered is not None:
+                        raise unregistered
                     try:
                         self._safe_build(clips_str, context=f"rule:{rule_defn.name}")
                     except CompilationError as exc:
-                        better = self._diagnose_rule_build(exc, rule_defn, file, unknown_templates)
+                        better = self._diagnose_rule_build(exc, rule_defn, file)
                         if better is None:
                             raise
                         raise better from exc
@@ -1376,6 +1391,11 @@ class Engine:
             clips_str = self._compiler.compile_rule(
                 rule_defn, new_ruleset.module, new_template_registry
             )
+            unregistered = self._unregistered_templates_error(
+                rule_defn, registry=new_template_registry, env=new_env
+            )
+            if unregistered is not None:
+                raise unregistered
             self._safe_build(clips_str, context=f"rule:{rule_defn.name}", env=new_env)
             new_rule_registry[key] = rule_defn
 

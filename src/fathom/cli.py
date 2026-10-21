@@ -13,6 +13,7 @@ import importlib.resources
 import json
 import statistics
 import time
+from importlib.metadata import entry_points
 from pathlib import Path  # noqa: TC003 - used at runtime by Typer
 from typing import TYPE_CHECKING, Any
 
@@ -25,7 +26,11 @@ from fathom.errors import CompilationError, ValidationError
 from fathom.rego import ConversionResult, convert_ast, export_engine, parse_rego
 from fathom.release_sig import ReleaseSigError
 from fathom.release_sig import verify_artifact as _verify_artifact
-from fathom.yaml_utils import validate_document
+from fathom.yaml_utils import (
+    template_names_in,
+    unregistered_template_errors,
+    validate_document,
+)
 
 if TYPE_CHECKING:
     from fathom.models import HierarchyDefinition, TemplateDefinition
@@ -149,6 +154,8 @@ def validate(
 
         all_errors: list[str] = []
         files_checked = 0
+        rule_docs: list[tuple[dict[str, Any], Path]] = []
+        template_names: set[str] = set()
 
         for yaml_file in yaml_files:
             try:
@@ -168,8 +175,25 @@ def validate(
                     continue
                 doc_errors = _validate_document(doc, yaml_file)
                 all_errors.extend(doc_errors)
+                if "rules" in doc:
+                    rule_docs.append((doc, yaml_file))
+                template_names |= template_names_in(doc)
 
             files_checked += 1
+
+        # A rule file checked on its own still has its pack's templates, and
+        # a pack still has the templates of the packs it depends on.
+        for template_file in _sibling_template_files(path) + _dependency_template_files(path):
+            try:
+                template_names |= template_names_in(
+                    yaml.safe_load(template_file.read_text(encoding="utf-8"))
+                )
+            except (OSError, yaml.YAMLError):
+                continue
+        # With no templates in sight there is nothing to check a rule against.
+        if template_names:
+            for doc, yaml_file in rule_docs:
+                all_errors.extend(unregistered_template_errors(doc, template_names, yaml_file))
 
         if all_errors:
             _print_error(f"[fathom.cli] validate failed: {len(all_errors)} error(s) found")
@@ -242,6 +266,38 @@ def _sibling_template_files(path: Path) -> list[Path]:
     if not templates_dir.is_dir():
         return []
     return sorted(templates_dir.rglob("*.yaml")) + sorted(templates_dir.rglob("*.yml"))
+
+
+def _dependency_template_files(path: Path) -> list[Path]:
+    """Template files of the installed packs the pack at *path* depends on.
+
+    A pack such as ``cmmc`` matches templates its ``PACK_DEPENDENCIES``
+    define, and the engine loads those first. ``fathom validate`` checks rule
+    patterns against the templates it can see, so it needs them too. Only an
+    installed pack (one with an entry point) can declare dependencies.
+    """
+    from fathom.packs import DEPENDENCIES_ATTR, RulePackLoader
+
+    root = path if path.is_dir() else path.parent.parent
+    if not (root / "__init__.py").is_file():
+        return []
+    root = root.resolve()
+    pending: list[str] = []
+    for ep in entry_points(group="fathom.packs"):
+        module, pack_dir = RulePackLoader._resolve(ep.name)
+        if pack_dir.resolve() == root:
+            pending += getattr(module, DEPENDENCIES_ATTR, ())
+    files: list[Path] = []
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        module, pack_dir = RulePackLoader._resolve(name)
+        files += sorted((pack_dir / "templates").glob("*.yaml"))
+        pending += getattr(module, DEPENDENCIES_ATTR, ())
+    return files
 
 
 def _compile_yaml_file(

@@ -390,6 +390,14 @@ Model- or compile-time errors you will hit:
   `ValueError` from `_require_action_or_asserts`.
 - `ConditionEntry` rejections listed under
   [What the validator rejects](#what-the-validator-rejects).
+- A pattern whose `template` is not registered — `CompilationError`
+  from `Engine.load_rules` / `reload_rules`, before the rule is built,
+  whether or not the pattern has slot conditions. CLIPS would otherwise
+  create an implied deftemplate and the rule could never match.
+  `fathom validate` reports the same error against the templates it can
+  see: those under the validated path, a rule file's sibling
+  `templates/`, and the templates of an installed pack's
+  `PACK_DEPENDENCIES`.
 
 ## See also
 
