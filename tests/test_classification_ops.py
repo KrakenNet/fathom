@@ -459,6 +459,12 @@ class TestUnknownLevelFailsClosed:
         assert _fires(engine, {"clearance": "confidential"}, {"level": "secret"})
         assert not _fires(engine, {"clearance": "codeword"}, {"level": "secret"})
 
+    def test_cross_ref_with_a_bind_on_the_aliased_slot(self, tmp_path) -> None:
+        cond = "          - {slot: clearance, expression: 'meets_or_exceeds($o.level)'}\n"
+        engine = _fc_engine(tmp_path, cond)  # the object pattern binds ?ol on level
+        assert _fires(engine, {"clearance": "secret"}, {"level": "confidential"})
+        assert not _fires(engine, {"clearance": "secret"}, {"level": "codeword"})
+
     def test_scoped_deffunctions_in_a_test_ce(self, tmp_path) -> None:
         cond = (
             "          - {slot: clearance, bind: '?sl'}\n"
