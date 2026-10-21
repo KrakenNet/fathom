@@ -294,3 +294,42 @@ class TestGrpcWorkingMemoryNeedsASession:
             )
 
         assert svc.Evaluate(req, _FakeContext()).decision == before
+
+
+class TestGrpcBadInputIsInvalidArgument:
+    """A fact or filter the engine refuses is the caller's error, as REST's 422.
+
+    It used to escape the handler as a bare exception, which grpc reports as
+    UNKNOWN with no hint that the request itself was wrong.
+    """
+
+    @pytest.mark.parametrize(
+        ("rpc", "fields"),
+        [
+            ("AssertFact", {"template": "agent", "data_json": '{"id": "a", "nope": 1}'}),
+            ("AssertFact", {"template": "agent", "data_json": "{not json"}),
+            ("Query", {"template": "agent", "filter_json": '{"nope": 1}'}),
+            ("Retract", {"template": "agent", "filter_json": '{"nope": 1}'}),
+        ],
+    )
+    def test_session_rpc(self, ruleset_root: Path, rpc: str, fields: dict[str, str]) -> None:
+        svc = FathomServicer()
+        _evaluate(svc, _FakeContext(), "strict", "S")
+        ctx = _FakeContext()
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            getattr(svc, rpc)(SimpleNamespace(session_id="S", **fields), ctx)
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT
+
+    def test_evaluate(self, ruleset_root: Path) -> None:
+        svc = FathomServicer()
+        ctx = _FakeContext()
+        bad = SimpleNamespace(template="agent", data_json='{"id": null}')
+
+        with pytest.raises(RuntimeError, match="aborted"):
+            svc.Evaluate(SimpleNamespace(session_id="", ruleset="strict", facts=[bad]), ctx)
+
+        assert ctx.aborted is not None
+        assert ctx.aborted[0] is grpc.StatusCode.INVALID_ARGUMENT

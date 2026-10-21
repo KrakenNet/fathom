@@ -28,7 +28,13 @@ except ImportError as _exc:
         "Install it with: pip install fathom-rules[grpc]"
     ) from _exc
 
-from fathom.errors import CompilationError, EvaluationError, EvaluationLimitError
+from fathom.errors import (
+    CompilationError,
+    EvaluationError,
+    EvaluationLimitError,
+    ScopeError,
+    ValidationError,
+)
 from fathom.integrations.auth import verify_admin_token, verify_token
 from fathom.integrations.paths import PathJailError, resolve_ruleset
 from fathom.integrations.sessions import (
@@ -60,6 +66,19 @@ _GRPC_MAX_RECEIVE_BYTES = 4 * 1024 * 1024
 # Typed as an event tuple so the queue annotation stays narrow; never
 # yielded to clients.
 _RELOAD_SENTINEL: tuple[str, str, dict[str, Any]] = ("__ruleset_reloaded__", "", {})
+
+
+@contextlib.contextmanager
+def _invalid_argument(context: Any) -> Iterator[None]:
+    """Abort INVALID_ARGUMENT on a fact, filter or JSON the engine refuses.
+
+    REST answers these 422; uncaught here they reached the client as UNKNOWN.
+    """
+    try:
+        yield
+    except (ValidationError, ScopeError, json.JSONDecodeError) as exc:
+        context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"invalid_argument: {exc}")
+        raise  # unreachable; abort raises
 
 
 class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
@@ -254,11 +273,12 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
             else self._default_engine
         )
 
-        facts: list[tuple[str, dict[str, Any]]] = [
-            (fact.template, json.loads(fact.data_json)) for fact in request.facts
-        ]
         try:
-            result = engine.evaluate_once(facts=facts)
+            with _invalid_argument(context):
+                facts: list[tuple[str, dict[str, Any]]] = [
+                    (fact.template, json.loads(fact.data_json)) for fact in request.facts
+                ]
+                result = engine.evaluate_once(facts=facts)
         except EvaluationLimitError as exc:
             # The ruleset exhausted its activation budget, which is how a
             # non-terminating ruleset is stopped: a policy problem, not a
@@ -296,8 +316,8 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         """Assert a single fact into working memory."""
         self._check_auth(context)
         engine = self._engine_for(request.session_id, context=context)
-        data = json.loads(request.data_json)
-        engine.assert_fact(request.template, data)
+        with _invalid_argument(context):
+            engine.assert_fact(request.template, json.loads(request.data_json))
         return fathom_pb2.AssertFactResponse(success=True)
 
     def Query(  # noqa: N802 — gRPC convention
@@ -309,11 +329,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         self._check_auth(context)
         engine = self._engine_for(request.session_id, context=context)
 
-        fact_filter: dict[str, Any] | None = None
-        if request.filter_json:
-            fact_filter = json.loads(request.filter_json)
-
-        facts = engine.query(request.template, fact_filter)
+        with _invalid_argument(context):
+            fact_filter = json.loads(request.filter_json) if request.filter_json else None
+            facts = engine.query(request.template, fact_filter)
         return fathom_pb2.QueryResponse(facts_json=[json.dumps(f) for f in facts])
 
     def Retract(  # noqa: N802 — gRPC convention
@@ -325,11 +343,9 @@ class FathomServicer(fathom_pb2_grpc.FathomServiceServicer):
         self._check_auth(context)
         engine = self._engine_for(request.session_id, context=context)
 
-        fact_filter: dict[str, Any] | None = None
-        if request.filter_json:
-            fact_filter = json.loads(request.filter_json)
-
-        count = engine.retract(request.template, fact_filter)
+        with _invalid_argument(context):
+            fact_filter = json.loads(request.filter_json) if request.filter_json else None
+            count = engine.retract(request.template, fact_filter)
         return fathom_pb2.RetractResponse(retracted_count=count)
 
     def SubscribeChanges(  # noqa: N802 — gRPC convention
