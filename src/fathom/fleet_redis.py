@@ -75,7 +75,32 @@ class RedisFactStore:
 
     Facts are stored as Redis hashes with keys ``fathom:{template}:{fact_id}``.
     Change notifications are published via Redis Streams at
-    ``fathom:changes:{template}``.
+    ``fathom:changes:{template}``. Install with
+    ``pip install fathom-rules[fleet]``.
+
+    The client connects lazily on first use; there is no ``connect()``.
+    Call :meth:`close` when done.
+
+    Each write runs as one Lua script, so a fact and its stream entry are
+    stored together or not at all. Concurrent retracts of the same fact
+    count and announce it once.
+
+    :meth:`subscribe` starts a listener task that reads the stream, so a
+    callback runs after the write commits, also in the writing process. A
+    subscription sees no history: it delivers every change made after
+    :meth:`subscribe` returns, and none from before. Each stream is capped
+    at about 10000 entries (``MAXLEN ~``).
+
+    Connection errors and timeouts are retried up to 3 attempts (0.1s, then
+    0.3s apart) and then raise :class:`~fathom.errors.FleetConnectionError`.
+    Any other Redis error (NOPERM, WRONGTYPE) raises
+    :class:`~fathom.errors.FleetError` at once. A retry after a lost reply
+    can repeat a write, and with it its notification.
+
+    With *ttl*, each fact hash expires after *ttl* seconds. An expired fact
+    drops out of :meth:`query` and :meth:`count` (its index entry is pruned
+    on the next read), and expiry sends no ``retract`` notification. The
+    stream cap is not tied to the TTL.
 
     Parameters
     ----------
@@ -284,9 +309,16 @@ class RedisFactStore:
         """
         stream_key = self._stream_key(template)
         stop_event = asyncio.Event()
+        # Read on from the stream's last entry as of now, not from "$": "$"
+        # means "after whatever is last when XREAD runs", so a change landing
+        # before the listener's first read, or between two idle reads, was lost.
+        last: Any = await self._retry(
+            "subscribe", lambda: self._client.xrevrange(stream_key, count=1)
+        )
+        start_id = last[0][0] if last else "0-0"
 
         async def _listener() -> None:
-            last_id = "$"
+            last_id = start_id
             while not stop_event.is_set():
                 try:
                     entries: Any = await self._client.xread(

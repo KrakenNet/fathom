@@ -10,7 +10,7 @@ import asyncpg  # type: ignore[import-untyped]
 import pytest
 import pytest_asyncio
 
-from fathom.errors import FleetError
+from fathom.errors import FleetConnectionError, FleetError
 from fathom.fleet_pg import PostgresFactStore
 from tests.test_fleet_integration import (
     POSTGRES_IMAGE,
@@ -332,3 +332,42 @@ class TestPostgresNotConnected:
         ):
             with pytest.raises(FleetError, match="call connect"):
                 await op
+
+
+class TestPostgresErrorSplit:
+    """Connection-class failures raise FleetConnectionError; the rest FleetError."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("exc", "expected"),
+        [
+            # What asyncpg raises when the backend dies mid-statement.
+            (asyncpg.exceptions.ConnectionDoesNotExistError("lost"), FleetConnectionError),
+            (asyncpg.exceptions.ConnectionFailureError("lost"), FleetConnectionError),
+            (asyncpg.exceptions.InterfaceError("pool is closing"), FleetError),
+            (asyncpg.exceptions.UndefinedTableError("no table"), FleetError),
+        ],
+    )
+    async def test_errors_are_split(
+        self,
+        store: PostgresFactStore,
+        monkeypatch: pytest.MonkeyPatch,
+        exc: Exception,
+        expected: type[FleetError],
+    ) -> None:
+        def failing_acquire(*_a: object, **_k: object) -> object:
+            raise exc
+
+        assert store._pool is not None
+        for op in (
+            lambda: store.assert_fact("agent", {"id": "a1"}),
+            lambda: store.query("agent"),
+            lambda: store.retract("agent"),
+            lambda: store.retract("agent", {"id": "a1"}),
+            lambda: store.count("agent"),
+        ):
+            with monkeypatch.context() as m:
+                m.setattr(type(store._pool), "acquire", failing_acquire)
+                with pytest.raises(FleetError) as info:
+                    await op()
+            assert type(info.value) is expected

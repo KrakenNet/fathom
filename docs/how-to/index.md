@@ -19,5 +19,6 @@ last_verified: 2026-04-15
 - [Exporting rules as Rego](export-rego.md)
 - [Embedding via SDK](embed-sdk.md)
 - [Hot-reloading rulesets in a running server](hot-reload.md)
+- [Running a fleet over a shared fact store](fleet.md)
 - [Verifying a signed release](release-signing.md)
 - [Running Policy Studio](policy-studio.md)

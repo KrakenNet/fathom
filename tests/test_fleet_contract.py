@@ -181,3 +181,38 @@ async def test_fleet_engine_stores_clips_implicit_defaults(
 
     assert len(a.query("beat", {"note": ""})) == 1
     assert len(await fleet.query("beat", {"note": ""})) == 1
+
+
+@pytest.mark.asyncio
+async def test_change_right_after_subscribe_is_delivered(store: FactStore) -> None:
+    """subscribe() returning means the subscription is live: no warm-up gap."""
+    seen: list[str] = []
+
+    async def on_change(n: FactChangeNotification) -> None:
+        seen.append(n.fact_id)
+
+    await store.subscribe("agent", on_change)
+    fid = await store.assert_fact("agent", {"id": "a1"})
+
+    await _eventually(lambda: bool(seen))
+    assert seen == [fid]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_filtered_retracts_announce_each_fact_once(store: FactStore) -> None:
+    seen: list[str] = []
+
+    async def on_change(n: FactChangeNotification) -> None:
+        if n.action == "retract":
+            seen.append(n.fact_id)
+
+    await _subscribe(store, "agent", on_change)
+    for i in range(20):
+        await store.assert_fact("agent", {"id": f"a{i}", "kind": "x"})
+
+    counts = await asyncio.gather(*(store.retract("agent", {"kind": "x"}) for _ in range(4)))
+
+    assert sum(counts) == 20
+    await _eventually(lambda: len(seen) >= 20)
+    await asyncio.sleep(0.3)
+    assert sorted(seen) == sorted(set(seen)) and len(seen) == 20
