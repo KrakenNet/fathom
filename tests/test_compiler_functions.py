@@ -197,11 +197,11 @@ class TestClassificationFunctionsRank:
         for level, idx in expected_cases:
             assert f'(case "{level}" then {idx})' in result
 
-    def test_rank_default_minus_one(self, compiler: Compiler) -> None:
+    def test_rank_default_refuses_unknown_level(self, compiler: Compiler) -> None:
         hier = self._make_hierarchy("cls", ["low", "high"])
         defn = self._make_defn("cls", "cls.yaml")
         result = compiler.compile_function(defn, hierarchy=hier)
-        assert "(default -1)" in result
+        assert '(default (fathom-unknown-level "cls" ?level))' in result
 
     @pytest.mark.parametrize(
         "levels",

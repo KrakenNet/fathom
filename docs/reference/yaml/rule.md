@@ -258,13 +258,13 @@ or `$alias.field`. They compile to `fathom-has-compartment` and
 `(fathom-dominates level-a comps-a level-b comps-b hierarchy)` from a `test:`
 condition.
 
-**An unknown level fails closed.** A value that is not a level of the
-hierarchy -- a typo, a different case, a label from another ladder -- makes
-`below` and `meets_or_exceeds` false on either side, the same as
-`within_scope`. It is never ranked below or above anything. Note what this
-means for a deny written with `below`: an unknown label does not fire it, so
-pair such a deny with a default-deny decision, or restrict the slot with
-`allowed_values`.
+**An unknown level stops the evaluation.** A value that is not a level of the
+hierarchy -- a typo, a different case, a label from another ladder -- on either
+side of `below`, `meets_or_exceeds` or `within_scope` raises, and the
+evaluation fails with `EvaluationError` instead of returning a decision. It is
+never ranked below or above anything, and it is not read as false either: a
+deny written with `below` would then skip the typo label. The REST, gRPC and
+MCP surfaces return their evaluation-error response (`evaluation failed`).
 
 Temporal operators emit `(test …)` CEs that call
 external functions registered at runtime. A rule that uses one also matches

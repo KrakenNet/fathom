@@ -55,13 +55,13 @@ identifiers all begin with the hierarchy name (e.g. `clearance-rank`,
 `clearance-below`). The expansion, from
 `_compile_classification_functions`, is:
 
-- `(deffunction MAIN::<hier>-rank (?level) (switch ?level (case LEVEL then INDEX) … (default -1)))` — one `case` per level, in declaration order; out-of-hierarchy inputs return `-1`.
-- `(deffunction MAIN::<hier>-below (?a ?b) (and <both-known> (< (<hier>-rank ?a) (<hier>-rank ?b))))`.
-- `(deffunction MAIN::<hier>-meets-or-exceeds (?a ?b) (and <both-known> (>= (<hier>-rank ?a) (<hier>-rank ?b))))`.
-  `<both-known>` is `(>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)`: an
-  out-of-hierarchy level on either side makes `below` and `meets-or-exceeds`
-  false, so a mis-cased or unknown label never compares as a rank.
-- `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — both inputs must be in-hierarchy.
+- `(deffunction MAIN::<hier>-rank (?level) (switch (str-cat ?level) (case "LEVEL" then INDEX) … (default (fathom-unknown-level "<hier>" ?level))))` — one `case` per level, in declaration order. An out-of-hierarchy input has no rank: `fathom-unknown-level` raises, and the evaluation fails with `EvaluationError`.
+- `(deffunction MAIN::<hier>-below (?a ?b) (< (<hier>-rank ?a) (<hier>-rank ?b)))`.
+- `(deffunction MAIN::<hier>-meets-or-exceeds (?a ?b) (>= (<hier>-rank ?a) (<hier>-rank ?b)))`.
+- `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — true when both inputs are in the hierarchy.
+
+All four rank both sides, so a mis-cased or unknown label on either side stops
+the evaluation; no rule, allow or deny, decides on it.
 
 The compiler also emits **unscoped backward-compat shims** —
 `below`, `meets-or-exceeds`, `within-scope` — that delegate to the
@@ -125,7 +125,7 @@ is registered, referenced or not.
 | Field          | Type               | Default | Required | Description                                                                                                                                       |
 |----------------|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`         | `str`              | —       | yes      | Hierarchy name. Drives the emitted deffunction prefix (`<name>-rank`, `<name>-below`, …).                                                          |
-| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; out-of-hierarchy inputs rank `-1` and make them false. |
+| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; an out-of-hierarchy input fails the evaluation with `EvaluationError`. |
 | `compartments` | `list[str] \| None`| `None`  | no       | Accepted by the model but **not** consumed by `_compile_classification_functions` today. Reserved for future compartment-aware emission.           |
 
 ## Worked example — `classification`
@@ -148,18 +148,18 @@ functions:
 
 ```
 (deffunction MAIN::clearance-rank (?level)
-    (switch ?level
-        (case unclassified then 0)
-        (case confidential then 1)
-        (case secret then 2)
-        (case top-secret then 3)
-        (default -1)))
+    (switch (str-cat ?level)
+        (case "unclassified" then 0)
+        (case "confidential" then 1)
+        (case "secret" then 2)
+        (case "top-secret" then 3)
+        (default (fathom-unknown-level "clearance" ?level))))
 
 (deffunction MAIN::clearance-below (?a ?b)
-    (and (>= (clearance-rank ?a) 0) (>= (clearance-rank ?b) 0) (< (clearance-rank ?a) (clearance-rank ?b))))
+    (< (clearance-rank ?a) (clearance-rank ?b)))
 
 (deffunction MAIN::clearance-meets-or-exceeds (?a ?b)
-    (and (>= (clearance-rank ?a) 0) (>= (clearance-rank ?b) 0) (>= (clearance-rank ?a) (clearance-rank ?b))))
+    (>= (clearance-rank ?a) (clearance-rank ?b)))
 
 (deffunction MAIN::clearance-within-scope (?a ?b)
     (and (>= (clearance-rank ?a) 0) (>= (clearance-rank ?b) 0)))
@@ -214,14 +214,16 @@ Engine-registered builtins (`fathom-matches`, `fathom-count-exceeds`,
 `fathom-rate-exceeds`, `fathom-changed-within`, `fathom-last-n`,
 `fathom-distinct-count`, `fathom-sequence-detected`,
 `fathom-parse-compartments`, `fathom-has-compartment`,
-`fathom-compartments-superset`, `fathom-dominates`). Python callers of
+`fathom-compartments-superset`, `fathom-dominates`, `fathom-unknown-level`). Python callers of
 `Engine.register_function` are rejected with `ValueError` if the
 requested name starts with `fathom-`. YAML `raw` bodies are not
 re-checked by the compiler, but avoid the prefix in authored CLIPS to
 prevent collisions with the runtime's own bindings.
 
-`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` is FALSE when
-either level is not a level of `hierarchy`, or the hierarchy is not loaded.
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` raises when
+either level is not a level of `hierarchy`, or the hierarchy is not loaded, so
+the evaluation fails with `EvaluationError`. The Python
+`fathom.engine.dominates` raises `EvaluationError` in the same cases.
 
 ## Validators — what is rejected
 

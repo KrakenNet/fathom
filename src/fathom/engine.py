@@ -12,7 +12,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
 from uuid import uuid4
 
 import clips
@@ -21,7 +21,13 @@ from pydantic import BaseModel
 
 from fathom.audit import AuditLog, AuditSink, NullSink
 from fathom.compiler import _EPOCH_TEMPLATE_NAME, Compiler
-from fathom.errors import CompilationError, EvaluationLimitError, ScopeError, ValidationError
+from fathom.errors import (
+    CompilationError,
+    EvaluationError,
+    EvaluationLimitError,
+    ScopeError,
+    ValidationError,
+)
 from fathom.evaluator import Evaluator
 from fathom.facts import FactManager, _plain
 from fathom.metrics import MetricsCollector
@@ -174,6 +180,11 @@ def _diff_user_facts(
     return [f for f in post if _key(f) not in pre_keys]
 
 
+def unknown_level(hierarchy_name: str, level: str) -> NoReturn:
+    """Refuse a level outside *hierarchy_name*; the evaluation fails closed."""
+    raise EvaluationError(f"{str(level)!r} is not a level of hierarchy {str(hierarchy_name)!r}")
+
+
 def dominates(
     level_a: str,
     comps_a: str,
@@ -186,17 +197,22 @@ def dominates(
 
     Returns True when the subject (*level_a*, *comps_a*) dominates the
     object (*level_b*, *comps_b*) according to the named hierarchy.
+
+    Raises:
+        EvaluationError: The hierarchy is not loaded, or either level is not
+            one of its levels.
     """
     hier_def = hierarchy_registry.get(str(hierarchy_name))
     if hier_def is None:
-        return False
+        raise EvaluationError(f"unknown hierarchy {str(hierarchy_name)!r}")
     levels = hier_def.levels
     la = str(level_a)
     lb = str(level_b)
-    # A level outside the hierarchy has no rank, so it dominates nothing and
-    # nothing dominates it. Ranking it -1 made `secret` dominate `TOP-SECRET`.
-    if la not in levels or lb not in levels:
-        return False
+    # A level outside the hierarchy has no rank. Ranking it -1 made `secret`
+    # dominate `TOP-SECRET`; answering False let a deny skip a typo label.
+    for level in (la, lb):
+        if level not in levels:
+            unknown_level(str(hierarchy_name), level)
     if levels.index(la) < levels.index(lb):
         return False
     return compartments_superset(str(comps_a), str(comps_b))
@@ -760,6 +776,7 @@ class Engine:
             return dominates(level_a, comps_a, level_b, comps_b, hierarchy, hierarchy_registry)
 
         env.define_function(fathom_dominates, "fathom-dominates")
+        env.define_function(unknown_level, "fathom-unknown-level")
 
         # fathom-last-n(template, slot, value, n) — true if >= N matching facts
         def fathom_last_n(

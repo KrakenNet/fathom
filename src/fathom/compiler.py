@@ -782,31 +782,33 @@ class Compiler:
             cases.append(f'        (case "{Compiler._escape_clips_string(level)}" then {idx})')
         cases_str = "\n".join(cases)
 
+        # A level outside the hierarchy has no rank. It used to rank -1 and
+        # compare, so `secret >= TOP-SECRET` was true; answering false instead
+        # let a deny written with `below` skip a typo label. So the default
+        # case raises (``fathom-unknown-level``) and the evaluation fails with
+        # an EvaluationError -- no rule decides on an unknown label.
         rank_fn = (
             f"(deffunction MAIN::{rank_name} (?level)\n"
             f"    (switch (str-cat ?level)\n"
             f"{cases_str}\n"
-            f"        (default -1)))"
+            f'        (default (fathom-unknown-level "{name}" ?level))))'
         )
 
         # Scoped deffunctions namespaced by hierarchy name.
-        #
-        # A level outside the hierarchy ranks -1, and comparing that like any
-        # other rank made `meets_or_exceeds(secret, TOP-SECRET)` and
-        # `none >= codeword` true -- a mis-cased or unknown label was readable
-        # by anyone. Both ranks must be real, as `within-scope` already asks.
-        known = f"(>= ({rank_name} ?a) 0) (>= ({rank_name} ?b) 0)"
         scoped_below = (
-            f"(deffunction MAIN::{name}-below (?a ?b)\n"
-            f"    (and {known} (< ({rank_name} ?a) ({rank_name} ?b))))"
+            f"(deffunction MAIN::{name}-below (?a ?b)\n    (< ({rank_name} ?a) ({rank_name} ?b)))"
         )
 
         scoped_meets = (
             f"(deffunction MAIN::{name}-meets-or-exceeds (?a ?b)\n"
-            f"    (and {known} (>= ({rank_name} ?a) ({rank_name} ?b))))"
+            f"    (>= ({rank_name} ?a) ({rank_name} ?b)))"
         )
 
-        scoped_scope = f"(deffunction MAIN::{name}-within-scope (?a ?b)\n    (and {known}))"
+        # Both ranks are evaluated, so an unknown level on either side raises.
+        scoped_scope = (
+            f"(deffunction MAIN::{name}-within-scope (?a ?b)\n"
+            f"    (and (>= ({rank_name} ?a) 0) (>= ({rank_name} ?b) 0)))"
+        )
 
         parts = [rank_fn, scoped_below, scoped_meets, scoped_scope]
 

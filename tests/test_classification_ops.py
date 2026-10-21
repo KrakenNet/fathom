@@ -6,6 +6,8 @@ compartment parsing, dominance checks, and backward compatibility.
 
 from __future__ import annotations
 
+import pytest
+
 from fathom.compiler import Compiler
 from fathom.engine import (
     Engine,
@@ -14,6 +16,7 @@ from fathom.engine import (
     has_compartment,
     parse_compartments,
 )
+from fathom.errors import CompilationError, EvaluationError
 from fathom.models import HierarchyDefinition
 
 # ---------------------------------------------------------------------------
@@ -153,11 +156,13 @@ class TestDominates:
             is False
         )
 
-    def test_unknown_hierarchy_returns_false(self) -> None:
-        assert dominates("secret", "", "secret", "", "nonexistent", _REGISTRY) is False
+    def test_unknown_hierarchy_raises(self) -> None:
+        with pytest.raises(EvaluationError, match="unknown hierarchy"):
+            dominates("secret", "", "secret", "", "nonexistent", _REGISTRY)
 
-    def test_unknown_level_returns_false(self) -> None:
-        assert dominates("cosmic", "", "unclassified", "", "classification", _REGISTRY) is False
+    def test_unknown_level_raises(self) -> None:
+        with pytest.raises(EvaluationError, match="not a level"):
+            dominates("cosmic", "", "unclassified", "", "classification", _REGISTRY)
 
     def test_both_empty_compartments_same_level(self) -> None:
         assert (
@@ -248,7 +253,8 @@ class TestEdgeCases:
     """Edge cases for classification ops."""
 
     def test_dominates_empty_registry(self) -> None:
-        assert dominates("secret", "", "secret", "", "classification", {}) is False
+        with pytest.raises(EvaluationError, match="unknown hierarchy"):
+            dominates("secret", "", "secret", "", "classification", {})
 
     def test_compartments_superset_disjoint_sets(self) -> None:
         assert compartments_superset("NATO|FVEY", "SAR|TK") is False
@@ -257,10 +263,6 @@ class TestEdgeCases:
         # Engine passes CLIPS values as strings, but parse_compartments should handle gracefully
         result = parse_compartments(123)  # type: ignore[arg-type]
         assert result == ["123"]
-
-    def test_dominates_unknown_subject_known_object(self) -> None:
-        # Unknown subject rank -1 < known object rank 0, so fails
-        assert dominates("cosmic", "", "unclassified", "", "classification", _REGISTRY) is False
 
 
 # ---------------------------------------------------------------------------
@@ -432,47 +434,92 @@ def _fires(engine: Engine, subj: dict, obj: dict) -> bool:
 
 
 class TestUnknownLevelFailsClosed:
-    """An unknown or mis-cased label must never compare as a rank.
+    """An unknown or mis-cased label must stop the evaluation.
 
-    The rank of a level outside the hierarchy is -1, and `below`,
-    `meets_or_exceeds` and `dominates` compared it like any other rank, so
-    `secret >= TOP-SECRET` and `none >= codeword` were both true.
+    The rank of a level outside the hierarchy was -1, so `secret >= TOP-SECRET`
+    and `none >= codeword` were true. Answering false instead made a deny
+    written with `below` silently skip a typo label. Neither answer is safe,
+    so an unknown level raises and no rule decides on it.
     """
 
-    def test_dominates_both_unknown_is_false(self) -> None:
-        assert dominates("cosmic", "", "ultra", "", "classification", _REGISTRY) is False
+    def test_dominates_both_unknown_raises(self) -> None:
+        with pytest.raises(EvaluationError, match="not a level"):
+            dominates("cosmic", "", "ultra", "", "classification", _REGISTRY)
 
-    def test_dominates_unknown_object_is_false(self) -> None:
-        assert dominates("top-secret", "", "TOP-SECRET", "", "classification", _REGISTRY) is False
+    def test_dominates_unknown_object_raises(self) -> None:
+        with pytest.raises(EvaluationError, match="not a level"):
+            dominates("top-secret", "", "TOP-SECRET", "", "classification", _REGISTRY)
+
+    def test_dominates_unknown_hierarchy_raises(self) -> None:
+        with pytest.raises(EvaluationError, match="hierarchy"):
+            dominates("secret", "", "secret", "", "clearance", _REGISTRY)
 
     def test_meets_or_exceeds_cross_ref_unknown_either_side(self, tmp_path) -> None:
         cond = "          - {slot: clearance, expression: 'meets_or_exceeds($o.level)'}\n"
         engine = _fc_engine(tmp_path, cond, obj_conditions="[]")
         assert _fires(engine, {"clearance": "secret"}, {"level": "confidential"})
-        assert not _fires(engine, {"clearance": "secret"}, {"level": "TOP-SECRET"})
-        assert not _fires(engine, {"clearance": "none"}, {"level": "codeword"})
-        assert not _fires(engine, {"clearance": "none"}, {"level": "unclassified"})
+        for subj, obj in (("secret", "TOP-SECRET"), ("none", "codeword"), ("none", "secret")):
+            with pytest.raises(EvaluationError):
+                _fires(engine, {"clearance": subj}, {"level": obj})
 
     def test_below_cross_ref_unknown_either_side(self, tmp_path) -> None:
         cond = "          - {slot: clearance, expression: 'below($o.level)'}\n"
         engine = _fc_engine(tmp_path, cond, obj_conditions="[]")
         assert _fires(engine, {"clearance": "confidential"}, {"level": "secret"})
-        assert not _fires(engine, {"clearance": "codeword"}, {"level": "secret"})
+        for subj, obj in (("codeword", "secret"), ("secret", "Top-Secret")):
+            with pytest.raises(EvaluationError):
+                _fires(engine, {"clearance": subj}, {"level": obj})
+
+    def test_deny_with_below_on_a_typo_label_does_not_allow(self, tmp_path) -> None:
+        """The case that made fail-false unsafe: a deny guarding an allow."""
+        rules = (
+            "ruleset: rs\nmodule: m\nrules:\n"
+            "  - name: ok\n    salience: 10\n"
+            "    when: [{template: subj, conditions: "
+            "[{slot: trust, expression: 'equals(anon)'}]}]\n"
+            "    then: {action: allow, reason: ok}\n"
+            "  - name: too-low\n"
+            "    when: [{template: subj, conditions: "
+            "[{slot: clearance, expression: 'below(secret)'}]}]\n"
+            "    then: {action: deny, reason: low}\n"
+        )
+        for sub, body in (
+            ("templates", _FC_TEMPLATES),
+            ("modules", "modules:\n  - name: m\n"),
+            ("functions", _FC_ONE_HIER),
+            ("rules", rules),
+        ):
+            (tmp_path / sub).mkdir()
+            (tmp_path / sub / "a.yaml").write_text(body, encoding="utf-8")
+        engine = Engine.from_rules(str(tmp_path))
+        facts = [("subj", {"trust": "anon", "clearance": "confidental"})]
+        with pytest.raises(EvaluationError):
+            engine.evaluate_once(facts)
+
+    def test_literal_form_unknown_slot_value(self, tmp_path) -> None:
+        cond = "          - {slot: clearance, expression: 'meets_or_exceeds(secret)'}\n"
+        engine = _fc_engine(tmp_path, cond, obj_conditions="[]")
+        assert _fires(engine, {"clearance": "top-secret"}, {"level": "secret"})
+        with pytest.raises(EvaluationError):
+            _fires(engine, {"clearance": "TOP-SECRET"}, {"level": "secret"})
 
     def test_cross_ref_with_a_bind_on_the_aliased_slot(self, tmp_path) -> None:
         cond = "          - {slot: clearance, expression: 'meets_or_exceeds($o.level)'}\n"
         engine = _fc_engine(tmp_path, cond)  # the object pattern binds ?ol on level
         assert _fires(engine, {"clearance": "secret"}, {"level": "confidential"})
-        assert not _fires(engine, {"clearance": "secret"}, {"level": "codeword"})
+        with pytest.raises(EvaluationError):
+            _fires(engine, {"clearance": "secret"}, {"level": "codeword"})
 
     def test_scoped_deffunctions_in_a_test_ce(self, tmp_path) -> None:
-        cond = (
-            "          - {slot: clearance, bind: '?sl'}\n"
-            "          - test: '(clearance-meets-or-exceeds ?sl ?ol)'\n"
-        )
-        engine = _fc_engine(tmp_path, cond)
-        assert _fires(engine, {"clearance": "secret"}, {"level": "secret"})
-        assert not _fires(engine, {"clearance": "secret"}, {"level": "codeword"})
+        for fn in ("meets-or-exceeds", "below", "within-scope"):
+            cond = (
+                "          - {slot: clearance, bind: '?sl'}\n"
+                f"          - test: '(clearance-{fn} ?sl ?ol)'\n"
+            )
+            engine = _fc_engine(tmp_path / fn, cond)
+            assert _fires(engine, {"clearance": "secret"}, {"level": "secret"}) == (fn != "below")
+            with pytest.raises(EvaluationError):
+                _fires(engine, {"clearance": "secret"}, {"level": "codeword"})
 
     def test_fathom_dominates_builtin(self, tmp_path) -> None:
         cond = (
@@ -483,16 +530,13 @@ class TestUnknownLevelFailsClosed:
         engine = _fc_engine(tmp_path, cond)
         subj = {"clearance": "secret", "comps": "nato"}
         assert _fires(engine, subj, {"level": "secret", "comps": "nato"})
-        assert not _fires(engine, subj, {"level": "TOP-SECRET", "comps": "nato"})
-        assert not _fires(engine, subj, {"level": "codeword", "comps": "nato"})
+        for level in ("TOP-SECRET", "codeword"):
+            with pytest.raises(EvaluationError):
+                _fires(engine, subj, {"level": level, "comps": "nato"})
 
     def test_cross_ref_with_two_hierarchies_is_refused(self, tmp_path) -> None:
         """The cross-ref form went to the first hierarchy's shim, where every
         level of the second ranks -1, so `anon >= staff` was true."""
-        import pytest
-
-        from fathom.errors import CompilationError
-
         cond = "          - {slot: trust, expression: 'meets_or_exceeds($o.trust_req)'}\n"
         with pytest.raises(CompilationError, match="more than one hierarchy"):
             _fc_engine(tmp_path, cond, _FC_TWO_HIER)
