@@ -6,7 +6,7 @@ Fathom is a deterministic reasoning runtime for AI agents, built on CLIPS via
 clipspy. Rules are authored in YAML, compiled to CLIPS constructs, and
 evaluated in microseconds with auditable traces.
 
-Current release: `fathom-rules` 0.13.0 (requires Python 3.12+). <!-- x-release-please-version -->
+Current release: `fathom-rules` 0.14.0 (requires Python 3.12+). <!-- x-release-please-version -->
 
 ## Start here
 
@@ -374,7 +374,7 @@ engine.assert_fact("agent", {"id": "a-1", "clearance": "public"})
 result = engine.evaluate()
 
 print(result.decision)      # -> "allow"
-print(result.rule_trace)    # -> [governance::"allow-public"]
+print(result.rule_trace)    # -> ['governance::allow-public']
 ```
 
 The `no-verify` tag skips snippet execution because the install step and file paths aren't part of the test harness. The engine calls themselves are verified in [working memory](working-memory.md), which builds on this example with a real in-memory path.
@@ -830,6 +830,7 @@ constructs. `clear_facts()` and `reset()` only affect data, not compiled constru
 - [Exporting rules as Rego](export-rego.md)
 - [Embedding via SDK](embed-sdk.md)
 - [Hot-reloading rulesets in a running server](hot-reload.md)
+- [Running a fleet over a shared fact store](fleet.md)
 - [Verifying a signed release](release-signing.md)
 - [Running Policy Studio](policy-studio.md)
 
@@ -1149,7 +1150,8 @@ def evaluate(fact: FactInput):
 ## Auth
 
 The bundled `app` enforces bearer-token authentication on every endpoint
-except `GET /health`. The implementation lives in
+except `GET /health` and `GET /v1/status`, which serve liveness and
+ruleset-hash information to probes. The implementation lives in
 `src/fathom/integrations/auth.py` and works as follows:
 
 1. Every protected endpoint declares `Depends(_require_auth)`.
@@ -1369,6 +1371,24 @@ Two options tune the run:
 fathom bench examples/04-temporal-anomaly -n 5000 -w 500
 ```
 
+`-n` must be at least 1 and `-w` at least 0; anything lower is a usage
+error (exit 2).
+
+## verify-artifact
+
+Verify a release artifact's detached minisign signature. By default the
+signature is `<artifact>.minisig` and the key is the release public key
+bundled with Fathom; `--sig` and `--pubkey` override either.
+
+```shell
+fathom verify-artifact fathom_rules-1.0.0-py3-none-any.whl
+```
+
+It prints `ok: signature valid` and exits 0, exits 1 when the signature
+does not match, 2 when the artifact, signature or key is missing, and 3
+when the signature or key is malformed. See
+[release signing](release-signing.md) for producing the signature.
+
 ## verify-chain
 
 Offline-verify a hash-chained attestation log: every line's JWS
@@ -1404,11 +1424,28 @@ the log or key file cannot be read — a file that is not a parseable PEM
 counts as a key that cannot be read, and reports that rather than raising.
 It exits 3 when the key is a valid PEM but not an Ed25519 key.
 
+## status
+
+Ask a running Fathom server which ruleset it has loaded, through
+`GET /v1/status`.
+
+```shell
+fathom status --server http://127.0.0.1:8080 --token "$FATHOM_TOKEN"
+```
+
+It prints `ruleset_hash`, `version` and `loaded_at`; `--json` prints the
+response body as JSON instead. `--token` defaults to the `FATHOM_TOKEN`
+environment variable. It exits 1 when the server cannot be reached,
+answers anything but 200, or answers with something other than a JSON
+object.
+
 ## mcp
 
 Serve the Fathom MCP tools over stdio, backed by one rule pack. Needs the
-`mcp` extra. The pack is compiled first, so a broken pack exits 1 before
-the server starts; after that, stdout belongs to the MCP protocol.
+`mcp` extra; without it the command exits 3 and names the extra. The
+argument is a pack directory. The pack is compiled first, so a broken pack
+exits 1 and an empty directory exits 2 before the server starts; after
+that, stdout belongs to the MCP protocol.
 
 ```shell
 fathom mcp examples/01-hello-allow-deny
@@ -1624,9 +1661,10 @@ The loader tries two discovery strategies, in order:
    `load_modules`, `load_functions`, or `load_rules` method.
 2. **Key-inspection fallback**. If none of those subdirectories exist, every
    `*.yaml` file directly under `path` is opened and routed by its top-level
-   key: `templates` → templates loader, `modules` or `focus_order` → modules
-   loader, `functions` → functions loader, `rules` or `ruleset` → rules
-   loader.
+   key: `templates` → templates loader, `modules` → modules loader (a
+   `focus_order:` goes in the same file as the `modules:` it orders; a file
+   holding only `focus_order:` is refused, by `fathom validate` too),
+   `functions` → functions loader, `rules` or `ruleset` → rules loader.
 
 Both strategies load in the same fixed order: **templates → modules →
 functions → rules**. The order matters because templates define the slot
@@ -1794,8 +1832,8 @@ The check runs first, so the second pack is not half-loaded: the engine is
 left exactly as it was. Identical definitions are allowed and simply reused.
 
 This affects real combinations today — `hipaa` and `nist-800-53`/`cmmc` both
-define `data_transfer`, `audit_event` and `access_request` with different
-slots, so they cannot share an `Engine`. Load them into separate `Engine`
+define `data_transfer` with different slots, so they cannot share an
+`Engine`. Load them into separate `Engine`
 instances and evaluate against each.
 
 ### Error handling
@@ -1820,6 +1858,18 @@ only happens for exotic namespace-package setups.
 Nothing stops you from mixing both in one `Engine`: call `load_pack` for a
 shared baseline, then `load_rules` or `load_templates` on a local directory
 for application-specific overlays.
+
+**An overlay can override the pack.** Each load appends its modules to the
+focus order, and the decision is last-write-wins, so a module loaded after
+the pack has the last word: an overlay `allow` that matches the same fact
+as a pack `deny` wins. To keep the pack's denies binding, put the pack's
+module last once everything is loaded:
+
+```python
+engine.load_pack("hipaa")
+engine.load_pack_dir("/srv/packs/local-overlay")
+engine.set_focus([m for m in engine.focus_order if m != "hipaa"] + ["hipaa"])
+```
 
 ## Related reading
 
@@ -1858,6 +1908,10 @@ If it is missing, the command fails with a message naming
 [where to get it](https://www.openpolicyagent.org/docs/latest/#running-opa).
 Only the parse step needs it; the conversion itself is pure Python, and
 nothing at Fathom runtime depends on OPA.
+
+From Python, `fathom.rego.convert_source(text, template="input")` takes the
+policy *text* (not a path) and returns the same result the command writes;
+`convert_ast` takes an already-parsed OPA AST.
 
 ## Convert a policy
 
@@ -1929,7 +1983,9 @@ widen to `string` when one field is compared against literals of different
 types. Rego has a single `number` type, so **every number becomes a `float`
 slot** — inferring `integer` from a policy that happens to compare against a
 whole number would produce a template that rejects the very input the policy
-was written for. `flatten_input` feeds those slots floats to match.
+was written for. `flatten_input` feeds those slots floats to match. Pass it
+`declared=` (the template's slot names) to drop input fields no slot
+declares, which would otherwise fail the assert.
 
 ### A field the document leaves out
 
@@ -2009,7 +2065,7 @@ Dropping a rule only narrows the policy when the rule is an `allow`. Dropping
 a `deny` takes a deny condition out, and the result allows input the policy
 denies. So when any `deny` rule is refused, for any reason in the table above,
 nothing is written: the command exits 3 and lists every refusal, and
-`convert_ast` raises `CompilationError`. Rewrite the `deny` into the
+`convert_source` / `convert_ast` raise `CompilationError`. Rewrite the `deny` into the
 convertible subset, or convert it by hand.
 
 ## Reading the output
@@ -2145,8 +2201,9 @@ and that default is what the converter tells you to write.
 
 Errors on these two routes use OPA's `{"code", "message"}` envelope rather
 than Fathom's `{"error", "detail"}`, so a client that parses OPA's errors
-keeps working. The one exception is `401`, which comes from the shared auth
-dependency and answers in Fathom's shape.
+keeps working. The exceptions are `401` (the shared auth dependency), `413`
+(the request body cap) and `422` (a body that is not valid JSON), which
+answer in Fathom's shape.
 
 ## What this does not give you
 
@@ -2263,11 +2320,11 @@ with a count rather than once per rule.
 | More than one fact pattern | The rule joins across facts; Rego has one input document to join against. |
 | `then.assert` | The rule adds to working memory. Rego derives documents from one input and cannot. |
 | No `then.action` | Pure inference — the part of Fathom Rego does not have. |
-| `then.scope` | The decision carries a scope value; a Rego document is a boolean here. |
 | A temporal operator | `changed_within`, `count_exceeds` and the rest ask about history, and Rego has no memory of the last input. |
 | A classification operator | `below`, `meets_or_exceeds` and the rest resolve against a hierarchy, which is engine state. |
 | `bind:` or `test:` | A bind is a join; a raw CLIPS conditional element has no translation. |
 | A `$alias.field` reference | A cross-fact reference. |
+| A `matches` regex RE2 cannot evaluate | Lookahead, lookbehind, backreferences (`\1`, `(?P=name)`), atomic groups and conditionals. OPA's `regex.match` is RE2; on one of these it errors, OPA's default mode reads the error as undefined, and the rule would never fire. |
 
 A refused rule is left out entirely, unless it decides `deny`: leaving a
 deny out would make the Rego allow what the ruleset denied, so a refused
@@ -2332,13 +2389,17 @@ evaluate:
 from fathom.engine import Engine
 
 engine = Engine.from_rules("examples/01-hello-allow-deny")
-engine.assert_fact("access", {"role": "admin", "resource": "db"})
+engine.assert_fact("agent", {"id": "dave", "clearance": "secret"})
+engine.assert_fact(
+    "data_request",
+    {"agent_id": "dave", "classification": "top-secret", "resource": "nuclear_codes"},
+)
 
 result = engine.evaluate()
-print(result.decision)      # "allow" | "deny" | "escalate" | None
-print(result.reason)
-print(result.rule_trace)    # list[str] — rules that fired
-print(result.module_trace)  # list[str] — modules traversed
+print(result.decision)      # "deny" ("allow" | "deny" | "escalate" | None)
+print(result.reason)        # "Secret clearance insufficient for top-secret data"
+print(result.rule_trace)    # ['governance::deny-top-secret-for-secret']
+print(result.module_trace)  # ['governance']
 print(result.duration_us)   # int — evaluation time in microseconds
 ```
 
@@ -2353,8 +2414,7 @@ memory until you retract them or call `engine.reset()`. A second
 first round:
 
 ```python
-engine.assert_fact("access", {"role": "admin", "resource": "db"})
-engine.evaluate()  # rules see the fact
+engine.evaluate()  # rules see the facts asserted above
 engine.evaluate()  # second call — the fact is still there
 
 engine.reset()     # clear all facts and reinitialise the environment
@@ -2375,13 +2435,15 @@ templates and rules.
 `retract` removes them and returns how many rows it pulled out:
 
 ```python
-engine.query("access")
-# [{"role": "admin", "resource": "db"}]
+engine.assert_fact("agent", {"id": "dave", "clearance": "secret"})  # reset() cleared it
 
-engine.query("access", fact_filter={"role": "admin"})
-# [{"role": "admin", "resource": "db"}]
+engine.query("agent")
+# [{"id": "dave", "clearance": "secret"}]
 
-removed = engine.retract("access", fact_filter={"role": "admin"})
+engine.query("agent", fact_filter={"clearance": "secret"})
+# [{"id": "dave", "clearance": "secret"}]
+
+removed = engine.retract("agent", fact_filter={"clearance": "secret"})
 # removed == 1
 ```
 
@@ -2405,7 +2467,7 @@ engine.rule_matches("deny-top-secret-for-secret")
 
 with engine.trace() as firings:
     engine.evaluate()
-print(firings)  # ['FIRE 1 deny-top-secret-for-secret: f-1,f-2']
+print(firings)  # ['FIRE    1 deny-top-secret-for-secret: f-1,f-2']
 ```
 
 `agenda()` is the question `rule_trace` cannot answer, because it reports
@@ -2692,6 +2754,10 @@ app.state.engine = Engine.from_rules("/var/lib/fathom/rulesets/prod")
 app.state.attestation = AttestationService.generate_keypair()
 ```
 
+Each `build_app()` call returns a new app with its own `state` and session
+store, separate from the module-level `app` that
+`uvicorn fathom.integrations.rest:app` serves. Serve the object it returns.
+
 ## What carries over, and what does not
 
 A reload is a **rule-only** swap: the payload holds rules, and everything else
@@ -2790,11 +2856,12 @@ Content-Type: application/json
 
 Request body — supply **exactly one** of `ruleset_path` or
 `ruleset_yaml`; `signature` is required in production (fail-closed
-default):
+default). `ruleset_path` is relative to `FATHOM_RULESET_ROOT`; an absolute
+path or one that escapes the root is refused with 400:
 
 ```json
 {
-  "ruleset_path": "/etc/fathom/rulesets/prod-2026-04-22.yaml",
+  "ruleset_path": "prod/rules/access.yaml",
   "signature":    "<base64 Ed25519 over the raw YAML bytes>"
 }
 ```
@@ -2804,7 +2871,7 @@ on the Fathom host:
 
 ```json
 {
-  "ruleset_yaml": "rules:\n  - id: ...\n",
+  "ruleset_yaml": "ruleset: prod\nmodule: gov\nrules:\n  - name: ...\n",
   "signature":    "<base64 Ed25519 over the ruleset_yaml bytes>"
 }
 ```
@@ -2822,19 +2889,23 @@ Response (200):
 Error codes:
 
 - `400 invalid_request` — both or neither of `ruleset_path` /
-  `ruleset_yaml` supplied; `ruleset_path` unreadable; `signature` is
-  not valid base64; ruleset failed to compile. Each emits
-  `ruleset_reload_rejected` to the audit sink.
+  `ruleset_yaml` supplied; `ruleset_path` outside the root or
+  unreadable; `signature` is not valid base64.
+- `400 invalid_ruleset` — the ruleset failed to compile.
 - `400 unsigned_ruleset` — `require_signature=true` (the default) and
   either `signature` is missing or Ed25519 verification failed. Also
   emits `ruleset_reload_rejected` to the audit sink.
 - `413 payload_too_large` — the request body exceeds the reload size
   cap (see below). Enforced before any YAML parsing.
+- `422 validation_error` — the body is not a valid request object.
 - `500 server_misconfigured` — `require_signature=true` but the
   pubkey never loaded (should have failed at boot; treated as
   defence-in-depth).
 - `503 not_ready` — engine or attestation service not yet configured
-  on `app.state`.
+  on `app.state`. Checked first, and the only refusal that is not
+  audited (there is no engine to report a hash for).
+
+Every other refusal emits `ruleset_reload_rejected` to the audit sink.
 
 ## Admin token, body size cap, and rate limiting
 
@@ -2945,7 +3016,9 @@ is missing, unset, or unreadable, `build_app()` raises a
 `RuntimeError` with the message `ruleset pubkey unreadable or missing;
 set FATHOM_RULESET_PUBKEY_PATH or enable dev escape` and the server
 never starts. This is deliberate — failing at boot beats failing on
-first reload attempt.
+first reload attempt. The check lives in `build_app()` only: the
+module-level `fathom.integrations.rest:app` mounts no Engine, never reads
+the key, and starts without it, answering every reload `503 not_ready`.
 
 ## Dev escape (development only)
 
@@ -3040,15 +3113,17 @@ configured audit sink. Successful reloads emit:
 Every rejected reload emits `event_type: ruleset_reload_rejected` with a
 `reason` field and the *unchanged* `ruleset_hash_before`. The reasons are
 `missing_signature`, the verification failure text, `compile_failed`,
-`unreadable_ruleset_path`, `malformed_signature`, `invalid_request` (both or
-neither source named), and `server_misconfigured`. Both transports emit them;
+`unreadable_ruleset_path`, `path_rejected`, `malformed_signature`,
+`invalid_request` (both or neither source named), `payload_too_large`,
+`validation_error`, and `server_misconfigured`. Both transports emit them;
 neither returns the compiler's diagnostic or the resolved server-side path to
 the caller, so the audit sink is where an operator reads what happened.
 
 The `attestation_token` returned from a successful reload is a JWT
 signed by the server's `AttestationService.sign_event()` (C6); you can
-verify it offline with the service's pubkey and replay it in your
-audit trail as a non-repudiation proof.
+verify it offline with the service's pubkey —
+`verify_token(token, public_key, typ="fathom.event")` — and replay it in
+your audit trail as a non-repudiation proof.
 
 ## Rotating the runtime pubkey
 
@@ -3082,9 +3157,11 @@ operator has ever had a "signatures optional" hot-reload in
 production. However, operators who have been experimenting with
 pre-release dev builds that accepted unsigned rulesets need to know:
 
-- **The default is fail-closed.** After upgrading, a server started
-  without `FATHOM_RULESET_PUBKEY_PATH` will refuse to boot with
-  `ruleset pubkey unreadable or missing…`. This is intentional.
+- **The default is fail-closed.** After upgrading, a server built with
+  `build_app()` and started without `FATHOM_RULESET_PUBKEY_PATH` will
+  refuse to boot with `ruleset pubkey unreadable or missing…`. This is
+  intentional. The module-level `fathom.integrations.rest:app` has no
+  reloadable Engine and boots either way.
 - **Before restart, pick one of:**
   1. **Production path (recommended).** Generate a runtime keypair
      (or decide to reuse the release key), publish the pubkey file,
@@ -3100,6 +3177,257 @@ pre-release dev builds that accepted unsigned rulesets need to know:
   `ruleset_reload_rejected`) alongside the existing eval-shaped
   records. They share the `actor` + `timestamp` envelope but carry
   `ruleset_hash_before` / `ruleset_hash_after` instead of eval fields.
+
+
+## how-to/fleet.md
+
+# Running a fleet over a shared fact store
+
+A `FleetEngine` holds one `Engine` per session, all loaded from the same
+rules directory, and a `FactStore` they share. Facts of a template marked
+`scope: fleet` are written to the store; every other fact stays in the
+session that asserted it. A session pulls the fleet's facts into its own
+working memory with `sync_fleet_facts`.
+
+Three stores implement the `FactStore` protocol:
+
+| Store | Import | Install | Shared across processes |
+|---|---|---|---|
+| `InMemoryFactStore` | `fathom` | included | no |
+| `RedisFactStore` | `fathom.fleet_redis` | `pip install fathom-rules[fleet]` | yes |
+| `PostgresFactStore` | `fathom.fleet_pg` | `pip install fathom-rules[fleet-pg]` | yes |
+
+## Mark a template fleet-scoped
+
+`scope` is a template field; it defaults to `session`.
+
+```yaml
+templates:
+  - name: lock
+    scope: fleet
+    slots:
+      - name: resource
+        type: string
+        required: true
+      - name: holder
+        type: string
+  - name: request
+    slots:
+      - name: agent
+        type: string
+```
+
+A fleet-scoped template may not declare a slot named `fact_id` (the store's
+row key), and a rule may not `assert` into one: that is a `CompilationError`
+at load.
+
+## Run a fleet in memory
+
+`InMemoryFactStore` needs no setup and has no `connect()` or `close()`. It
+lives in one process, so it suits tests and single-process fleets. This
+example writes the template above to a temporary rules directory:
+
+```python
+import asyncio
+import pathlib
+import tempfile
+
+from fathom import FleetEngine, InMemoryFactStore
+
+rules = pathlib.Path(tempfile.mkdtemp())
+(rules / "templates").mkdir()
+(rules / "templates" / "fleet.yaml").write_text(
+    """
+templates:
+  - name: lock
+    scope: fleet
+    slots:
+      - name: resource
+        type: string
+        required: true
+      - name: holder
+        type: string
+  - name: request
+    slots:
+      - name: agent
+        type: string
+"""
+)
+
+
+async def main() -> None:
+    fleet = FleetEngine(fact_store=InMemoryFactStore(), rules_path=str(rules))
+    fleet.create_session("agent-a")
+    b = fleet.create_session("agent-b")
+
+    # Fleet scope: written to agent-a and the store; returns the store's fact_id.
+    fact_id = await fleet.assert_fact("agent-a", "lock", {"resource": "db"})
+    assert fact_id is not None
+    # Session scope: stays in agent-a; returns None.
+    assert await fleet.assert_fact("agent-a", "request", {"agent": "a"}) is None
+
+    # The store holds the fact as the engine accepted it, defaults applied.
+    rows = await fleet.query("lock", {"resource": "db"})
+    assert rows == [{"fact_id": fact_id, "resource": "db", "holder": ""}]
+
+    # agent-b sees it only after a sync.
+    assert b.query("lock") == []
+    await fleet.sync_fleet_facts("agent-b")
+    assert b.query("lock") == [{"resource": "db", "holder": ""}]
+
+
+asyncio.run(main())
+```
+
+`FleetEngine(fact_store, rules_path, **engine_kwargs)` passes
+`engine_kwargs` to `Engine.from_rules` for every session.
+
+## Run a fleet on Redis
+
+`RedisFactStore` connects lazily on first use, so there is no `connect()`.
+Call `close()` when done; it also cancels any subscription listeners.
+
+```python no-verify
+import asyncio
+
+from fathom import FleetEngine
+from fathom.fleet_redis import RedisFactStore
+
+
+async def main() -> None:
+    store = RedisFactStore(host="localhost", port=6379, ttl=3600)
+    try:
+        fleet = FleetEngine(fact_store=store, rules_path="rules/")
+        fleet.create_session("agent-a")
+        await fleet.assert_fact("agent-a", "lock", {"resource": "db"})
+        print(await fleet.query("lock"))
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+The constructor also takes `db`, `password` and `ssl`. With `ttl`, each fact
+expires after that many seconds; an expired fact drops out of `query` and
+`count` but sends no `retract` notification. Connection errors and timeouts
+are retried (3 attempts) before `FleetConnectionError`; other Redis errors
+raise `FleetError` at once.
+
+## Run a fleet on Postgres
+
+`PostgresFactStore` must be connected first: `await store.connect()` creates
+the connection pool and the `fleet_facts` table. Using the store before
+`connect()` raises `FleetError`.
+
+```python no-verify
+import asyncio
+
+from fathom import FleetEngine
+from fathom.fleet_pg import PostgresFactStore
+
+
+async def main() -> None:
+    store = PostgresFactStore("postgresql://fathom:fathom@localhost:5432/fathom")
+    await store.connect()
+    try:
+        fleet = FleetEngine(fact_store=store, rules_path="rules/")
+        fleet.create_session("agent-a")
+        await fleet.assert_fact("agent-a", "lock", {"resource": "db"})
+        print(await fleet.query("lock"))
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+Postgres caps a NOTIFY payload at 8000 bytes, and each write sends the fact
+as JSON in one. A fact larger than that fails `assert_fact` with
+`FleetError` and nothing is stored. Errors are not retried: an unreachable
+server or a connection lost mid-statement raises `FleetConnectionError`, any
+other driver error `FleetError`.
+
+## Manage sessions
+
+Every method that addresses a session takes its id and raises `KeyError` for
+an id with no session.
+
+| Call | Does | Raises |
+|---|---|---|
+| `create_session(id)` | Loads a new `Engine` and returns it | `FleetError` if `id` already has a session |
+| `replace_session(id)` | Discards the session's engine, returns a fresh one with empty working memory | `KeyError` if unknown |
+| `remove_session(id)` | Forgets the session | `KeyError` if unknown |
+| `sessions` | A copy of the `{id: Engine}` mapping | — |
+
+## Assert, query and sync
+
+- `await fleet.assert_fact(id, template, data)` validates the fact in the
+  session first, so a fact the engine rejects never reaches the store. A
+  fleet-scoped fact is then written to the store, and its `fact_id` returned.
+  If the store write fails, the local assert is rolled back and the error
+  re-raised. Asserting into a fleet-scoped template directly on the `Engine`
+  raises `ScopeError`; go through `FleetEngine.assert_fact`.
+- `await fleet.query(template, fact_filter=None)` reads the store, not a
+  session. Each row carries its `fact_id`. A filter naming a slot the
+  template does not declare raises `ValidationError`.
+- `await fleet.sync_fleet_facts(id)` queries the store for every fleet-scoped
+  template and asserts the rows into the session. A row the session rejects
+  is logged and skipped.
+
+## Fleet retraction does not propagate
+
+`FleetEngine` has no `retract`, never subscribes to the store, and
+`sync_fleet_facts` only ever asserts. A fact removed from the store (with
+`store.retract(...)`, or by Redis TTL expiry) stays in every session that
+already synced it, and a local `Engine.retract` of a fleet-scoped template
+raises `ScopeError`. To drop removed facts from a session, rebuild it and
+sync again:
+
+```python
+async def drop_retracted() -> None:
+    store = InMemoryFactStore()
+    fleet = FleetEngine(fact_store=store, rules_path=str(rules))
+    s = fleet.create_session("agent-a")
+    await fleet.assert_fact("agent-a", "lock", {"resource": "db"})
+
+    assert await store.retract("lock", {"resource": "db"}) == 1
+    assert s.query("lock") == [{"resource": "db", "holder": ""}]  # still there
+
+    s = fleet.replace_session("agent-a")
+    await fleet.sync_fleet_facts("agent-a")
+    assert s.query("lock") == []
+
+
+asyncio.run(drop_retracted())
+```
+
+## Subscribe to store changes
+
+A store's `subscribe(template, callback)` calls `await callback(notification)`
+with a `FactChangeNotification` (`template`, `fact_id`, `action` of `assert`
+or `retract`, `data`) and returns an unsubscribe callable. `FleetEngine` does
+not use it; it is for your own code.
+
+| | In-memory | Redis | Postgres |
+|---|---|---|---|
+| Delivered | synchronously, inside `assert_fact` / `retract` | after the write, from a listener task reading the stream | after commit, through `LISTEN` |
+| History | none | none; every change after `subscribe()` returns | none; every change after `subscribe()` returns |
+| Gaps | — | — | changes during a `LISTEN` reconnect are lost |
+
+On all three, a fact and its notification are written together or not at
+all, concurrent retracts of one fact count and announce it once, and a callback that raises is logged on the `fathom.fleet` logger and
+skipped: it never fails the write, ends the subscription or reaches the
+other subscribers.
+
+## Reference
+
+- [`FleetEngine`](../reference/python-sdk/fleetengine.md)
+- [`InMemoryFactStore`](../reference/python-sdk/inmemoryfactstore.md)
+- [`RedisFactStore`](../reference/python-sdk/redisfactstore.md)
+- [`PostgresFactStore`](../reference/python-sdk/postgresfactstore.md)
+- [`FleetError`](../reference/python-sdk/fleeterror.md) and its subclass
+  [`FleetConnectionError`](../reference/python-sdk/fleetconnectionerror.md)
 
 
 ## how-to/release-signing.md
@@ -3192,9 +3520,11 @@ fathom verify-artifact fathom_rules-1.2.0-py3-none-any.whl
 
 If `<artifact>.minisig` lives next to the artifact, the CLI picks it up
 automatically. Override either side with `--sig <path>` or `--pubkey
-<path>` when auditing a specific file. Exit code `0` means the
-signature verified; non-zero means the verification failed or the
-inputs were malformed — re-download the artifact before trusting it.
+<path>` when auditing a specific file. Like `minisign -V`, it checks both
+the artifact signature and the global signature over the trusted comment.
+Exit code `0` means both verified; `1` means a signature did not verify;
+`3` means the signature or key file is malformed (including not UTF-8, or
+missing its trusted comment) — re-download the artifact before trusting it.
 
 ### Option B — raw `minisign`
 
@@ -4363,12 +4693,20 @@ Three implementations ship with Fathom:
   and the head is re-read from the file once it is held, so a writer opened
   while another was still running -- a rolling restart -- continues from the
   real head once the other has closed. A writer whose file was replaced by
-  another log is refused.
+  another log is refused, and so is a writer whose log shrank under it --
+  tail truncated, file emptied or deleted, whether it held the file open or
+  reopens it after `close()` -- rather than chaining onto what is left.
   The lock is OS-level and lives on a `<log>.lock` file beside the log, never
   on the log itself — Windows locks are mandatory, so locking the log would
   make it unreadable to `verify()` and `fathom verify-chain` while a writer
   held it. Readers are unaffected; network filesystems do not honour the lock
   reliably.
+
+  **Lines are canonical JSON.** Each line is exactly the bytes the writer
+  produced: sorted keys, no whitespace, integer `seq` and `iat`. The verifier
+  refuses any other encoding of the same content, and `append` refuses a
+  record holding NaN or Infinity, which are not JSON. A log is signed by one
+  key for its whole life; rotating keys means starting a new log.
 
 Anything satisfying the protocol is a valid sink. A production deployment
 might write to S3, publish to Kafka, call out to syslog, or fan out to
@@ -4526,6 +4864,7 @@ The payload is deliberately narrow:
 {
     "iss":        "fathom",
     "iat":        int(time.time()),
+    "typ":        "fathom.evaluation",
     "decision":   result.decision,
     "rule_trace": result.rule_trace,
     # input_facts is the pre-inference working-memory snapshot: a list of
@@ -4554,7 +4893,16 @@ payload = verify_token(jwt_string, service.public_key)
 
 `verify_token` re-decodes the JWT with `algorithms=["EdDSA"]` and the
 supplied public key, returning the payload dict. Any failure — bad
-signature, malformed token, wrong algorithm — raises `AttestationError`.
+signature, malformed token, wrong algorithm, a key that is not an Ed25519
+public key — raises `AttestationError`.
+
+Every token names its kind in a `typ` claim, and `verify_token` accepts only
+the kind asked for: `"fathom.evaluation"` by default, `typ="fathom.event"`
+for the hot-reload and other event tokens `sign_event` mints. A chained-log
+line, or an event token, signed by the same key is therefore not accepted as
+an evaluation attestation. `sign_event` merges `iss`, `iat` and `typ` after
+the caller's payload, so a payload cannot override them. `typ=None` skips
+the kind check (tokens issued before the claim existed carry no `typ`).
 
 The public key can be serialised for distribution:
 
@@ -4927,18 +5275,18 @@ without a restart.
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `FATHOM_API_TOKEN` | REST, gRPC | *(none — required)* | The data-plane bearer token. Every `/v1/*` route and every RPC compares the presented `Authorization: Bearer …` against it with `hmac.compare_digest`. Unset means server mode refuses to authenticate anything. Read per verification. |
+| `FATHOM_API_TOKEN` | REST, gRPC | *(none — required)* | The data-plane bearer token. Every `/v1/*` route except `GET /v1/status`, `GET /metrics` when enabled, and every RPC compare the presented `Authorization: Bearer …` against it with `hmac.compare_digest`. Unset means server mode refuses to authenticate anything. Read per verification. |
 | `FATHOM_ADMIN_TOKEN` | REST, gRPC | *(unset)* | Scopes the reload surface. When set, `POST /v1/rules/reload` and the `Reload` RPC accept **only** this token and the data-plane token stops working for them. When unset, reload falls back to `FATHOM_API_TOKEN`. |
-| `FATHOM_RULESET_ROOT` | REST | *(none — required)*; the Docker image sets `/rules`, its declared volume | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400; an unset root is a 500, never an unjailed read. |
-| `FATHOM_RULESET_PUBKEY_PATH` | REST | *(none)* | PEM path of the public key that signed rulesets are verified against. Required at startup unless the dev escape below is engaged — a missing or unreadable key is a startup failure, not a warning. |
+| `FATHOM_RULESET_ROOT` | REST, gRPC | *(none — required)*; the Docker image sets `/rules`, its declared volume | Directory that every caller-supplied ruleset path is jailed under. A request naming a path outside it is rejected with 400 (gRPC `INVALID_ARGUMENT`); an unset root is a 500 (gRPC `FAILED_PRECONDITION`), never an unjailed read. |
+| `FATHOM_RULESET_PUBKEY_PATH` | REST | *(none)* | PEM path of the public key that signed rulesets are verified against. Read by `build_app()`, which raises at startup when the key is missing or unreadable unless the dev escape below is engaged. The module-level `fathom.integrations.rest:app` that Docker and `uvicorn` serve does not call `build_app()` and does not read it: it mounts no Engine, so it starts without the key and answers every reload `503 not_ready`. |
 | `FATHOM_ALLOW_UNSIGNED_RULESETS` | REST | `0` | Set to `1` **and** build the app with `require_signature=False` to accept unsigned reload payloads. Both are required; either alone keeps signature checking on. Logs a warning on every boot that uses it. |
 | `FATHOM_MAX_REQUEST_BYTES` | REST | `2097152` (2 MB) | Body cap on the data-plane routes, enforced on bytes actually received rather than `Content-Length`. `/v1/evaluate` runs a quadratic join over the facts it is given, so this bounds server CPU, not just memory. A non-numeric or non-positive value falls back to the default. Read per request. |
-| `FATHOM_MAX_RELOAD_BYTES` | REST, gRPC | `5242880` (5 MB) | Body cap on the reload route specifically, which the data-plane cap skips. gRPC's own receive limit is set below this. Same fallback behaviour. Read per request. |
+| `FATHOM_MAX_RELOAD_BYTES` | REST | `5242880` (5 MB) | Body cap on the reload route specifically, which the data-plane cap skips. Same fallback behaviour. Read per request. gRPC does not read it: its receive limit is a fixed 4 MB on every RPC, `Reload` included. |
 | `FATHOM_EXPOSE_DOCS` | REST | `0` | Set to `1` to serve `/docs`, `/redoc`, and `/openapi.json`. Off by default because they publish route and schema names to unauthenticated callers. Read once at import. |
 | `FATHOM_GRPC_TLS_CERT` | gRPC | *(none)* | PEM certificate path. Required with `FATHOM_GRPC_TLS_KEY` unless insecure mode is opted into. |
 | `FATHOM_GRPC_TLS_KEY` | gRPC | *(none)* | PEM private-key path, paired with the certificate above. |
 | `FATHOM_GRPC_ALLOW_INSECURE` | gRPC | `0` | Set to `1` to bind a plaintext port when no TLS pair is configured. See the warning below. |
-| `FATHOM_METRICS` | Engine | `0` | Set to `1` to enable Prometheus metrics collection without passing `enabled=True` to `MetricsCollector`. No-ops when `prometheus_client` is not installed, so setting it is safe on an install without the `metrics` extra. |
+| `FATHOM_METRICS` | Engine, REST | `0` | Set to `1` to enable Prometheus metrics collection without passing `enabled=True` to `MetricsCollector`. The REST app also mounts `GET /metrics` (Prometheus text format, bearer-token auth like `/v1/*`). That route is not in `openapi.json`, which is exported with metrics off. REST reads it once at import. No-ops when `prometheus_client` is not installed, so setting it is safe on an install without the `metrics` extra. |
 | `FATHOM_TOKEN` | CLI | *(unset)* | Default bearer token for CLI commands that call a server. `--token` overrides it. |
 
 ## gRPC TLS
@@ -5040,6 +5388,11 @@ Generated from `fathom.__all__` at docs-build time via mkdocstrings.
 - [`verify_chain`](verify_chain.md)
 - [`verify_token`](verify_token.md)
 
+## Optional fleet stores
+
+- [`fathom.fleet_redis.RedisFactStore`](redisfactstore.md) — `pip install fathom-rules[fleet]`
+- [`fathom.fleet_pg.PostgresFactStore`](postgresfactstore.md) — `pip install fathom-rules[fleet-pg]`
+
 
 ## reference/go-sdk/index.md
 
@@ -5077,6 +5430,32 @@ build.
 - **Postman:** *Import → OpenAPI* pointed at `openapi.json`.
 - **Insomnia:** use *Import from URL* pointed at `openapi.json`.
 
+## Contract
+
+- **Auth.** Every route except `GET /health` and `GET /v1/status` needs
+  `Authorization: Bearer <FATHOM_API_TOKEN>`; `POST /v1/rules/reload` takes
+  `FATHOM_ADMIN_TOKEN` when that is set. The schema declares this as the
+  `HTTPBearer` security scheme. A missing or wrong token is 401.
+- **Unknown keys.** Request bodies refuse keys they do not declare with
+  422 `validation_error`, so a misspelled `sesion_id` fails instead of
+  running stateless. `/v1/data` is the exception: it follows OPA's Data
+  API, which ignores unknown keys.
+- **Sessions.** `POST /v1/evaluate` with a `session_id` and a `ruleset`
+  opens a session bound to that ruleset; `/v1/facts`, `/v1/query`,
+  `/v1/templates`, `/v1/rules` and `/v1/modules` address it (the GET routes
+  by the `X-Session-Id` header). A session id is at most 128 characters
+  (422 in a body, 400 in the header). A server holds at most 1000 live
+  sessions per app; a session idles out after 30 minutes without a call.
+  Opening one more past the ceiling answers 503 `session_limit_exceeded`
+  until one expires. Neither bound is configurable, so on a shared server
+  one caller opening sessions can lock others out for up to 30 minutes:
+  put per-caller rate limits in front of it, or use stateless evaluation
+  (no `session_id`). gRPC shares the same bounds (`RESOURCE_EXHAUSTED`).
+- **Metrics.** With `FATHOM_METRICS=1` the app also serves `GET /metrics`
+  (Prometheus text format, same bearer auth). It is not in `openapi.json`,
+  which is exported with metrics off. See
+  [Configuration](../configuration.md).
+
 ## Reference
 
 <swagger-ui src="./openapi.json"/>
@@ -5101,6 +5480,44 @@ Fathom's gRPC service is defined in
 
 The Go SDK's typed client wraps this service — see
 [Go SDK reference](../go-sdk/index.md).
+
+## Sessions
+
+- **No `session_id`:** `Evaluate` is stateless. Its facts are asserted,
+  evaluated and withdrawn against the server's engine. `AssertFact`,
+  `Query`, `Retract` and `SubscribeChanges` need a session and answer
+  `INVALID_ARGUMENT` without one.
+- **Opening a session:** `Evaluate` with a `session_id` opens an unknown
+  session, bound to the `ruleset` it names (a path under
+  `FATHOM_RULESET_ROOT`; empty binds the empty ruleset). It is the only RPC
+  that creates one; the others answer `NOT_FOUND` for an unknown id.
+- **Joining:** a later `Evaluate` with no `ruleset` joins the session. Naming
+  a different ruleset than the session was opened with is
+  `FAILED_PRECONDITION`.
+- **Mounted engine:** a server built with an engine (`serve(engine)`) serves
+  stateless evaluation only and refuses every `session_id` with
+  `FAILED_PRECONDITION`.
+- **JSON fields:** `data_json` must be a JSON object. `filter_json` must be a
+  JSON object or empty, and empty matches every fact of the template. Any
+  other JSON, `null` included, is `INVALID_ARGUMENT`.
+
+## Reload
+
+`Reload` needs an attestation service to sign the reload event; without one
+it answers `FAILED_PRECONDITION` "not_ready". Pass it to `serve()` along with
+the signature settings:
+
+```python
+from fathom.integrations.grpc_server import serve
+
+server = serve(
+    port=50051,
+    attestation=attestation_service,
+    ruleset_pubkey=pubkey_pem,      # verify signed rulesets
+    require_signature=True,         # the default: refuse unsigned ones
+    audit_sink=sink,                # optional: receives reload audit records
+)
+```
 
 
 ## reference/mcp/index.md
@@ -5174,6 +5591,13 @@ one condition, say) is invalid YAML to Fathom: every loader rejects it
 instead of keeping the last value. Overriding a key merged in with `<<`
 is not a duplicate.
 
+A file with none of these keys (only unknown keys, `{}`, or a
+`focus_order` with no `modules`) holds no construct: `fathom compile`,
+`fathom validate` and `POST /v1/compile` all refuse it.
+`POST /v1/compile` compiles a document through the same function as
+`fathom compile`, so the two accept and refuse the same files, function
+files included.
+
 ## Downloads
 
 | Construct | Schema |
@@ -5204,7 +5628,7 @@ primitives, see [Five Primitives](../../concepts/five-primitives.md).
 | `name`        | `str`                             | —           | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`. Emitted as `(deftemplate MAIN::<name> …)`. |
 | `description` | `str`                             | `""`        | no       | Author-facing prose. Not emitted to CLIPS.                                                           |
 | `slots`       | `list[SlotDefinition]`            | —           | yes      | One or more slot definitions. Empty list is accepted by Pydantic but rejected at compile time.       |
-| `ttl`         | `int \| None`                     | `None`      | no       | Fact-expiry metadata (seconds). Not emitted to CLIPS; reserved for runtime fact-expiry.              |
+| `ttl`         | `int \| None`                     | `None`      | no       | Fact expiry in seconds. Not emitted to CLIPS; the engine retracts a fact of this template once it is older than `ttl`, checked at every evaluation. A fact a rule asserts is timed from the first evaluation that sees it. |
 | `scope`       | `Literal["session", "fleet"]`     | `"session"` | no       | Consumed by the fleet layer. Not emitted to CLIPS. A rule `assert` into a `fleet` template is a `CompilationError` at load. |
 
 The `name` field is validated by `_name_must_be_clips_ident` at model
@@ -5214,10 +5638,10 @@ construction and re-checked (for emptiness) by `compile_template`.
 
 | Field            | Type                              | Default | Required | Description                                                                                                                       |
 |------------------|-----------------------------------|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `name`           | `str`                             | —       | yes      | Slot identifier. No regex validator is applied in the current model; the compiler emits it verbatim into `(slot <name> …)`.       |
+| `name`           | `str`                             | —       | yes      | Slot identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$`, checked at model construction. Emitted as `(slot <name> …)`.           |
 | `type`           | `SlotType`                        | —       | yes      | One of `string`, `symbol`, `float`, `integer`. See [SlotType](#slottype-enum).                                                    |
 | `required`       | `bool`                            | `False` | no       | If True, FactManager rejects asserts that omit this slot with a ValidationError (src/fathom/facts.py:405-414). Not emitted to CLIPS; the rule-RHS assert path bypasses this check because it doesn't run through FactManager._validate. |
-| `allowed_values` | `list[str] \| None`               | `None`  | no       | Emitted only for `string` and `symbol` slots (see [`_CLIPS_ALLOWED_MAP`](#slottype-enum)). Silently ignored for numeric slots.    |
+| `allowed_values` | `list[str] \| None`               | `None`  | no       | Emitted to CLIPS only for `string` and `symbol` slots (see [`_CLIPS_ALLOWED_MAP`](#slottype-enum)). On every slot type `FactManager` enforces it at assert time, comparing `str(value)` against the list. |
 | `default`        | `str \| float \| int \| None`     | `None`  | no       | Emitted as `(default <value>)`. String defaults are CLIPS-quoted and escaped; numeric defaults are emitted raw.                   |
 
 ## SlotType enum
@@ -5236,7 +5660,9 @@ types — to an allowed-values directive via `_CLIPS_ALLOWED_MAP`.
 A `float` slot accepts a Python `int` as well as a `float`; `FactManager`
 widens it before it reaches CLIPS, which types `1` as INTEGER and would
 otherwise reject it. `bool` is refused for both. An `integer` slot takes
-only `int`, or a `float` with no fractional part.
+only `int`, or a `float` with no fractional part. `NaN` and infinities
+are refused for both. A `string` slot takes an `int` or `float` as its decimal text but
+refuses `bool`.
 
 Source: `src/fathom/compiler.py` lines 29–40.
 
@@ -5330,8 +5756,8 @@ These YAML fields are accepted by the model but do not appear in the
 compiled CLIPS `deftemplate`:
 
 - `TemplateDefinition.description` — metadata only.
-- `TemplateDefinition.ttl` — reserved for runtime fact-expiry; has no
-  CLIPS counterpart. A template with `ttl: 300` emits the same
+- `TemplateDefinition.ttl` — enforced by the engine, which retracts
+  expired facts at every evaluation; it has no CLIPS counterpart. A template with `ttl: 300` emits the same
   `deftemplate` as one without.
 - `TemplateDefinition.scope` — consumed by the fleet layer, not the
   compiler.
@@ -5339,9 +5765,10 @@ compiled CLIPS `deftemplate`:
   Runtime enforcement happens in `FactManager._check_required`
   (`src/fathom/facts.py:405-414`) on the SDK and REST paths, but it is
   not checked on the rule-RHS assert path.
-- `SlotDefinition.allowed_values` on `float` or `integer` slots —
-  silently dropped because these types have no entry in
-  `_CLIPS_ALLOWED_MAP`.
+- `SlotDefinition.allowed_values` on `float` or `integer` slots — not
+  emitted, because these types have no entry in `_CLIPS_ALLOWED_MAP`.
+  `FactManager` still enforces it on asserted facts; a rule's
+  `then.assert` is not checked.
 
 If you need one of these to influence runtime behavior today, enforce it
 in a rule (for example, an explicit `allowed-values`-style test CE for a
@@ -5483,6 +5910,11 @@ literal inside a regex character class.
 - a **cross-fact reference**, `$alias.field`, resolved to the CLIPS variable
   `?alias-field`. The alias must be declared as `alias:` on another pattern
   in the same rule (see **Aliases** below);
+  `contains($alias.field)` joins too, and only on that exact form (an
+  identifier, a dot, an identifier), so free text such as `contains($5.00)`
+  stays literal. `matches` takes a literal pattern only: `matches($alias.field)`
+  is a `CompilationError`, because a regex read from a fact is untrusted input
+  to a backtracking engine. `in` and `not_in` take no cross-fact reference;
 - a **list**, `[a, b, c]`, for `in` and `not_in` only;
 - a **literal**, everything else.
 
@@ -5493,7 +5925,7 @@ from compiling it as part of a ruleset:
 | Slot type | Emitted as | Example |
 |---|---|---|
 | `string` | quoted CLIPS string, escaped | `equals(a@b.com)` → `(id "a@b.com")` |
-| `symbol`, `integer`, `float`, `boolean` | bare CLIPS token | `equals(admin)` → `(role admin)` |
+| `symbol`, `integer`, `float` | bare CLIPS token | `equals(admin)` → `(role admin)` |
 
 Compiling without the templates is not a mistake CLIPS reliably catches.
 `equals` and `not_in` emit a pattern constraint, so an unquoted literal
@@ -5534,8 +5966,10 @@ when:
 ```
 
 Only one variable may bind a slot, so when the aliased slot already binds
-one the compiler reuses it where it can and falls back to an equality
-`(test ...)` where it cannot — a `bind:` you declared is never renamed.
+one the compiler reuses it: a generated variable is renamed to the join
+variable, and a `bind:` you declared (or another alias's join variable) is
+kept and every reference is rewritten onto it. A `bind:` you declared is never
+renamed, and the join works for every operator that takes `$alias.field`.
 
 **Stability.** The operator set and this grammar are covered by the 1.0
 compatibility promise. The generated CLIPS *variable names*
@@ -5552,6 +5986,7 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 | Set            | `in`, `not_in`                                                                                              |
 | String         | `contains`, `matches`                                                                                       |
 | Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
+| Compartment    | `in_compartment`, `has_compartments`                                                                        |
 | Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`, `schema_frequency_exceeds` |
 
 `matches` takes a Python `re` pattern. A pattern that does not compile is a
@@ -5563,6 +5998,9 @@ value over the 4096-character `matches` cap, a division by zero in a
 `then.assert` slot -- the evaluation raises `EvaluationError` and returns no
 decision. It does not return the decision written before the error: the rule
 that errored may have been the deny meant to override it.
+CLIPS's own printout of the error, which for a pattern-matching error
+holds the whole fact being matched, is not written to the process's
+stderr: the slot values may be sensitive.
 
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
@@ -5581,9 +6019,28 @@ consequences, both compile errors rather than a silently wrong answer:
   Rename it in one of them.
 
 When the argument is a cross-fact reference (`$other.level`) rather than a
-literal, the hierarchy cannot be resolved at compile time and the call goes to
-the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
-within one hierarchy.
+literal, there is no level to resolve by. With one hierarchy loaded the call
+goes to that hierarchy; with more than one it is a `CompilationError`. Compare
+with a literal, or call `<hier>-meets-or-exceeds` from a `test:` condition.
+
+**Compartment operators** read the slot as a `|`-delimited compartment set
+(`"nato|five"`; surrounding spaces and empty members are ignored) and need no
+hierarchy. `in_compartment(X)` is true when compartment `X` is in the slot's
+set; `has_compartments(X)` is true when every compartment in `X` is, so
+`has_compartments("")` is always true. The argument is a single token, a
+quoted string (quote it when it holds a `|`: `has_compartments("nato|five")`),
+or `$alias.field`. They compile to `fathom-has-compartment` and
+`fathom-compartments-superset`. There is no `dominates` operator; call
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` from a `test:`
+condition.
+
+**An unknown level stops the evaluation.** A value that is not a level of the
+hierarchy -- a typo, a different case, a label from another ladder -- on either
+side of `below`, `meets_or_exceeds` or `within_scope` raises, and the
+evaluation fails with `EvaluationError` instead of returning a decision. It is
+never ranked below or above anything, and it is not read as false either: a
+deny written with `below` would then skip the typo label. The REST, gRPC and
+MCP surfaces return their evaluation-error response (`evaluation failed`).
 
 Temporal operators emit `(test …)` CEs that call
 external functions registered at runtime. A rule that uses one also matches
@@ -5595,6 +6052,26 @@ rule asserts during the run are not seen by a test that has already run.
 `Engine.step` does not replace the epoch fact (that would re-fire every
 temporal rule each step), so in a stream a temporal test runs when the
 pattern it sits on first matches.
+
+Temporal operator signatures. *template* and the slot arguments are bare
+names; *value* is a literal or a `$alias.field` reference to a slot of the
+condition's own pattern; numeric arguments must be finite numbers.
+
+| Operator                   | Arguments                                                     | True when                                                          |
+|----------------------------|---------------------------------------------------------------|--------------------------------------------------------------------|
+| `changed_within`           | `(window)`                                                    | the condition's slot (a timestamp) is less than *window* seconds old |
+| `count_exceeds`            | `(template, slot, value, threshold)`                          | more than *threshold* `template` facts have `slot` = *value*       |
+| `rate_exceeds`             | `(template, slot, value, threshold, window[, ts_slot])`       | as `count_exceeds`, counting only facts whose `ts_slot` (default `ts`) is within *window* seconds |
+| `last_n`                   | `(template, slot, value, n)`                                  | at least *n* `template` facts have `slot` = *value*                |
+| `schema_frequency_exceeds` | `(template, slot, value, tau)`                                | same predicate as `last_n`                                         |
+| `distinct_count`           | `(template, group_slot, count_slot, threshold)`               | some `group_slot` value has more than *threshold* distinct `count_slot` values |
+| `sequence_detected`        | `(events, window)`                                            | the events occurred in order, the first less than *window* seconds ago. *events* is a JSON list of `{"template", "slot", "value"[, "slot_ts"]}` objects (`slot_ts` defaults to `ts`) |
+
+All of these are checked when the rule loads, and by `fathom validate`, so a
+mistake is a `CompilationError` rather than an evaluation that raises: the
+argument count is exact (`rate_exceeds` takes 5 or 6), a numeric argument
+that is not a finite number is refused, the *events* list must parse, and
+every template and slot an operator names must be registered.
 
 Any other operator raises `CompilationError` from `_compile_condition`.
 For worked examples of each operator see
@@ -5610,8 +6087,7 @@ For worked examples of each operator see
 | `notify`      | `list[str]`               | `[]`                | Notification targets. Joined with `", "` and emitted as a single quoted string in the `notify` slot.                        |
 | `attestation` | `bool`                    | `False`             | Emitted as `TRUE`/`FALSE` on the decision fact's `attestation` slot. **Not** a signing switch — see [Audit & Attestation](../../concepts/audit-attestation.md). |
 | `metadata`    | `dict[str, str]`          | `{}`                | JSON-serialized (sorted keys) and emitted as a quoted string when non-empty; otherwise an empty quoted string.              |
-| `scope`       | `str \| None`             | `None`              | Accepted for authoring but not emitted by `_compile_action` (reserved).                                                    |
-| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. Targeting a `scope: fleet` template is a `CompilationError` at load: a rule's assert never reaches the fleet store. |
+| `asserts`     | `list[AssertSpec]`        | `[]`                | YAML key is the singular `assert` (mapped via `populate_by_name`). Each entry becomes one `(assert (<template> …))` on the RHS. Targeting a `scope: fleet` template is a `CompilationError` at load: a rule's assert never reaches the fleet store. So is a template, or a slot, that is not registered; `fathom validate` reports both. |
 
 ### `ThenBlock` validator
 
@@ -5936,6 +6412,15 @@ Duplicate module names are rejected by `parse_module_file` (at YAML
 load) and again by `Engine.load_modules` (across files), both as
 `CompilationError`.
 
+A `focus_order:` may name a module another pack defines (cmmc focuses
+the nist pack's module), so it is not checked at YAML load and `fathom
+validate` accepts it. `Engine.load_modules` -- and so `load_pack_dir`,
+`from_rules` and `load_pack` -- raises `CompilationError` with
+`construct="focus_order"` if, once the call's modules are loaded, the
+order still names a module the engine does not have. Load the dependency
+pack first. `Engine.set_focus(...)` called directly raises `ValueError`
+for the same case.
+
 A top-level key other than `modules` and `focus_order` is rejected by
 `parse_module_file` as `CompilationError`, so a misspelled `focus_order:`
 cannot silently fall back to declaration order.
@@ -5986,7 +6471,7 @@ Python callables instead of authoring CLIPS, see
 |-----------------|--------------------------------------------------|--------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`          | `str`                                            | —                  | yes      | CLIPS identifier. Must match `^[A-Za-z_][A-Za-z0-9_\-]*$` (validated by `_name_must_be_clips_ident`). For `raw` functions this is authoring metadata only — the emitted CLIPS name comes from `body`. For `classification` the hierarchy name drives the emitted function names (see below). |
 | `description`   | `str`                                            | `""`               | no       | Author-facing prose. Not emitted to CLIPS.                                                                                                                             |
-| `params`        | `list[str]`                                      | —                  | yes      | Parameter names. Used when authoring `raw` bodies; the classification path ignores `params` and generates its own `(?level)` / `(?a ?b)` signatures from the hierarchy. |
+| `params`        | `list[str]`                                      | `[]`               | no       | Parameter names. Used when authoring `raw` bodies; the classification path ignores `params` and generates its own `(?level)` / `(?a ?b)` signatures from the hierarchy. |
 | `hierarchy_ref` | `str \| None`                                    | `None`             | no       | **Required** when `type == "classification"`. Names the hierarchy whose `levels` drive emission. A trailing `.yaml` is stripped: `hier_name = defn.hierarchy_ref.rsplit(".", 1)[0]`. Ignored for `raw`. |
 | `type`          | `Literal["classification", "raw"]`               | `"classification"` | no       | Selects the emission strategy. Default is `classification`.                                                                                                            |
 | `body`          | `str \| None`                                    | `None`             | no       | Raw CLIPS source. **Required** when `type == "raw"`. Ignored for `classification`.                                                                                     |
@@ -6008,10 +6493,13 @@ identifiers all begin with the hierarchy name (e.g. `clearance-rank`,
 `clearance-below`). The expansion, from
 `_compile_classification_functions`, is:
 
-- `(deffunction MAIN::<hier>-rank (?level) (switch ?level (case LEVEL then INDEX) … (default -1)))` — one `case` per level, in declaration order; out-of-hierarchy inputs return `-1`.
+- `(deffunction MAIN::<hier>-rank (?level) (switch (str-cat ?level) (case "LEVEL" then INDEX) … (default (fathom-unknown-level "<hier>" ?level))))` — one `case` per level, in declaration order. An out-of-hierarchy input has no rank: `fathom-unknown-level` raises, and the evaluation fails with `EvaluationError`.
 - `(deffunction MAIN::<hier>-below (?a ?b) (< (<hier>-rank ?a) (<hier>-rank ?b)))`.
 - `(deffunction MAIN::<hier>-meets-or-exceeds (?a ?b) (>= (<hier>-rank ?a) (<hier>-rank ?b)))`.
-- `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — both inputs must be in-hierarchy.
+- `(deffunction MAIN::<hier>-within-scope (?a ?b) (and (>= (<hier>-rank ?a) 0) (>= (<hier>-rank ?b) 0)))` — true when both inputs are in the hierarchy.
+
+All four rank both sides, so a mis-cased or unknown label on either side stops
+the evaluation; no rule, allow or deny, decides on it.
 
 The compiler also emits **unscoped backward-compat shims** —
 `below`, `meets-or-exceeds`, `within-scope` — that delegate to the
@@ -6023,11 +6511,11 @@ unscoped shims.
 A rule's classification operator does **not** compile to a shim. It compiles to
 the scoped deffunction of the hierarchy that owns the level it names — see
 [`meets_or_exceeds` in the rule reference](./rule.md#supported-operators). The
-shims exist for a deffunction supplied directly through `load_clips_function`,
-and for the cross-fact form (`$other.level`), whose hierarchy is not knowable at
-compile time. Routing every rule through them is what made a second hierarchy
-unusable: its levels ranked `-1` through the first hierarchy's table, so
-`meets_or_exceeds` was true for every value and `below` false for every value.
+shims exist for a deffunction supplied directly through `load_clips_function`.
+The cross-fact form (`$other.level`) names no level, so it compiles to the
+scoped deffunction of the only hierarchy loaded, and is a `CompilationError`
+when more than one is loaded. Routing it through the first hierarchy's shim
+ranked every level of a second hierarchy as unknown.
 
 Compilation failures:
 
@@ -6075,7 +6563,7 @@ is registered, referenced or not.
 | Field          | Type               | Default | Required | Description                                                                                                                                       |
 |----------------|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`         | `str`              | —       | yes      | Hierarchy name. Drives the emitted deffunction prefix (`<name>-rank`, `<name>-below`, …).                                                          |
-| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; out-of-hierarchy inputs rank `-1`. |
+| `levels`       | `list[str]`        | —       | yes      | Ordered lowest-to-highest. `rank` returns the 0-based index of a level; `below` / `meets-or-exceeds` compare ranks; an out-of-hierarchy input fails the evaluation with `EvaluationError`. |
 | `compartments` | `list[str] \| None`| `None`  | no       | Accepted by the model but **not** consumed by `_compile_classification_functions` today. Reserved for future compartment-aware emission.           |
 
 ## Worked example — `classification`
@@ -6098,12 +6586,12 @@ functions:
 
 ```
 (deffunction MAIN::clearance-rank (?level)
-    (switch ?level
-        (case unclassified then 0)
-        (case confidential then 1)
-        (case secret then 2)
-        (case top-secret then 3)
-        (default -1)))
+    (switch (str-cat ?level)
+        (case "unclassified" then 0)
+        (case "confidential" then 1)
+        (case "secret" then 2)
+        (case "top-secret" then 3)
+        (default (fathom-unknown-level "clearance" ?level))))
 
 (deffunction MAIN::clearance-below (?a ?b)
     (< (clearance-rank ?a) (clearance-rank ?b)))
@@ -6164,11 +6652,16 @@ Engine-registered builtins (`fathom-matches`, `fathom-count-exceeds`,
 `fathom-rate-exceeds`, `fathom-changed-within`, `fathom-last-n`,
 `fathom-distinct-count`, `fathom-sequence-detected`,
 `fathom-parse-compartments`, `fathom-has-compartment`,
-`fathom-compartments-superset`, `fathom-dominates`). Python callers of
+`fathom-compartments-superset`, `fathom-dominates`, `fathom-unknown-level`). Python callers of
 `Engine.register_function` are rejected with `ValueError` if the
 requested name starts with `fathom-`. YAML `raw` bodies are not
 re-checked by the compiler, but avoid the prefix in authored CLIPS to
 prevent collisions with the runtime's own bindings.
+
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` raises when
+either level is not a level of `hierarchy`, or the hierarchy is not loaded, so
+the evaluation fails with `EvaluationError`. The Python
+`fathom.engine.dominates` raises `EvaluationError` in the same cases.
 
 ## Validators — what is rejected
 
@@ -6329,16 +6822,17 @@ the assertion.
    accurate for the compiler and CLIPS emission, but `FactManager`
    enforces it at assertion time on the SDK and REST paths.
 5. **Type coercion** (`_coerce_types`, lines 386–415):
-   - `INTEGER` slot with a `float` value where `value == int(value)` →
+   - `INTEGER` slot with a `float` value where `value.is_integer()` →
      coerced to `int` (excluding `bool`).
    - `FLOAT` slot with an `int` value → widened to `float` (excluding
      `bool`). CLIPS types a bare `3` as INTEGER and would reject it
      against a FLOAT slot, so without this the assert failed after
      validation had already passed it. JSON has one number type, so a
      REST or TypeScript caller cannot send `3.0` at all.
-   - `STRING` slot with an `int`, `float` or `bool` value → coerced via
-     `str(value)`. `None`, dicts and lists are not coerced and fail the
-     type check below, so `null` never becomes the string `"None"`.
+   - `STRING` slot with an `int` or `float` value → coerced via
+     `str(value)`. `bool`, `None`, dicts and lists are not coerced and
+     fail the type check below, so `null` never becomes the string
+     `"None"` and `true` never becomes `"True"`.
    `SYMBOL` slots are wrapped later — see
    [CLIPS coercion](#clips-coercion).
 6. **Type check** (`_check_types`, lines 428–464). Validates against
@@ -6353,7 +6847,13 @@ the assertion.
 
    `bool` is **explicitly rejected** for `INTEGER` and `FLOAT` slots
    (facts.py lines 438–450) even though Python's `bool` is a subclass
-   of `int` — the check runs before the `isinstance` comparison.
+   of `int` — the check runs before the `isinstance` comparison. A
+   `bool` in a `STRING` slot is never coerced, so it fails as well.
+   A non-finite `float` (`NaN`, `inf`, `-inf`) is rejected for both:
+   CLIPS compares `NaN` true against `<` and `>` alike, so a `NaN`
+   score would satisfy `less_than(0.3)` and `greater_than(0.8)` at
+   once. This covers every fact entry path (SDK, REST, gRPC, MCP,
+   fleet), since all of them validate through `FactManager`.
 7. **Allowed-values check** (`_check_allowed_values`, lines 322–337).
    When `SlotDefinition.allowed_values` is set, the value is coerced
    with `str(value)` and compared against the list. Comparison is by
@@ -6481,15 +6981,17 @@ Every command uses the same four codes.
 |---|---|
 | `0` | Success. |
 | `1` | The command ran and the check failed: validation or compile errors, failing tests, an invalid signature or chain, nothing convertible, `--strict` with skipped items, or an unexpected internal error. |
-| `2` | An input could not be found or read, or an output could not be written. Typer also exits `2` on a usage error (unknown option, missing argument, a path argument that does not exist), so `2` alone does not tell the two apart; the stderr message does. |
-| `3` | An input was read but is malformed (see below). |
+| `2` | An input could not be found or read (including a rule pack directory with no YAML files in it), or an output could not be written. Typer also exits `2` on a usage error (unknown option, missing argument, a path argument that does not exist), so `2` alone does not tell the two apart; the stderr message does. |
+| `3` | An input was read but is malformed or cannot be converted, or a dependency the command needs is not installed (see below). |
 
-Commands that can exit `3`:
+Every command that loads a rule pack (`info`, `test`, `bench`, `repl`, `mcp`, `convert to-rego`) exits `1` when the pack does not compile, the same as `validate` and `compile`.
+
+Any command exits `3` with a one-line install hint when the `fathom` script was installed without the `cli` extra, and `fathom mcp` does the same without the `mcp` extra. Commands that can also exit `3`:
 
 - `fathom verify-artifact` — the signature or public key is malformed (bad base64, wrong length, unsupported algorithm, key id mismatch).
 - `fathom verify-chain` — the public key is a valid PEM but not an Ed25519 key.
 - `fathom convert rego` — the Rego cannot be parsed, including when the `opa` binary that parses it is not installed.
-- `fathom convert to-rego` — the ruleset does not compile.
+- `fathom convert rego` and `fathom convert to-rego` — a `deny` rule has no faithful translation, so the whole conversion is refused and nothing is written.
 
 
 ## reference/tooling/vscode/index.md
@@ -6534,6 +7036,12 @@ Or add the `yaml-language-server` header to the top of any YAML file:
 # Rule Pack: `owasp-agentic`
 
 OWASP LLM Top 10 agentic safety rule pack.
+The scanning rules use `matches`, which is capped at 4096 characters: an
+`agent_input` or `agent_output` whose `content` is longer fails the
+evaluation closed with `EvaluationError` rather than going unscanned.
+Split longer content into several facts of at most 4096 characters,
+overlapping by the longest match you need to catch (an SSN or email
+address straddling a boundary is otherwise missed).
 
 **Pack version:** `1.0`  
 **Rule count:** 4  
@@ -6808,10 +7316,13 @@ blocks the call. A denylist of known-bad decisions would fail open on
 anything it had not heard of.
 
 *How* each adapter blocks is dictated by its framework, and only LangChain
-blocks by raising. CrewAI, the Agents SDK and ADK all wrap the handler call
-in `try/except`, log whatever it raises, and then run the tool anyway — so
-in those three a raised exception is a fail-open, and the block has to be a
-return value:
+blocks by raising. CrewAI wraps the hook call in `try/except`, logs whatever
+it raises, and then runs the tool anyway, so there a raised exception is a
+fail-open and the block has to be a return value. The Agents SDK and ADK
+abort the run when a guardrail or callback raises (the tool does not run;
+checked on openai-agents 0.20.0 and google-adk 2.3.0), but an abort ends the
+whole run rather than refusing one call, so they block with a return value
+too:
 
 | Adapter | Block signal | Carries the reason? |
 |---------|--------------|---------------------|

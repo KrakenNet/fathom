@@ -21,6 +21,7 @@ Deterministic reasoning runtime for AI agents
 - [Exporting rules as Rego](https://fathom.krakn.ai/latest/how-to/export-rego/) — Export the stateless subset of a Fathom ruleset to Rego with fathom convert to-rego, and read what it refused to export.
 - [Embedding via SDK](https://fathom.krakn.ai/latest/how-to/embed-sdk/) — Embed Fathom in Python (in-process Engine), Go, or TypeScript (both HTTP clients to the REST server).
 - [Hot-reloading rulesets in a running server](https://fathom.krakn.ai/latest/how-to/hot-reload/) — Sign a ruleset, POST it to /v1/rules/reload, understand the fail-closed default and dev escape, rotate the runtime pubkey, and confirm the live ruleset with `fathom status`.
+- [Running a fleet over a shared fact store](https://fathom.krakn.ai/latest/how-to/fleet/) — Share fleet-scoped facts across sessions and processes with FleetEngine over the in-memory, Redis or Postgres store; sessions, assert/query/sync, close, and the retraction limitation.
 - [Verifying release signatures](https://fathom.krakn.ai/latest/how-to/release-signing/) — Install minisign, verify a Fathom wheel or sdist, and understand the custody + rotation policy for the release key.
 - [Running Policy Studio](https://fathom.krakn.ai/latest/how-to/policy-studio/) — Start the Studio from a checkout, get past its token gate, and know what its five views drive — the real engine, mounted in the same process.
 - [Concepts](https://fathom.krakn.ai/latest/concepts/) — Understanding-oriented pages on Fathom's primitives, runtime model, and deferred CLIPS features.
