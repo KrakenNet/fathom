@@ -81,7 +81,7 @@ See the [Getting Started guide](docs/getting-started.md) for a full walkthrough.
 - YAML compiler for templates, rules, modules, and functions
 - Forward-chaining evaluation with rule + module traces
 - Working memory persistence across evaluations within a session
-- Classification-aware operators (`below`, `meets_or_exceeds`, `dominates`, compartments)
+- Classification-aware operators (`below`, `meets_or_exceeds`, `within_scope`, `in_compartment`, `has_compartments`) and the `fathom-dominates` built-in
 - Temporal operators (`count_exceeds`, `rate_exceeds`, `changed_within`, `last_n`, `distinct_count`, `sequence_detected`)
 - Rule-assertion actions (`then.assert` + `bind`) and user-defined Python functions (`Engine.register_function`)
 - Structured JSON audit log with append-only sinks

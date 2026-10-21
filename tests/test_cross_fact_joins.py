@@ -182,8 +182,9 @@ class TestTheAliasedPatternBindsTheVariable:
             then=ThenBlock(action="deny", reason="joined"),
         )
         clips = Compiler().compile_rule(rule, "governance")
-        assert "?a-id" in clips
-        assert "?who" in clips
+        # The join is renamed onto the author's bind, which is never renamed.
+        assert "(id ?who)" in clips
+        assert "(agent_id ?who)" in clips
 
 
 class TestUnknownAliasIsRejected:
@@ -298,3 +299,107 @@ class TestJoinsUnderMatchEvidence:
             _rule(("agent_id", "equals($a.id)", None)), "governance"
         )
         assert "?fathom-ev-0 <- (agent (clearance none) (id ?a-id))" in clips
+
+
+_BIND_TEMPLATES = """
+templates:
+  - name: subj
+    slots:
+      - {name: name, type: string}
+      - {name: limit, type: integer}
+  - name: req
+    slots:
+      - {name: owner, type: string}
+      - {name: amount, type: integer}
+"""
+
+
+@pytest.mark.parametrize(
+    ("slot", "expr", "hit", "miss"),
+    [
+        ("owner", "equals($s.name)", ("alice", 1), ("bob", 1)),
+        ("owner", "not_equals($s.name)", ("bob", 1), ("alice", 1)),
+        ("amount", "greater_than($s.limit)", ("x", 11), ("x", 9)),
+        ("amount", "less_than($s.limit)", ("x", 9), ("x", 11)),
+    ],
+)
+def test_a_bind_on_the_aliased_slot_joins_for_every_operator(
+    tmp_path: Path, slot: str, expr: str, hit: tuple[str, int], miss: tuple[str, int]
+) -> None:
+    """A ``bind:`` on the joined slot used to become ``(test (eq ?lim ?s-limit))``.
+
+    Only ``equals`` binds ``?s-limit`` in the referencing pattern; every other
+    operator only reads it, so the rule failed to build with ANALYSIS4. The
+    reference is now rewritten onto the author's bind variable.
+    """
+    joined = "limit" if slot == "amount" else "name"
+    rules = (
+        "module: governance\nrules:\n  - name: r\n    when:\n"
+        "      - template: subj\n        alias: $s\n"
+        f"        conditions: [{{slot: {joined}, bind: '?v'}}]\n"
+        "      - template: req\n"
+        f"        conditions: [{{slot: {slot}, expression: '{expr}'}}]\n"
+        "    then: {action: allow, reason: hit}\n"
+    )
+    root = tmp_path / "pack"
+    root.mkdir()
+    (root / "templates.yaml").write_text(_BIND_TEMPLATES)
+    (root / "modules.yaml").write_text("modules:\n  - name: governance\n")
+    (root / "rules.yaml").write_text(rules)
+    engine = Engine.from_rules(str(root))
+
+    def decide(owner: str, amount: int) -> str:
+        facts = [
+            ("subj", {"name": "alice", "limit": 10}),
+            ("req", {"owner": owner, "amount": amount}),
+        ]
+        return engine.evaluate_once(facts).decision
+
+    assert decide(*hit) == "allow"
+    assert decide(*miss) == "deny"
+
+
+def _string_xref_engine(tmp_path: Path, expr: str, bind: bool = False) -> Engine:
+    subj = "{slot: name, bind: '?v'}" if bind else ""
+    rules = (
+        "module: governance\nrules:\n  - name: r\n    when:\n"
+        f"      - template: subj\n        alias: $s\n        conditions: [{subj}]\n"
+        "      - template: req\n"
+        f"        conditions: [{{slot: owner, expression: '{expr}'}}]\n"
+        "    then: {action: allow, reason: hit}\n"
+    )
+    root = tmp_path / "pack"
+    root.mkdir()
+    (root / "templates.yaml").write_text(_BIND_TEMPLATES)
+    (root / "modules.yaml").write_text("modules:\n  - name: governance\n")
+    (root / "rules.yaml").write_text(rules)
+    return Engine.from_rules(str(root))
+
+
+@pytest.mark.parametrize("bind", [False, True])
+def test_contains_joins_on_a_cross_ref(tmp_path: Path, bind: bool) -> None:
+    """``contains($s.name)`` compiled to the literal text ``"$s.name"``."""
+    engine = _string_xref_engine(tmp_path, "contains($s.name)", bind)
+
+    def decide(owner: str) -> str:
+        facts = [("subj", {"name": "alice", "limit": 0}), ("req", {"owner": owner, "amount": 0})]
+        return engine.evaluate_once(facts).decision
+
+    assert decide("xalicex") == "allow"
+    assert decide("bob") == "deny"
+
+
+def test_contains_with_an_undeclared_alias_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(CompilationError, match="undeclared alias"):
+        _string_xref_engine(tmp_path, "contains($nosuch.name)")
+
+
+def test_contains_literal_dollar_text_is_still_literal() -> None:
+    clips = Compiler().compile_rule(_rule(("target", "contains($5.00)", None)), "governance")
+    assert '"$5.00"' in clips
+
+
+def test_matches_with_a_cross_ref_is_refused(tmp_path: Path) -> None:
+    """A regex read from a fact is not a pattern the rule author wrote."""
+    with pytest.raises(CompilationError, match="literal pattern"):
+        _string_xref_engine(tmp_path, "matches($s.name)")

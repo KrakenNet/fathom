@@ -193,9 +193,11 @@ def dominates(
     levels = hier_def.levels
     la = str(level_a)
     lb = str(level_b)
-    rank_a = levels.index(la) if la in levels else -1
-    rank_b = levels.index(lb) if lb in levels else -1
-    if rank_a < rank_b:
+    # A level outside the hierarchy has no rank, so it dominates nothing and
+    # nothing dominates it. Ranking it -1 made `secret` dominate `TOP-SECRET`.
+    if la not in levels or lb not in levels:
+        return False
+    if levels.index(la) < levels.index(lb):
         return False
     return compartments_superset(str(comps_a), str(comps_b))
 

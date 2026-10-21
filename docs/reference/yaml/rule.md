@@ -134,6 +134,11 @@ literal inside a regex character class.
 - a **cross-fact reference**, `$alias.field`, resolved to the CLIPS variable
   `?alias-field`. The alias must be declared as `alias:` on another pattern
   in the same rule (see **Aliases** below);
+  `contains($alias.field)` joins too, and only on that exact form (an
+  identifier, a dot, an identifier), so free text such as `contains($5.00)`
+  stays literal. `matches` takes a literal pattern only: `matches($alias.field)`
+  is a `CompilationError`, because a regex read from a fact is untrusted input
+  to a backtracking engine. `in` and `not_in` take no cross-fact reference;
 - a **list**, `[a, b, c]`, for `in` and `not_in` only;
 - a **literal**, everything else.
 
@@ -185,8 +190,10 @@ when:
 ```
 
 Only one variable may bind a slot, so when the aliased slot already binds
-one the compiler reuses it where it can and falls back to an equality
-`(test ...)` where it cannot — a `bind:` you declared is never renamed.
+one the compiler reuses it: a generated variable is renamed to the join
+variable, and a `bind:` you declared (or another alias's join variable) is
+kept and every reference is rewritten onto it. A `bind:` you declared is never
+renamed, and the join works for every operator that takes `$alias.field`.
 
 **Stability.** The operator set and this grammar are covered by the 1.0
 compatibility promise. The generated CLIPS *variable names*
@@ -203,6 +210,7 @@ Source: `_compile_condition` in `src/fathom/compiler.py` and
 | Set            | `in`, `not_in`                                                                                              |
 | String         | `contains`, `matches`                                                                                       |
 | Classification | `below`, `meets_or_exceeds`, `within_scope`                                                                 |
+| Compartment    | `in_compartment`, `has_compartments`                                                                        |
 | Temporal       | `changed_within`, `count_exceeds`, `rate_exceeds`, `last_n`, `distinct_count`, `sequence_detected`, `schema_frequency_exceeds` |
 
 `matches` takes a Python `re` pattern. A pattern that does not compile is a
@@ -232,9 +240,28 @@ consequences, both compile errors rather than a silently wrong answer:
   Rename it in one of them.
 
 When the argument is a cross-fact reference (`$other.level`) rather than a
-literal, the hierarchy cannot be resolved at compile time and the call goes to
-the unscoped shim, which is the first hierarchy loaded. Keep such comparisons
-within one hierarchy.
+literal, there is no level to resolve by. With one hierarchy loaded the call
+goes to that hierarchy; with more than one it is a `CompilationError`. Compare
+with a literal, or call `<hier>-meets-or-exceeds` from a `test:` condition.
+
+**Compartment operators** read the slot as a `|`-delimited compartment set
+(`"nato|five"`; surrounding spaces and empty members are ignored) and need no
+hierarchy. `in_compartment(X)` is true when compartment `X` is in the slot's
+set; `has_compartments(X)` is true when every compartment in `X` is, so
+`has_compartments("")` is always true. The argument is a single token, a
+quoted string (quote it when it holds a `|`: `has_compartments("nato|five")`),
+or `$alias.field`. They compile to `fathom-has-compartment` and
+`fathom-compartments-superset`. There is no `dominates` operator; call
+`(fathom-dominates level-a comps-a level-b comps-b hierarchy)` from a `test:`
+condition.
+
+**An unknown level fails closed.** A value that is not a level of the
+hierarchy -- a typo, a different case, a label from another ladder -- makes
+`below` and `meets_or_exceeds` false on either side, the same as
+`within_scope`. It is never ranked below or above anything. Note what this
+means for a deny written with `below`: an unknown label does not fire it, so
+pair such a deny with a default-deny decision, or restrict the slot with
+`allowed_values`.
 
 Temporal operators emit `(test …)` CEs that call
 external functions registered at runtime. A rule that uses one also matches

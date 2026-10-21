@@ -59,6 +59,11 @@ _QUOTED_ARG_RE = re.compile(r'^"(?:[^"\\]|\\.)*"$')
 # compiler generates itself — the only ones it may rename.
 _LEADING_VAR_RE = re.compile(r"^\?([A-Za-z][A-Za-z0-9_-]*)")
 _GENERATED_VAR_RE = re.compile(r"^s_\d+_")
+# A CLIPS variable, or a quoted string to skip so its text is never renamed.
+# The ``$alias.field`` form, matched strictly for the string operators, whose
+# argument is otherwise free text.
+_STRICT_XREF_RE = re.compile(r"^\$[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*$")
+_CLIPS_VAR_RE = re.compile(r'"(?:\\.|[^"\\])*"|\?[A-Za-z][A-Za-z0-9_-]*')
 
 
 #: Prefix for the pattern-address variables that carry match evidence.
@@ -273,6 +278,8 @@ class Compiler:
 
         # LHS: fact patterns and test CEs
         all_test_ces: list[str] = []
+        lhs_parts: list[str] = []
+        renames: dict[str, str] = {}
         for pattern_index, pattern in enumerate(defn.when):
             lhs, test_ces = self._compile_fact_pattern(
                 pattern,
@@ -280,14 +287,25 @@ class Compiler:
                 pattern_index,
                 templates,
                 joins.get((pattern.alias or "").lstrip("$"), set()),
+                renames,
             )
+            lhs_parts.append(lhs)
+            all_test_ces.extend(test_ces)
+
+        # A join variable the aliased pattern could not bind (its slot is
+        # already bound by a `bind:` or another join) is replaced everywhere
+        # by the variable that does bind it.
+        if renames:
+            lhs_parts = [self._apply_renames(part, renames) for part in lhs_parts]
+            all_test_ces = [self._apply_renames(ce, renames) for ce in all_test_ces]
+
+        for pattern_index, lhs in enumerate(lhs_parts):
             if self._match_evidence:
                 # Bind the pattern address so the RHS can name the fact that
                 # actually matched; clipspy exposes no accessor for an
                 # activation's basis, so the evidence has to be compiled in.
                 lhs = f"?{_EVIDENCE_VAR}{pattern_index} <- {lhs}"
             lines.append(f"    {lhs}")
-            all_test_ces.extend(test_ces)
 
         # A temporal operator's test CE queries working memory, and CLIPS
         # evaluates a test CE only when the patterns before it match. Without
@@ -328,6 +346,7 @@ class Compiler:
         pattern_index: int = 0,
         templates: Mapping[str, TemplateDefinition] | None = None,
         join_slots: set[str] | None = None,
+        renames: dict[str, str] | None = None,
     ) -> tuple[str, list[str]]:
         """Compile a FactPattern into a CLIPS LHS pattern string.
 
@@ -338,7 +357,9 @@ class Compiler:
 
         ``join_slots`` names the slots other patterns cross-reference through
         this pattern's alias; each gains a ``?<alias>-<slot>`` binding so the
-        reference compiles to a real join.
+        reference compiles to a real join. When the slot is already bound by
+        another variable, ``?<alias>-<slot>`` is recorded in *renames* instead,
+        for the caller to rewrite rule-wide.
 
         Returns:
             A tuple of (pattern_string, list_of_test_CEs).  The test CEs
@@ -383,10 +404,11 @@ class Compiler:
         slot_parts, merged_tests = self._merge_slot_constraints(entries, pattern_index)
         test_ces.extend(merged_tests)
         if join_slots:
-            slot_parts, join_tests = self._bind_join_slots(
+            slot_parts, join_renames = self._bind_join_slots(
                 slot_parts, join_slots, (pattern.alias or "").lstrip("$")
             )
-            test_ces.extend(join_tests)
+            if renames is not None:
+                renames.update(join_renames)
         if not slot_parts:
             return f"({pattern.template})", test_ces
         slots_str = " ".join(slot_parts)
@@ -755,20 +777,24 @@ class Compiler:
             f"        (default -1)))"
         )
 
-        # Scoped deffunctions namespaced by hierarchy name
+        # Scoped deffunctions namespaced by hierarchy name.
+        #
+        # A level outside the hierarchy ranks -1, and comparing that like any
+        # other rank made `meets_or_exceeds(secret, TOP-SECRET)` and
+        # `none >= codeword` true -- a mis-cased or unknown label was readable
+        # by anyone. Both ranks must be real, as `within-scope` already asks.
+        known = f"(>= ({rank_name} ?a) 0) (>= ({rank_name} ?b) 0)"
         scoped_below = (
-            f"(deffunction MAIN::{name}-below (?a ?b)\n    (< ({rank_name} ?a) ({rank_name} ?b)))"
+            f"(deffunction MAIN::{name}-below (?a ?b)\n"
+            f"    (and {known} (< ({rank_name} ?a) ({rank_name} ?b))))"
         )
 
         scoped_meets = (
             f"(deffunction MAIN::{name}-meets-or-exceeds (?a ?b)\n"
-            f"    (>= ({rank_name} ?a) ({rank_name} ?b)))"
+            f"    (and {known} (>= ({rank_name} ?a) ({rank_name} ?b))))"
         )
 
-        scoped_scope = (
-            f"(deffunction MAIN::{name}-within-scope (?a ?b)\n"
-            f"    (and (>= ({rank_name} ?a) 0) (>= ({rank_name} ?b) 0)))"
-        )
+        scoped_scope = f"(deffunction MAIN::{name}-within-scope (?a ?b)\n    (and {known}))"
 
         parts = [rank_fn, scoped_below, scoped_meets, scoped_scope]
 
@@ -1336,9 +1362,10 @@ class Compiler:
         return cross_ref
 
     #: Operators whose argument is resolved as a cross-fact reference, and so
-    #: declares a join the enclosing rule must bind. ``in``, ``not_in``,
-    #: ``contains`` and ``matches`` treat a leading ``$`` as literal text, so a
-    #: ``$`` inside a regex is not mistaken for a join. The counting temporal
+    #: declares a join the enclosing rule must bind. ``in`` and ``not_in``
+    #: treat a leading ``$`` as literal text. ``contains`` joins only on the
+    #: strict ``$alias.field`` form (:data:`_STRICT_XREF_RE`), so text such as
+    #: ``$5.00`` stays literal; ``matches`` refuses that form. The counting temporal
     #: operators accept a ``$alias.field`` *value* too, but only a
     #: self-reference to the slot the condition already binds
     #: (see :meth:`_emit_count_value`) -- no join, nothing to declare.
@@ -1357,6 +1384,9 @@ class Compiler:
             op, arg = cls._parse_operator(expr)
         except CompilationError:
             return None  # reported with full context further down the pipeline
+        if op == "contains" and _STRICT_XREF_RE.match(arg):
+            alias, field = arg[1:].split(".", 1)
+            return alias, field
         if op not in cls._CROSS_REF_OPS and op not in cls._CLASSIFICATION_OPS:
             return None
         if not arg.startswith("$") or "." not in arg:
@@ -1382,7 +1412,7 @@ class Compiler:
     @staticmethod
     def _bind_join_slots(
         slot_parts: list[str], join_slots: set[str], alias: str
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], dict[str, str]]:
         """Make this pattern mention ``?<alias>-<slot>`` for each joined slot.
 
         A cross-fact reference emits ``?<alias>-<field>`` in the *referencing*
@@ -1391,10 +1421,10 @@ class Compiler:
         and constrains nothing: the rule matches the cartesian product of its
         patterns instead of the joined tuple, with no error at all.
 
-        Returns the rewritten slot parts and any extra ``(test ...)`` CEs.
+        Returns the rewritten slot parts and the join variables to rename.
         """
         parts = list(slot_parts)
-        tests: list[str] = []
+        renames: dict[str, str] = {}
         for slot in sorted(join_slots):
             var = f"?{alias}-{slot}"
             prefix = f"({slot} "
@@ -1412,11 +1442,32 @@ class Compiler:
             else:
                 # An author's ``bind:``, or another alias's join variable.
                 # Neither may be renamed, and the slot already has its one
-                # binding, so the join becomes an equality test instead.
-                tests.append(f"(test (eq ?{existing} {var}))")
-        return parts, tests
+                # binding, so the references are renamed onto it instead. An
+                # equality test was emitted here once, but only `equals`
+                # binds the join variable in the referencing pattern; every
+                # other operator only reads it, which CLIPS rejects (ANALYSIS4).
+                renames[var] = f"?{existing}"
+        return parts, renames
 
-    def _scoped_classification_fn(self, op: str, unscoped: str, level: str, slot: str) -> str:
+    @staticmethod
+    def _apply_renames(text: str, renames: dict[str, str]) -> str:
+        """Rewrite each whole CLIPS variable in *renames*, following chains."""
+
+        def target(match: re.Match[str]) -> str:
+            var = match.group(0)
+            if var.startswith('"'):
+                return var
+            seen = {var}
+            while var in renames and renames[var] not in seen:
+                var = renames[var]
+                seen.add(var)
+            return var
+
+        return _CLIPS_VAR_RE.sub(target, text)
+
+    def _scoped_classification_fn(
+        self, op: str, unscoped: str, level: str, slot: str, cross_ref: bool = False
+    ) -> str:
         """Pick the hierarchy a classification operator meant, by the level it names.
 
         ``below`` / ``meets-or-exceeds`` / ``within-scope`` are emitted once as
@@ -1436,12 +1487,27 @@ class Compiler:
         deffunction. When the level is ambiguous or unknown the answer would
         be a silent always-true, so it is a compile error instead.
 
+        A ``$alias.field`` argument names no level, so there is nothing to
+        resolve by. With one hierarchy loaded that one is meant; with more it
+        is a compile error, because the shim would rank every level of the
+        others as unknown.
+
         Falls back to the unscoped shim when no hierarchy has been compiled
         into this Compiler: the deffunction may have been supplied directly
         through ``load_clips_function``.
         """
         if op not in _HIERARCHY_SCOPED_OPS or not self._hierarchy_levels:
             return unscoped
+        if cross_ref:
+            if len(self._hierarchy_levels) == 1:
+                return f"{next(iter(self._hierarchy_levels))}-{unscoped}"
+            raise CompilationError(
+                f"{op}({level}) on slot '{slot}': a cross-fact reference names no "
+                f"level, and more than one hierarchy is loaded "
+                f"({', '.join(sorted(self._hierarchy_levels))}), so the hierarchy to "
+                f"rank it in is ambiguous. Compare with a literal level, or call "
+                f"'<hierarchy>-{unscoped}' from a test: condition.",
+            )
 
         owners = [name for name, levels in self._hierarchy_levels.items() if level in levels]
         if len(owners) == 1:
@@ -1467,7 +1533,6 @@ class Compiler:
         "below": "below",
         "meets_or_exceeds": "meets-or-exceeds",
         "within_scope": "within-scope",
-        "dominates": "fathom-dominates",
         "in_compartment": "fathom-has-compartment",
         "has_compartments": "fathom-compartments-superset",
     }
@@ -1709,8 +1774,9 @@ class Compiler:
             # Resolve the argument (cross-ref or literal)
             cross_ref = self._resolve_cross_refs(arg)
             arg_var = cross_ref if cross_ref is not None else self._validate_operator_arg(arg, op)
-            if cross_ref is None:
-                clips_fn = self._scoped_classification_fn(op, clips_fn, arg, slot)
+            clips_fn = self._scoped_classification_fn(
+                op, clips_fn, arg, slot, cross_ref is not None
+            )
             slot_binding = f"({slot} {slot_var})"
             test_ce = f"(test ({clips_fn} {slot_var} {arg_var}))"
             return slot_binding, test_ce
@@ -1762,9 +1828,20 @@ class Compiler:
             negations = "".join(f"&~{item}" for item in items)
             return f"({slot} {slot_var}{negations})"
         elif op == "contains":
+            if _STRICT_XREF_RE.match(arg) and cross_ref is not None:
+                return f"({slot} {slot_var}&:(str-index {cross_ref} {slot_var}))"
             escaped_arg = self._escape_clips_string(arg)
             return f'({slot} {slot_var}&:(str-index "{escaped_arg}" {slot_var}))'
         elif op == "matches":
+            # The pattern must be one the rule author wrote: a regex read from
+            # a fact is attacker-shaped input to a backtracking engine, and the
+            # ReDoS threat model rests on patterns being trusted.
+            if _STRICT_XREF_RE.match(arg):
+                raise CompilationError(
+                    "[fathom.compiler] compile rule failed: "
+                    f"matches takes a literal pattern, not a cross-fact reference: {expr}",
+                    detail=f"Expression: {expr}",
+                )
             # Checked here, not left to the first evaluation: a pattern that
             # cannot compile errors on every fact the rule sees.
             try:
