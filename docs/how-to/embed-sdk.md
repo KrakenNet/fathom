@@ -47,13 +47,17 @@ evaluate:
 from fathom.engine import Engine
 
 engine = Engine.from_rules("examples/01-hello-allow-deny")
-engine.assert_fact("access", {"role": "admin", "resource": "db"})
+engine.assert_fact("agent", {"id": "dave", "clearance": "secret"})
+engine.assert_fact(
+    "data_request",
+    {"agent_id": "dave", "classification": "top-secret", "resource": "nuclear_codes"},
+)
 
 result = engine.evaluate()
-print(result.decision)      # "allow" | "deny" | "escalate" | None
-print(result.reason)
-print(result.rule_trace)    # list[str] — rules that fired
-print(result.module_trace)  # list[str] — modules traversed
+print(result.decision)      # "deny" ("allow" | "deny" | "escalate" | None)
+print(result.reason)        # "Secret clearance insufficient for top-secret data"
+print(result.rule_trace)    # ['governance::deny-top-secret-for-secret']
+print(result.module_trace)  # ['governance']
 print(result.duration_us)   # int — evaluation time in microseconds
 ```
 
@@ -68,8 +72,7 @@ memory until you retract them or call `engine.reset()`. A second
 first round:
 
 ```python
-engine.assert_fact("access", {"role": "admin", "resource": "db"})
-engine.evaluate()  # rules see the fact
+engine.evaluate()  # rules see the facts asserted above
 engine.evaluate()  # second call — the fact is still there
 
 engine.reset()     # clear all facts and reinitialise the environment
@@ -90,13 +93,15 @@ templates and rules.
 `retract` removes them and returns how many rows it pulled out:
 
 ```python
-engine.query("access")
-# [{"role": "admin", "resource": "db"}]
+engine.assert_fact("agent", {"id": "dave", "clearance": "secret"})  # reset() cleared it
 
-engine.query("access", fact_filter={"role": "admin"})
-# [{"role": "admin", "resource": "db"}]
+engine.query("agent")
+# [{"id": "dave", "clearance": "secret"}]
 
-removed = engine.retract("access", fact_filter={"role": "admin"})
+engine.query("agent", fact_filter={"clearance": "secret"})
+# [{"id": "dave", "clearance": "secret"}]
+
+removed = engine.retract("agent", fact_filter={"clearance": "secret"})
 # removed == 1
 ```
 
@@ -120,7 +125,7 @@ engine.rule_matches("deny-top-secret-for-secret")
 
 with engine.trace() as firings:
     engine.evaluate()
-print(firings)  # ['FIRE 1 deny-top-secret-for-secret: f-1,f-2']
+print(firings)  # ['FIRE    1 deny-top-secret-for-secret: f-1,f-2']
 ```
 
 `agenda()` is the question `rule_trace` cannot answer, because it reports
