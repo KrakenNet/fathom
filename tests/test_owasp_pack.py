@@ -13,6 +13,7 @@ import pytest
 
 from fathom.compiler import Compiler
 from fathom.engine import Engine
+from fathom.errors import EvaluationError
 from fathom.models import LogLevel
 
 # ---------------------------------------------------------------------------
@@ -207,6 +208,23 @@ class TestInsecureOutput:
 # =========================================================================
 # Rule metadata validation
 # =========================================================================
+
+
+class TestOverTheMatchesCap:
+    """Content over the 4096-character `matches` cap fails the evaluation
+    closed. CLIPS printed the whole active fact to fd 2 on the way, so an SSN
+    in the scanned output landed in the process log."""
+
+    def test_the_fact_content_does_not_reach_stderr(
+        self, owasp_engine: Engine, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        content = "SSN 123-45-6789. " + "x" * 5000
+        with pytest.raises(EvaluationError) as raised:
+            owasp_engine.evaluate_once([("agent_output", {"content": content, "agent_id": "a"})])
+        captured = capfd.readouterr()
+        assert "123-45-6789" not in captured.err + captured.out
+        assert "123-45-6789" not in str(raised.value)
+        assert "4096" in str(raised.value)
 
 
 class TestRuleMetadata:

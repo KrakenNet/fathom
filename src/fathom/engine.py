@@ -230,6 +230,35 @@ class _TraceRouter(clips.Router):  # type: ignore[misc]
         self.buffer.append(message)
 
 
+class _QuietStderrRouter(clips.Router):  # type: ignore[misc]
+    """Keeps CLIPS runtime diagnostics off the process's fd 2.
+
+    clipspy's error router (priority 40) records what CLIPS writes to
+    ``stderr`` -- which is how a runtime error becomes an
+    ``EvaluationError`` -- and then passes it on, and CLIPS's own router
+    printed it. A pattern-matching error prints the whole active fact,
+    so scanned content (an SSN in an agent's output) reached the process
+    log. This router sits below the error router and drops the text.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(f"fathom-quiet-stderr-{uuid4().hex}", 35)
+
+    def query(self, name: str) -> bool:
+        """Claim ``stderr`` once the error router has recorded it."""
+        return name == "stderr"
+
+    def write(self, name: str, message: str) -> None:
+        """Drop the message: the error router already holds it."""
+
+
+def _new_environment() -> clips.Environment:
+    """A CLIPS environment whose runtime diagnostics stay off fd 2."""
+    env = clips.Environment()
+    env.add_router(_QuietStderrRouter())
+    return env
+
+
 class Engine:
     """Deterministic reasoning engine backed by CLIPS."""
 
@@ -282,7 +311,7 @@ class Engine:
         # evaluate, load_modules -> set_focus), so a plain Lock would
         # self-deadlock on the nested call.
         self._lock = threading.RLock()
-        self._env: clips.Environment = clips.Environment()
+        self._env: clips.Environment = _new_environment()
         self._session_id: str = session_id or str(uuid4())
         self._default_decision: str | None = default_decision
         self._template_registry: dict[str, TemplateDefinition] = {}
@@ -1355,7 +1384,7 @@ class Engine:
         # Step 3: build the fresh env OUTSIDE the lock. All compilation
         # targets ``new_env``; on any failure we raise and never touch
         # ``self._env`` (AC-5.3 atomicity, NFR-8 idempotent failure).
-        new_env = clips.Environment()
+        new_env = _new_environment()
 
         # Decision template — matches what __init__ does on startup.
         for construct, context in _PREAMBLE:

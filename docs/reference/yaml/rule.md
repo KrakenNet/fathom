@@ -214,6 +214,9 @@ value over the 4096-character `matches` cap, a division by zero in a
 `then.assert` slot -- the evaluation raises `EvaluationError` and returns no
 decision. It does not return the decision written before the error: the rule
 that errored may have been the deny meant to override it.
+CLIPS's own printout of the error, which for a pattern-matching error
+holds the whole fact being matched, is not written to the process's
+stderr: the slot values may be sensitive.
 
 Classification operators require a classification function declared with
 a `hierarchy_ref` elsewhere in the YAML bundle — the operator emits a
