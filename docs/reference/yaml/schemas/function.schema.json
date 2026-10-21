@@ -54,8 +54,7 @@
     }
   },
   "required": [
-    "name",
-    "params"
+    "name"
   ],
   "title": "FunctionDefinition",
   "type": "object"

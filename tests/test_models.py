@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from fathom.models import ActionType, AssertSpec, AuditRecord, ConditionEntry, ThenBlock
+from fathom.models import (
+    ActionType,
+    AssertSpec,
+    AuditRecord,
+    ConditionEntry,
+    FunctionDefinition,
+    ThenBlock,
+)
 
 
 class TestAssertSpec:
@@ -57,6 +64,20 @@ class TestThenBlock:
 
         assert block.action is ActionType.ALLOW
         assert block.asserts == []
+
+    def test_scope_is_rejected(self) -> None:
+        # `scope` was accepted and never emitted, so a rule author's scope
+        # value silently did nothing.
+        with pytest.raises(ValidationError, match="scope"):
+            ThenBlock.model_validate({"action": "allow", "scope": "anything"})
+
+
+class TestFunctionDefinition:
+    def test_classification_function_needs_no_params(self) -> None:
+        # The classification path generates its own signatures and ignores
+        # `params`, so requiring it only forced authors to write a dummy list.
+        defn = FunctionDefinition(name="clearance", hierarchy_ref="clearance.yaml")
+        assert defn.params == []
 
 
 class TestConditionEntry:

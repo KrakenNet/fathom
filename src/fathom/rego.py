@@ -893,13 +893,6 @@ def _export_rule(
             "the rule produces no decision, only inference, which is the part "
             "of Fathom Rego does not have",
         )
-    if rule.then.scope is not None:
-        return Skipped(
-            name,
-            "then.scope",
-            "the decision carries a scope value; a Rego document is a boolean "
-            "here and has nowhere to put it",
-        )
     if len(rule.when) != 1:
         return Skipped(
             name,

@@ -462,7 +462,6 @@ class ThenBlock(BaseModel):
     notify: list[str] = Field(default_factory=list)
     attestation: bool = False
     metadata: dict[str, str] = Field(default_factory=dict)
-    scope: str | None = None
     asserts: list[AssertSpec] = Field(
         default_factory=list,
         alias="assert",
@@ -543,7 +542,7 @@ class FunctionDefinition(BaseModel):
 
     name: str
     description: str = ""
-    params: list[str]
+    params: list[str] = Field(default_factory=list)
     hierarchy_ref: str | None = None
     type: Literal["classification", "raw"] = "classification"
     body: str | None = None

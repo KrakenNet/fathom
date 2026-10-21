@@ -265,18 +265,6 @@ class TestRefusals:
         rule["when"][0]["conditions"].append({"slot": "path", "bind": "?p"})
         assert "which is a join" in self._reason(_export(tmp_path, rule))
 
-    def test_a_scope_decision(self, tmp_path: Path) -> None:
-        result = _export(
-            tmp_path,
-            _rule(
-                "r",
-                [{"slot": "role", "expression": "equals(admin)"}],
-                action="scope",
-                scope="read-only",
-            ),
-        )
-        assert "nowhere to put it" in self._reason(result)
-
     def test_a_refused_deny_refuses_the_whole_export(self, tmp_path: Path) -> None:
         """Leaving a `deny` out of the Rego allows what the ruleset denies."""
         with pytest.raises(CompilationError, match="denied") as raised:
