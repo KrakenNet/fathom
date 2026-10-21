@@ -40,6 +40,8 @@ gaps between 0.3.1 and 0.5.0 are explained under
   `ValidationError`** (REST 422, gRPC `INVALID_ARGUMENT`). It used to match
   nothing, or with a `null` value everything: `DELETE /v1/facts` with
   `{"x": null}` emptied the template.
+  `FleetEngine.query` applies the same check; an unknown `null`-valued key
+  used to match every fleet fact.
 - **A rule pattern on an unregistered template is a `CompilationError` at
   load**, in `load_rules`, `reload_rules` and `fathom validate`, even with no
   slot conditions. CLIPS used to invent the template and the rule never
@@ -48,6 +50,8 @@ gaps between 0.3.1 and 0.5.0 are explained under
   keys**, in every loader, `reload_rules`, `POST /v1/compile` and `fathom
   validate`. A misspelled `focus_order:` fell back silently to declaration
   order.
+  Every surface now classifies a file the same way, so `fathom compile`
+  refuses a file holding only `focus_order:`, as pack loading did.
 - **A repeated mapping key is invalid YAML.** Every YAML Fathom parses goes
   through `fathom.yaml_utils.safe_load`; a second `expression:` used to
   replace the first and reverse the rule.
