@@ -14,7 +14,9 @@ not merely Rego-shaped.
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,12 +27,13 @@ from typer.testing import CliRunner
 from fathom.cli import app
 from fathom.engine import Engine
 from fathom.errors import CompilationError
-from fathom.rego import convert_ast, export_engine, parse_rego
+from fathom.rego import _why_not_re2, convert_ast, export_engine, parse_rego
 
 if TYPE_CHECKING:
     from fathom.rego import ExportResult
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rego"
+SHIPPED_PACKS = Path(__file__).parent.parent / "src" / "fathom" / "rule_packs"
 
 _ONE_TEMPLATE = """
 templates:
@@ -291,6 +294,28 @@ class TestRefusals:
             )
         assert "locked" in str(raised.value)
 
+    @pytest.mark.parametrize(
+        "pattern", ["^(?!safe_).*", "(?=a)a", "(?<=a)b", "(?<!a)b", "(a)\\1", "(?P<x>a)(?P=x)"]
+    )
+    def test_a_regex_rego_cannot_evaluate(self, tmp_path: Path, pattern: str) -> None:
+        """OPA's RE2 has no lookaround or backreference. Copied through, the
+        expression errors, OPA reads it as undefined, and the rule never fires."""
+        rule = _rule("r", [{"slot": "role", "expression": f"matches({pattern})"}])
+        assert "RE2" in self._reason(_export(tmp_path, rule))
+
+    def test_an_escaped_backslash_is_not_a_backreference(self, tmp_path: Path) -> None:
+        rule = _rule("r", [{"slot": "role", "expression": "matches(a\\\\1)"}])
+        assert _export(tmp_path, rule).rule_count == 1
+
+    def test_a_deny_with_a_regex_rego_cannot_evaluate_refuses_the_export(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(CompilationError, match="RE2"):
+            _export(
+                tmp_path,
+                _rule("r", [{"slot": "role", "expression": "matches(^(?!true$))"}], action="deny"),
+            )
+
     def test_a_refused_rule_is_not_in_the_output(self, tmp_path: Path) -> None:
         """The failure that matters: a refusal that still emits something."""
         rule = _rule("dropped", [{"slot": "role", "expression": "changed_within(60)"}])
@@ -360,6 +385,54 @@ class TestAgainstOpa:
             for rule in reconverted.rules
         }
         assert round_tripped == original
+
+    def test_the_hipaa_pack_denies_an_unencrypted_transfer_in_opa(self, tmp_path: Path) -> None:
+        """The exported pack has to decide what the pack decides. A lookahead
+        regex exported cleanly, errored in OPA, and allowed this transfer."""
+        policy = tmp_path / "hipaa.rego"
+        result = CliRunner(mix_stderr=False).invoke(
+            app, ["convert", "to-rego", str(SHIPPED_PACKS / "hipaa"), "-o", str(policy)]
+        )
+        assert result.exit_code == 0, result.stderr
+        for encrypted, denied in (("false", True), ("FALSE", True), ("TRUE", False)):
+            document = {
+                "data_transfer": {
+                    "source": "ehr",
+                    "destination": "x",
+                    "data_type": "phi",
+                    "encrypted": encrypted,
+                }
+            }
+            (tmp_path / "in.json").write_text(json.dumps(document), encoding="utf-8")
+            answer = subprocess.run(
+                [
+                    "opa",
+                    "eval",
+                    "--strict-builtin-errors",
+                    "-f",
+                    "raw",
+                    "-d",
+                    str(policy),
+                    "-i",
+                    str(tmp_path / "in.json"),
+                    "data.hipaa.deny",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            assert answer == ("true" if denied else "false"), encrypted
+
+
+def test_every_shipped_pack_regex_is_one_rego_can_evaluate() -> None:
+    """A pack that loads fine but exports a regex OPA errors on is the B2 bug."""
+    patterns = [
+        match
+        for path in SHIPPED_PACKS.glob("*/rules/*.yaml")
+        for match in re.findall(r"matches\((.*)\)", path.read_text(encoding="utf-8"))
+    ]
+    assert patterns
+    assert {p: _why_not_re2(p) for p in patterns if _why_not_re2(p)} == {}
 
 
 # ---------------------------------------------------------------------------

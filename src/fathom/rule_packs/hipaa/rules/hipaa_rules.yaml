@@ -31,10 +31,11 @@ rules:
         conditions:
           - slot: data_type
             expression: "matches((?i)^phi$)"
-          # Deny unless the transfer is explicitly encrypted: any other value,
-          # in any spelling, is treated as unencrypted.
+          # Deny unless the transfer is explicitly encrypted: any other value
+          # is treated as unencrypted. A set, not a lookahead regex: the pack
+          # must also export to Rego, and OPA's RE2 has no lookahead.
           - slot: encrypted
-            expression: "matches((?i)^(?!true$))"
+            expression: 'not_in(["true", "True", "TRUE"])'
     then:
       action: deny
       reason: "PHI transfer blocked: transmission must be encrypted (164.312(e)(1))"

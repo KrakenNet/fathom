@@ -118,6 +118,7 @@ with a count rather than once per rule.
 | A classification operator | `below`, `meets_or_exceeds` and the rest resolve against a hierarchy, which is engine state. |
 | `bind:` or `test:` | A bind is a join; a raw CLIPS conditional element has no translation. |
 | A `$alias.field` reference | A cross-fact reference. |
+| A `matches` regex RE2 cannot evaluate | Lookahead, lookbehind, backreferences (`\1`, `(?P=name)`), atomic groups and conditionals. OPA's `regex.match` is RE2; on one of these it errors, OPA's default mode reads the error as undefined, and the rule would never fire. |
 
 A refused rule is left out entirely, unless it decides `deny`: leaving a
 deny out would make the Rego allow what the ruleset denied, so a refused

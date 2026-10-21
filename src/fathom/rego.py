@@ -837,6 +837,30 @@ def _rego_set(raw: str, slot_type: str) -> str:
     return "{" + ", ".join(_rego_literal(m, slot_type) for m in members) + "}"
 
 
+#: Python `re` constructs OPA's RE2 does not have. `regex.match` on one is a
+#: runtime error, which OPA's default mode turns into "undefined": the rule
+#: silently never fires.
+_RE2_UNSUPPORTED = ("(?=", "(?!", "(?<=", "(?<!", "(?P=", "(?(", "(?>")
+
+
+def _why_not_re2(pattern: str) -> str | None:
+    """Name the first construct in *pattern* that RE2 cannot evaluate, if any."""
+    index = 0
+    while index < len(pattern):
+        if pattern[index] == "\\":
+            # An escape consumes the next character, so `\\1` is a literal
+            # backslash followed by `1`, not a backreference.
+            if pattern[index + 1 : index + 2].isdigit() and pattern[index + 1] != "0":
+                return f"backreference `{pattern[index : index + 2]}`"
+            index += 2
+            continue
+        for construct in _RE2_UNSUPPORTED:
+            if pattern.startswith(construct, index):
+                return f"`{construct}`"
+        index += 1
+    return None
+
+
 def _rego_condition(reference: str, op: str, arg: str, slot_type: str) -> str | None:
     """One Fathom condition as a Rego body expression, or None if it has none."""
     if op in _REGO_COMPARISONS:
@@ -940,6 +964,13 @@ def _export_rule(
                 name,
                 condition.expression,
                 "the condition references another fact pattern; Rego has one input document",
+            )
+        if op == "matches" and (construct := _why_not_re2(_unquote(arg))) is not None:
+            return Skipped(
+                name,
+                condition.expression,
+                f"the regex uses {construct}, which OPA's RE2 engine does not "
+                "support; `regex.match` would error and the rule would never fire",
             )
         rendered = _rego_condition(
             reference(pattern.template, condition.slot),
