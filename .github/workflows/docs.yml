@@ -147,7 +147,7 @@ jobs:
 
       - name: Markdown lint
         continue-on-error: true
-        uses: DavidAnson/markdownlint-cli2-action@v24.2.0
+        uses: DavidAnson/markdownlint-cli2-action@v25.0.0
         with:
           globs: |
             docs/**/*.md
